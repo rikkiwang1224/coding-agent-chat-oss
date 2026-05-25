@@ -68,6 +68,8 @@ coding-agent-chat-oss/                 # 仓库根（在此执行 pnpm install /
 
 以下命令均在 **仓库根目录** 执行（`pnpm --filter @forgelet/harness ...`）；路径如 `packages/harness/eval/swe-bench/...` 均相对仓库根。
 
+**Cursor Agent：** 可用项目 skill [`.cursor/skills/swe-bench-eval`](../../../../.cursor/skills/swe-bench-eval/SKILL.md) 按步骤自动化 Mac Agent + 云端评测（对话中说「跑 SWE-bench 评测」即可触发）。
+
 ---
 
 ### 1. 一次性准备（Mac）
