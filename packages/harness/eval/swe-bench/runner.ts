@@ -1,5 +1,6 @@
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { AgentEvent } from "@forgelet/shared-types";
 import { HarnessEngine } from "../../src/harness-engine.js";
 import type { LlmConfig } from "../../src/types.js";
 import { buildSweBenchPrompt } from "./prompt.js";
@@ -66,6 +67,24 @@ export async function runSweBench(options: SweBenchRunOptions): Promise<SweBench
   };
 }
 
+async function writeInstanceTrace(
+  outputDir: string,
+  payload: {
+    instance_id: string;
+    durationMs: number;
+    turnCount: number;
+    patchLength: number;
+    error?: string;
+    events: AgentEvent[];
+  },
+): Promise<string> {
+  const tracesDir = path.join(outputDir, "traces");
+  await mkdir(tracesDir, { recursive: true });
+  const tracePath = path.join(tracesDir, `${payload.instance_id}.json`);
+  await writeFile(tracePath, JSON.stringify(payload, null, 2));
+  return tracePath;
+}
+
 async function runSingleInstance(
   instance: SweBenchInstance,
   options: SweBenchRunOptions,
@@ -74,6 +93,7 @@ async function runSingleInstance(
 ): Promise<SweBenchInstanceResult> {
   const startTime = Date.now();
   let turnCount = 0;
+  const events: AgentEvent[] = [];
   let workspaceDir: string | undefined;
   const cachePath = path.join(options.reposCacheDir, instance.repo.replace("/", "__"));
 
@@ -101,6 +121,7 @@ async function runSingleInstance(
           signal: controller.signal,
         },
         (event) => {
+          if (options.saveTraces !== false) events.push(event);
           if (event.type === "tool.called") turnCount++;
         },
       );
@@ -122,6 +143,16 @@ async function runSingleInstance(
 
     await appendFile(predictionsPath, `${JSON.stringify(prediction)}\n`);
 
+    if (options.saveTraces !== false) {
+      await writeInstanceTrace(options.outputDir, {
+        instance_id: instance.instance_id,
+        durationMs: Date.now() - startTime,
+        turnCount,
+        patchLength: modelPatch.length,
+        events,
+      });
+    }
+
     return {
       instance_id: instance.instance_id,
       success: modelPatch.length > 0,
@@ -139,6 +170,17 @@ async function runSingleInstance(
       model_patch: "",
     };
     await appendFile(predictionsPath, `${JSON.stringify(emptyPrediction)}\n`);
+
+    if (options.saveTraces !== false) {
+      await writeInstanceTrace(options.outputDir, {
+        instance_id: instance.instance_id,
+        durationMs: Date.now() - startTime,
+        turnCount,
+        patchLength: 0,
+        error: message,
+        events,
+      });
+    }
 
     return {
       instance_id: instance.instance_id,

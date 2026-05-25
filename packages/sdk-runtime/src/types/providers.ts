@@ -7,8 +7,7 @@
  */
 
 /**
- * Supported LLM provider presets. Each preset maps to an Anthropic-compatible
- * endpoint so the underlying Claude Agent SDK can stay unchanged.
+ * Supported LLM provider presets for Settings UI defaults (baseUrl, models, pricing).
  *
  *  - `anthropic` : Anthropic 官方
  *  - `deepseek`  : DeepSeek 官方 Anthropic 兼容端点
@@ -61,14 +60,7 @@ export interface ProviderPreset {
    */
   pricingByModelPrefix?: Record<string, ProviderPricing>;
   /**
-   * Whether the SDK's `total_cost_usd` is reliable for this provider.
-   * Third-party Anthropic-compatible proxies often return 0 or omit it.
-   * When false, we recompute from `usage` + preset pricing.
-   */
-  trustsSdkCost: boolean;
-  /**
-   * When true, only use `ANTHROPIC_AUTH_TOKEN` for auth and explicitly clear
-   * `ANTHROPIC_API_KEY`. Some gateways reject requests when both are set.
+   * When true, prefer token-only auth for gateways that reject dual API key + token headers.
    */
   authTokenOnly?: boolean;
 }

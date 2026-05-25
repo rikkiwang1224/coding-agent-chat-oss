@@ -44,6 +44,8 @@ export interface SweBenchRunOptions {
   maxTurns: number;
   timeoutS: number;
   concurrency: number;
+  /** Write per-instance Agent event traces under outputDir/traces/ (default true for swe-bench CLI) */
+  saveTraces?: boolean;
 }
 
 export interface SweBenchInstanceResult {

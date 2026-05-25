@@ -59,7 +59,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       (curr === "completed" || curr === "failed");
     if (!justFinished) return;
 
-    const { messages, sessionId, sdkSessionId } = agentRun;
+    const { messages, sessionId } = agentRun;
     const { currentWorkspace, threadId, setThreadId, upsertLocalThread, saveThreadSnapshot } =
       workspace;
 
@@ -85,7 +85,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
         attachments: m.attachments.length > 0 ? m.attachments : undefined,
         toolCalls: m.toolCalls && m.toolCalls.length > 0 ? m.toolCalls : undefined,
       })),
-      sdkSessionId: sdkSessionId ?? undefined,
     };
 
     upsertLocalThread(currentWorkspace.path, thread);

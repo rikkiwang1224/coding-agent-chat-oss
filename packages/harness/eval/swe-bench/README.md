@@ -258,6 +258,8 @@ packages/harness/eval/swe-bench/runs/eval-tencent-smoke/
   instances.json
   predictions.jsonl    ← 上传云端
   run-report.json
+  traces/              ← 可选：--save-traces
+  cloud-results/       ← 评测完成后从云拉回
   repos/               ← 本地 git 缓存，不必上传
 ```
 
@@ -305,15 +307,142 @@ bash evaluate.sh \
 - 第 4 个参数 `1` = `max_workers`（建议先 1，稳定后再 4）。
 - 进度 `0/3` 停 30～60 分钟可能正常；完成后变为 `1/3`、`2/3`、`3/3`。
 
-#### 3.4 查看结果
+#### 3.4 查看 Docker 评测结果（resolved）
 
-```bash
-cat ~/forgelet-eval/evaluation_results/tencent-smoke/results.json
-# 或拉回 Mac
-scp -r ubuntu@<ECS_IP>:~/forgelet-eval/evaluation_results/tencent-smoke ./
+评测结束后，SWE-bench harness 会写一份**汇总 JSON**（文件名通常为 `<model_name_or_path>.<run_id>.json`）。例如你拉回 Mac 的：
+
+```text
+packages/harness/eval/swe-bench/runs/eval-tencent-smoke/cloud-results/
+  deepseek-v4-pro.tencent-smoke.json
 ```
 
-关注 **resolved**（测试通过、issue 算修好的比例）。
+建议放在 `runs/eval-<run-id>/cloud-results/` 下，与 Agent 产物并列，便于对比。
+
+**一眼看懂（以 smoke 3 条为例）：**
+
+| 字段 | 含义 | 你的 smoke 值 |
+|------|------|----------------|
+| `submitted_instances` | 本次 predictions 里提交了几条 | 3 |
+| `completed_instances` | Docker 跑完评测的条数 | 3 |
+| `resolved_instances` | 测试通过、算修好的条数 | 1 |
+| `unresolved_instances` | patch 已应用但测试未全过 | 2 |
+| `empty_patch_instances` | 空 patch | 0 |
+| `error_instances` | 评测过程报错（环境/脚本） | 0 |
+| `resolved_ids` | 通过的 instance_id 列表 | `astropy__astropy-12907` |
+| `unresolved_ids` | 未通过的 instance_id 列表 | `14182`, `14365` |
+
+**通过率（只看本次提交子集）：**
+
+```text
+resolve_rate = resolved_instances / submitted_instances
+             = 1 / 3 ≈ 33.3%
+```
+
+注意：`total_instances: 300` 是 **Lite 全集规模**；`incomplete_ids` 是「本次没提交、也没跑」的其余 297 条，**不要**当成失败。
+
+Mac 上快速查看：
+
+```bash
+RUN=packages/harness/eval/swe-bench/runs/eval-tencent-smoke/cloud-results/deepseek-v4-pro.tencent-smoke.json
+
+# 汇总数字
+jq '{submitted, completed, resolved, unresolved, errors: .error_instances}' "$RUN"
+
+# 谁过了 / 谁没过
+jq '.resolved_ids, .unresolved_ids' "$RUN"
+```
+
+**云上还可能有的路径：**
+
+```bash
+# evaluate.sh 的工作目录（你的是 ~/forgelet-eval）
+ls ~/forgelet-eval/*.json
+ls ~/forgelet-eval/evaluation_results/tencent-smoke/ 2>/dev/null
+
+# 每条 instance 的 Docker 测试日志（路径因 swebench 版本略有差异）
+find ~/forgelet-eval/logs -type f 2>/dev/null | head
+```
+
+若 `evaluation_results/tencent-smoke/` 不存在但根目录有 `deepseek-v4-pro.tencent-smoke.json`，以**根目录这份 JSON 为准**即可；`scp` 时优先拉 `*.json` 和 `logs/`。
+
+```bash
+scp ubuntu@<ECS_IP>:~/forgelet-eval/deepseek-v4-pro.tencent-smoke.json \
+  packages/harness/eval/swe-bench/runs/eval-tencent-smoke/cloud-results/
+scp -r ubuntu@<ECS_IP>:~/forgelet-eval/logs \
+  packages/harness/eval/swe-bench/runs/eval-tencent-smoke/cloud-results/
+```
+
+**resolved vs unresolved 分别说明什么：**
+
+- **Agent 阶段**（Mac）：模型在 worktree 里改代码 → `predictions.jsonl` 里的 `model_patch`（`git diff`）。
+- **评测阶段**（云 Docker）：在隔离环境应用 patch 并跑项目测试 → `resolved_ids` / `unresolved_ids`。
+- `unresolved` **不等于** Agent 崩溃；常见是 patch 逻辑不对、改错文件、测试仍失败。要看**为什么**测不过，用下一节的日志；要看**模型当时怎么想的**，用 Agent 轨迹。
+
+---
+
+#### 3.5 Agent 执行轨迹与失败分析（Mac 本地）
+
+**两层日志，对应两阶段：**
+
+| 阶段 | 看什么 | 本地有没有 |
+|------|--------|------------|
+| Agent 推理 | 工具调用、模型输出、改动了哪些文件 | 见下表 |
+| Docker 评测 | 容器里测试 stdout、patch 是否应用成功 | 在云上 `logs/`，需 `scp` 拉回 |
+
+**Mac Agent 产物目录**（`runs/` 在 `.gitignore`，只在你的机器上）：
+
+```text
+runs/eval-<run-id>/
+  instances.json          # 本次跑的任务列表
+  predictions.jsonl       # 每条一行：instance_id + model_patch（diff）
+  run-report.json         # 汇总：耗时、turnCount、patch 长度（不含逐步轨迹）
+  traces/                 # 仅当加了 --save-traces（见下）
+    astropy__astropy-12907.json
+  repos/                  # bare clone 缓存，可复跑
+```
+
+**当前实现：**
+
+- 默认**不**保存逐步 Agent 事件；`run-report.json` 只有 `turnCount`、`durationMs`、`patchLength` 等摘要。
+- 需要完整轨迹时，加 **`--save-traces`**，会在 `traces/<instance_id>.json` 里写入全部 `AgentEvent`（`tool.called`、`message` 等），与内置 `eval/tasks` 一致。
+
+```bash
+pnpm --filter @forgelet/harness eval:swe -- \
+  --dataset lite --limit 3 --skip-eval --run-id tencent-smoke --save-traces
+```
+
+查看某条失败 instance 的轨迹：
+
+```bash
+jq '.turnCount, (.events | map(select(.type=="tool.called")) | length)' \
+  packages/harness/eval/swe-bench/runs/eval-tencent-smoke/traces/astropy__astropy-14182.json
+
+# 看最后一次工具调用
+jq '.events[-5:]' packages/harness/eval/swe-bench/runs/eval-tencent-smoke/traces/astropy__astropy-14182.json
+```
+
+对比 patch 与评测结果：
+
+```bash
+# Agent 产出的 diff
+grep astropy__astropy-14182 packages/harness/eval/swe-bench/runs/eval-tencent-smoke/predictions.jsonl | jq -r .model_patch | less
+
+# 云评测：未 resolved
+jq -r '.unresolved_ids[]' packages/harness/eval/swe-bench/runs/eval-tencent-smoke/cloud-results/deepseek-v4-pro.tencent-smoke.json
+```
+
+**你这次 `tencent-smoke` 的情况：**
+
+- 你已有 `cloud-results/deepseek-v4-pro.tencent-smoke.json`（评测分）。
+- 本机 `runs/eval-tencent-smoke/` 若**只有** `cloud-results/`、没有 `predictions.jsonl` / `run-report.json`，说明 Agent 那次产物在别的目录或已删（例如曾在独立 worktree 里跑过）。需要**用相同 `--run-id` 重跑 Agent**，或从备份找回；评测分无法反推逐步轨迹。
+- 未加 `--save-traces` 的历史跑次，**无法事后补**逐步轨迹，只能重跑。
+
+**推荐排查顺序（某条 unresolved）：**
+
+1. `predictions.jsonl` → 读 `model_patch`，判断改动是否合理。
+2. `traces/<id>.json`（若已 `--save-traces`）→ 看是否改错文件、过早结束、工具报错。
+3. 云上 `logs/` → 看 FAIL_TO_PASS 里哪些测试仍红。
+4. 可选：数据集里的 `FAIL_TO_PASS` / `PASS_TO_PASS`（在 `instances.json`）对照测试范围。
 
 ---
 
@@ -391,6 +520,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 | `--max-turns` | Agent 最大轮次（默认 75） |
 | `--timeout-s` | 单条超时秒（默认 1800） |
 | `--skip-eval` | 只生成 predictions |
+| `--save-traces` | 写入 `traces/<instance_id>.json`（完整 Agent 事件） |
 | `--resume` | 跳过 predictions.jsonl 已有行 |
 | `--run-id` | 目录 `runs/eval-<run-id>` |
 
@@ -403,11 +533,13 @@ runs/eval-<run-id>/
   instances.json
   predictions.jsonl
   run-report.json
+  traces/             # --save-traces：每 instance 一份 Agent 事件 JSON
+  cloud-results/      # 建议：从云 scp 回来的 *.json 与 logs/
   worktrees/          # 临时，运行中
   repos/              # bare clone 缓存
 
-evaluation_results/<run-id>/   # 云上 evaluate.sh
-logs/                          # 云上 harness 日志
+evaluation_results/<run-id>/   # 云上 evaluate.sh（有时仅有根目录 *.json）
+logs/                          # 云上 harness 日志（Docker 测试详情）
 ```
 
 ## predictions 格式

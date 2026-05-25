@@ -80,7 +80,6 @@ export interface AgentRunHook {
   runState: RunState;
   runError: string;
   sessionId: string | null;
-  sdkSessionId: string | null;
   composerAttachments: ImageAttachment[];
   setComposerAttachments: React.Dispatch<
     React.SetStateAction<ImageAttachment[]>
@@ -110,7 +109,6 @@ export function useAgentRun(): AgentRunHook {
   const [composerAttachments, setComposerAttachments] = useState<
     ImageAttachment[]
   >([]);
-  const [sdkSessionId, setSdkSessionId] = useState<string | null>(null);
   const [pendingPermission, setPendingPermission] =
     useState<PendingPermissionRequest | null>(null);
 
@@ -250,9 +248,6 @@ export function useAgentRun(): AgentRunHook {
           setPendingPermission(null);
           setRunState("completed");
           setRunError("");
-          if (typeof payload.sdkSessionId === "string" && payload.sdkSessionId) {
-            setSdkSessionId(payload.sdkSessionId);
-          }
           const summary = String(payload.summary ?? "");
           setMessages((prev) => {
             let updated = sweepPendingToolCalls(prev);
@@ -413,7 +408,6 @@ export function useAgentRun(): AgentRunHook {
     setRunState("idle");
     setRunError("");
     setSessionId(null);
-    setSdkSessionId(null);
     setComposerAttachments([]);
     setPendingPermission(null);
     activeAssistantIdRef.current = null;
@@ -424,7 +418,6 @@ export function useAgentRun(): AgentRunHook {
     runState,
     runError,
     sessionId,
-    sdkSessionId,
     composerAttachments,
     setComposerAttachments,
     sendPrompt,

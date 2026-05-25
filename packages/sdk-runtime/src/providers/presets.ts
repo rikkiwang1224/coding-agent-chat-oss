@@ -79,7 +79,6 @@ export const PROVIDER_PRESETS: Record<
     defaultPrimaryModel: "claude-sonnet-4-5-20250929",
     defaultLightModel: "claude-haiku-4-5",
     pricing: ANTHROPIC_PRICING,
-    trustsSdkCost: true,
   },
   deepseek: {
     label: "DeepSeek",
@@ -88,7 +87,6 @@ export const PROVIDER_PRESETS: Record<
     defaultLightModel: "deepseek-v4-flash",
     pricing: DEEPSEEK_PRICING,
     pricingByModelPrefix: DEEPSEEK_PRICING_BY_MODEL_PREFIX,
-    trustsSdkCost: false,
   },
   kimi: {
     label: "Kimi K2 (Moonshot)",
@@ -96,7 +94,6 @@ export const PROVIDER_PRESETS: Record<
     defaultPrimaryModel: "kimi-k2-0905-preview",
     defaultLightModel: "kimi-k2-0905-preview",
     pricing: KIMI_PRICING,
-    trustsSdkCost: false,
   },
   glm: {
     label: "智谱 GLM",
@@ -104,6 +101,5 @@ export const PROVIDER_PRESETS: Record<
     defaultPrimaryModel: "glm-4.5",
     defaultLightModel: "glm-4.5-air",
     pricing: GLM_PRICING,
-    trustsSdkCost: false,
   },
 };

@@ -1,7 +1,7 @@
 {
   "name": "forgelet",
   "version": "0.1.0",
-  "description": "Open-source desktop chat client for Claude Agent SDK compatible coding agents.",
+  "description": "Open-source desktop chat client for coding agents powered by the Forgelet harness.",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@8.10.2",

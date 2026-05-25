@@ -8,9 +8,7 @@ const SESSIONS_DIRNAME = "sessions";
 const WORKSPACE_SESSION_INDEX_FILENAME = "session-index.json";
 const WORKSPACE_METADATA_FILENAME = "workspace.json";
 const WORKSPACE_THREADS_DIRNAME = "threads";
-const QUERY_LOOP_SESSIONS_DIRNAME = "query-loop-sessions";
-
-export type AgentStorageRuntime = "claude_sdk" | "query_loop";
+export type AgentStorageRuntime = "harness";
 
 export interface WorkspaceSessionIndexEntry {
   sessionId: string;
@@ -20,7 +18,6 @@ export interface WorkspaceSessionIndexEntry {
   taskId?: string;
   taskStatus?: string;
   recoverable?: boolean;
-  sdkSessionId?: string;
   lastSummary?: string;
   lastError?: string;
 }
@@ -100,14 +97,6 @@ export function resolveTimestampPrefixedSessionSnapshotPath(
   createdAt: string | Date | undefined
 ): string {
   return path.join(resolveTimestampPrefixedSessionStorageDir(sessionId, createdAt), SESSION_SNAPSHOT_FILENAME);
-}
-
-export function resolveQueryLoopSessionsDir(): string {
-  return path.join(resolveAgentHome(), QUERY_LOOP_SESSIONS_DIRNAME);
-}
-
-export function resolveQueryLoopSessionPath(sessionId: string): string {
-  return path.join(resolveQueryLoopSessionsDir(), `${sanitizeStorageSegment(sessionId)}.json`);
 }
 
 export function sanitizeStorageSegment(input: string): string {

@@ -81,7 +81,6 @@ export interface LocalThread {
   updatedAt: string;
   runSessionIds: string[];
   messages: SerializedMessage[];
-  sdkSessionId?: string;
 }
 
 export interface SerializedMessage {
@@ -146,7 +145,6 @@ export interface DesktopConfig {
     title: string;
     summary: string;
     updatedAt: string;
-    sdkSessionId?: string;
     messages: SerializedMessage[];
   } | null>;
   saveStoredThread: (workspacePath: string, thread: LocalThread) => Promise<LocalThread>;

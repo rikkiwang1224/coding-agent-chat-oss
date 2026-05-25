@@ -16,13 +16,10 @@
 | Hooks | 无 | 无 |
 | 事件 | `tool.called/output/error` | `useAgentRun` 已消费 |
 
-遗留路径（Claude SDK 时代）：
+会话路径（Harness）：
 
-- `{workspace}/.forgelet/query-loop-sessions/{id}.json`
-- `{workspace}/.forgelet/sessions/{id}.json`
-- `thread-store` 读 snapshot 建侧边栏列表
-
-P1 新增统一路径，与旧数据 **只读兼容、写入走新路径**。
+- `{workspace}/.forgelet/harness-sessions/{id}.json`
+- 桌面端 `thread-store` 从 harness 会话建侧边栏列表
 
 ---
 

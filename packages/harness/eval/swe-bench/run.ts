@@ -57,6 +57,8 @@ const runId = getArg("run-id") || String(Date.now());
 const evaluateOnly = hasFlag("evaluate-only");
 const skipEval = hasFlag("skip-eval");
 const resume = hasFlag("resume");
+/** Traces default on for benchmark debugging; opt out with --no-save-traces. */
+const saveTraces = !hasFlag("no-save-traces");
 
 const sweDir = __dirname;
 const reposCacheDir = path.resolve(getArg("repos-cache") || path.join(sweDir, "repos"));
@@ -177,6 +179,7 @@ async function main(): Promise<void> {
     maxTurns,
     timeoutS,
     concurrency: 1,
+    saveTraces,
   });
 
   report.dataset = dataset;
@@ -185,7 +188,11 @@ async function main(): Promise<void> {
   console.log(`  Patches:  ${report.completed}/${report.totalInstances} non-empty`);
   console.log(`  Duration: ${(report.totalDurationMs / 1000).toFixed(1)}s`);
   console.log(`  Report:   ${reportPath}`);
-  console.log(`  Predictions: ${predictionsPath}\n`);
+  console.log(`  Predictions: ${predictionsPath}`);
+  if (saveTraces) {
+    console.log(`  Traces:   ${path.join(outputDir, "traces")}/<instance_id>.json`);
+  }
+  console.log();
 
   if (!skipEval) {
     await runEvaluation();

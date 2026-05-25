@@ -74,10 +74,7 @@ export async function discoverWorkspacePaths(root: string, maxDepth = WORKSPACE_
       return;
     }
 
-    if (
-      existsSync(path.join(target, ".forgelet", "query-loop-sessions")) ||
-      existsSync(path.join(target, ".forgelet", "sessions"))
-    ) {
+    if (existsSync(path.join(target, ".forgelet", "harness-sessions"))) {
       discovered.add(path.resolve(target));
     }
 

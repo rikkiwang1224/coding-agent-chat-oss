@@ -109,7 +109,6 @@ export function ChatList() {
               ...message,
               attachments: message.attachments.length > 0 ? message.attachments : undefined,
             })),
-            sdkSessionId: session.sdkSessionId,
           };
           upsertLocalThread(currentWorkspace.path, thread);
           void saveThreadSnapshot(currentWorkspace.path, thread);
