@@ -13,6 +13,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  executor.destroy();
   await rm(tmpDir, { recursive: true, force: true });
 });
 
@@ -131,31 +132,30 @@ describe("edit_file", () => {
   });
 });
 
-describe("run_command", () => {
+describe("bash", () => {
   it("runs a simple command and returns stdout", async () => {
-    const result = await executor.execute("run_command", { command: "echo hello" });
+    const result = await executor.execute("bash", { command: "echo hello" });
     expect(result.ok).toBe(true);
     expect(result.output.trim()).toContain("hello");
   });
 
   it("returns error for failing command", async () => {
-    const result = await executor.execute("run_command", { command: "exit 1" });
+    const result = await executor.execute("bash", { command: "exit 1" });
     expect(result.ok).toBe(false);
   });
 
-  it("respects cwd parameter", async () => {
+  it("supports persistent cwd via cd", async () => {
     await mkdir(path.join(tmpDir, "subdir"));
     await writeFile(path.join(tmpDir, "subdir", "marker.txt"), "found");
-    const result = await executor.execute("run_command", {
-      command: "cat marker.txt",
-      cwd: "subdir",
+    const result = await executor.execute("bash", {
+      command: "cd subdir && cat marker.txt",
     });
     expect(result.ok).toBe(true);
     expect(result.output).toContain("found");
   });
 
   it("times out long commands", async () => {
-    const result = await executor.execute("run_command", {
+    const result = await executor.execute("bash", {
       command: "sleep 30",
       timeout_ms: 500,
     });
@@ -164,7 +164,7 @@ describe("run_command", () => {
   });
 
   it("returns empty command error", async () => {
-    const result = await executor.execute("run_command", { command: "" });
+    const result = await executor.execute("bash", { command: "" });
     expect(result.ok).toBe(false);
     expect(result.output).toContain("required");
   });

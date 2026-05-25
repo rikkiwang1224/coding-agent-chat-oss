@@ -7,7 +7,8 @@ import type {
 } from "./types.js";
 import { LlmClient } from "./api-client.js";
 import { TOOL_DEFINITIONS, ToolExecutor } from "./tools/index.js";
-import { buildSystemPrompt } from "./prompt.js";
+import { buildSystemPrompt, type PromptContext } from "./prompt.js";
+import { ContextCompressor, estimateTokens } from "./context-compressor.js";
 
 export interface AgentLoopCallbacks {
   onTextDelta?: (delta: string) => void;
@@ -16,14 +17,24 @@ export interface AgentLoopCallbacks {
   onToolResult?: (toolName: string, result: string, ok: boolean, callId: string) => void;
   onTurnStart?: (turnIndex: number) => void;
   onTurnEnd?: (turnIndex: number) => void;
+  onUsageUpdate?: (usage: TokenUsage) => void;
   onComplete?: (summary: string) => void;
   onError?: (error: Error) => void;
+}
+
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
 }
 
 export interface AgentLoopOptions {
   config: LlmConfig;
   workspaceRoot: string;
+  promptContext?: PromptContext;
   maxTurns?: number;
+  maxTokens?: number;
+  maxContextTokens?: number;
   signal?: AbortSignal;
   callbacks: AgentLoopCallbacks;
   threadContext?: ChatMessage[];
@@ -36,27 +47,40 @@ export class AgentLoop {
   private readonly executor: ToolExecutor;
   private readonly workspaceRoot: string;
   private readonly maxTurns: number;
+  private readonly maxTotalTokens: number;
+  private readonly compressor: ContextCompressor;
   private readonly signal?: AbortSignal;
   private readonly callbacks: AgentLoopCallbacks;
-  private readonly messages: ChatMessage[];
+  private messages: ChatMessage[];
 
   private turnCount = 0;
+  private totalInputTokens = 0;
+  private totalOutputTokens = 0;
 
   constructor(options: AgentLoopOptions) {
     this.client = new LlmClient(options.config);
     this.executor = new ToolExecutor({ workspaceRoot: options.workspaceRoot });
     this.workspaceRoot = options.workspaceRoot;
     this.maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
+    this.maxTotalTokens = options.maxTokens ?? Infinity;
+    this.compressor = new ContextCompressor({
+      config: options.config,
+      maxContextTokens: options.maxContextTokens,
+    });
     this.signal = options.signal;
     this.callbacks = options.callbacks;
 
     this.messages = [
-      { role: "system", content: buildSystemPrompt(options.workspaceRoot) },
+      { role: "system", content: buildSystemPrompt(options.promptContext ?? options.workspaceRoot) },
       ...(options.threadContext || []),
     ];
   }
 
-  async run(userPrompt: string): Promise<{ messages: ChatMessage[]; turnCount: number }> {
+  destroy(): void {
+    this.executor.destroy();
+  }
+
+  async run(userPrompt: string): Promise<{ messages: ChatMessage[]; turnCount: number; tokenUsage: TokenUsage }> {
     this.messages.push({ role: "user", content: userPrompt });
 
     while (this.turnCount < this.maxTurns) {
@@ -75,7 +99,15 @@ export class AgentLoop {
         this.callbacks.onTurnEnd?.(this.turnCount);
         const finalText = assistantMessage.content || "";
         this.callbacks.onComplete?.(finalText);
-        return { messages: this.messages, turnCount: this.turnCount };
+        return {
+          messages: this.messages,
+          turnCount: this.turnCount,
+          tokenUsage: {
+            inputTokens: this.totalInputTokens,
+            outputTokens: this.totalOutputTokens,
+            totalTokens: this.totalInputTokens + this.totalOutputTokens,
+          },
+        };
       }
 
       // Execute all tool calls and add results
@@ -91,6 +123,11 @@ export class AgentLoop {
   }
 
   private async executeTurn(): Promise<ChatMessage> {
+    // Compress context if it's getting too long
+    if (this.compressor.shouldCompress(this.messages)) {
+      this.messages = await this.compressor.compress(this.messages, this.signal);
+    }
+
     const stream = this.client.stream({
       messages: this.messages,
       tools: TOOL_DEFINITIONS,
@@ -135,6 +172,24 @@ export class AgentLoop {
       }
 
       if (chunk.usage) lastUsage = chunk.usage;
+    }
+
+    // Track token usage
+    if (lastUsage) {
+      this.totalInputTokens += lastUsage.prompt_tokens || 0;
+      this.totalOutputTokens += lastUsage.completion_tokens || 0;
+      this.callbacks.onUsageUpdate?.({
+        inputTokens: this.totalInputTokens,
+        outputTokens: this.totalOutputTokens,
+        totalTokens: this.totalInputTokens + this.totalOutputTokens,
+      });
+
+      // Check budget
+      if (this.totalInputTokens + this.totalOutputTokens > this.maxTotalTokens) {
+        throw new Error(
+          `Token budget exceeded: ${this.totalInputTokens + this.totalOutputTokens} > ${this.maxTotalTokens}`,
+        );
+      }
     }
 
     // Build the complete assistant message
@@ -192,44 +247,72 @@ export class AgentLoop {
   }
 
   private async executeToolCalls(toolCalls: ToolCallMessage[]): Promise<ChatMessage[]> {
-    const results: ChatMessage[] = [];
-
-    for (const toolCall of toolCalls) {
-      if (this.signal?.aborted) {
-        throw new Error("Agent run cancelled");
-      }
-
-      let args: Record<string, unknown> = {};
-      try {
-        args = JSON.parse(toolCall.function.arguments);
-      } catch {
-        const errorResult: ChatMessage = {
-          role: "tool",
-          content: `Error: Failed to parse tool arguments as JSON: ${toolCall.function.arguments}`,
-          tool_call_id: toolCall.id,
-        };
-        results.push(errorResult);
-        this.callbacks.onToolResult?.(toolCall.function.name, errorResult.content!, false, toolCall.id);
-        continue;
-      }
-
-      const executionResult = await this.executor.execute(toolCall.function.name, args);
-
-      const resultMessage: ChatMessage = {
-        role: "tool",
-        content: executionResult.output,
-        tool_call_id: toolCall.id,
-      };
-      results.push(resultMessage);
-
-      this.callbacks.onToolResult?.(
-        toolCall.function.name,
-        executionResult.output,
-        executionResult.ok,
-        toolCall.id,
-      );
+    if (this.signal?.aborted) {
+      throw new Error("Agent run cancelled");
     }
 
-    return results;
+    // Separate tool calls into parallelizable and sequential groups
+    const SEQUENTIAL_TOOLS = new Set(["bash", "run_command", "write_file", "edit_file"]);
+
+    // Strategy: run all read-only tools in parallel, then sequential tools in order
+    const parallel: { index: number; toolCall: ToolCallMessage }[] = [];
+    const sequential: { index: number; toolCall: ToolCallMessage }[] = [];
+
+    for (let i = 0; i < toolCalls.length; i++) {
+      const tc = toolCalls[i];
+      if (SEQUENTIAL_TOOLS.has(tc.function.name)) {
+        sequential.push({ index: i, toolCall: tc });
+      } else {
+        parallel.push({ index: i, toolCall: tc });
+      }
+    }
+
+    const results: (ChatMessage | null)[] = new Array(toolCalls.length).fill(null);
+
+    // Execute parallelizable tools concurrently
+    if (parallel.length > 0) {
+      const parallelResults = await Promise.all(
+        parallel.map(({ index, toolCall }) =>
+          this.executeSingleTool(toolCall).then((msg) => ({ index, msg })),
+        ),
+      );
+      for (const { index, msg } of parallelResults) {
+        results[index] = msg;
+      }
+    }
+
+    // Execute sequential tools in order
+    for (const { index, toolCall } of sequential) {
+      if (this.signal?.aborted) throw new Error("Agent run cancelled");
+      results[index] = await this.executeSingleTool(toolCall);
+    }
+
+    return results.filter((r): r is ChatMessage => r !== null);
+  }
+
+  private async executeSingleTool(toolCall: ToolCallMessage): Promise<ChatMessage> {
+    let args: Record<string, unknown> = {};
+    try {
+      args = JSON.parse(toolCall.function.arguments);
+    } catch {
+      const content = `Error: Failed to parse tool arguments as JSON: ${toolCall.function.arguments}`;
+      this.callbacks.onToolResult?.(toolCall.function.name, content, false, toolCall.id);
+      return { role: "tool", content, tool_call_id: toolCall.id };
+    }
+
+    const executionResult = await this.executor.execute(toolCall.function.name, args);
+
+    this.callbacks.onToolResult?.(
+      toolCall.function.name,
+      executionResult.output,
+      executionResult.ok,
+      toolCall.id,
+    );
+
+    return {
+      role: "tool",
+      content: executionResult.output,
+      tool_call_id: toolCall.id,
+    };
   }
 }

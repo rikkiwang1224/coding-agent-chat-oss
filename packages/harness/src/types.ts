@@ -6,6 +6,7 @@ export interface LlmConfig {
   temperature?: number;
   thinking?: boolean;
   reasoningEffort?: "low" | "medium" | "high" | "max";
+  maxRetries?: number;
 }
 
 export interface ChatMessage {
