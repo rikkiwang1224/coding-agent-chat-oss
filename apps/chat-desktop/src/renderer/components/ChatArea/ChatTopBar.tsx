@@ -1,12 +1,13 @@
 import { Pencil, MoreVertical } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { formatCostUsd } from "@forgelet/sdk-runtime";
 import { useApp } from "@/context/AppContext";
 
 export function ChatTopBar() {
   const { workspace, agentRun } = useApp();
   const { currentWorkspace, threadId, allThreads } = workspace;
-  const { runState, messages } = agentRun;
+  const { runState, messages, runMetrics } = agentRun;
 
   const selectedThread = allThreads.find((t) => t.id === threadId);
   const title = selectedThread?.title ?? (messages.length > 0 ? "New chat" : "New chat");
@@ -52,6 +53,20 @@ export function ChatTopBar() {
           </>
         )}
         <Badge variant={statusVariant}>{statusLabel}</Badge>
+        {runMetrics?.totalCostUsd !== undefined && (
+          <Badge variant="default" title="Estimated API cost">
+            {formatCostUsd(runMetrics.totalCostUsd)}
+            {runMetrics.sessionTotalCostUsd !== undefined &&
+            runMetrics.sessionTotalCostUsd !== runMetrics.totalCostUsd
+              ? ` · session ${formatCostUsd(runMetrics.sessionTotalCostUsd)}`
+              : ""}
+            {runMetrics.runInputTokens !== undefined && runMetrics.runOutputTokens !== undefined
+              ? ` · ${runMetrics.runInputTokens.toLocaleString()} in / ${runMetrics.runOutputTokens.toLocaleString()} out`
+              : runMetrics.inputTokens !== undefined && runMetrics.outputTokens !== undefined
+                ? ` · ${runMetrics.inputTokens.toLocaleString()} in / ${runMetrics.outputTokens.toLocaleString()} out`
+                : ""}
+          </Badge>
+        )}
         <Button variant="ghost" size="icon" className="h-8 w-8">
           <Pencil className="h-3.5 w-3.5" />
         </Button>

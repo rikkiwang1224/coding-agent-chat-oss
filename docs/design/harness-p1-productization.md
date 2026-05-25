@@ -1,8 +1,10 @@
 # Harness P1：产品化方案设计
 
 > 分支：`feature/harness-p1-productization`  
-> 目标：在现有 ~2k 行 harness 内核上，补齐 **权限确认 UI、Session 真续跑、Hooks 扩展点**，使桌面端可日常可用。  
+> 目标：在现有 ~2k 行 harness 内核上，补齐 **权限确认 UI、Session 真续跑、Hooks 扩展点、统一存储布局**，使桌面端可日常可用。  
 > 非目标：OS 沙箱、MCP 生态、多 Agent 编排（归入 P2/P3）。
+
+**存储与会话模型**（路径、threadId、侧边栏、traces/runs）以 **[forgelet-home-layout.md](./forgelet-home-layout.md)** 为准；本文侧重 Harness 与桌面集成。
 
 ---
 
@@ -12,14 +14,17 @@
 |------|-------------|-----------|
 | Agent 循环 | `AgentLoop` + `HarnessEngine` | `agent-runner.ts` 已接入 |
 | 权限 | `PermissionGuard` + 正则 policy | 无 `onPermissionConfirm`，confirm 规则等同拒绝 |
-| 会话 | `SessionStore`（JSON CRUD） | `resume` 仅拼 `[THREAD_CONTEXT]` 文本，**不恢复 `messages[]`** |
-| Hooks | 无 | 无 |
-| 事件 | `tool.called/output/error` | `useAgentRun` 已消费 |
+| 会话 | `SessionStore` 写 **用户 repo** 内 `harness-sessions` | `resume` 应恢复 `messages[]`；列表不应依赖 repo 内路径 |
+| 侧边栏 | — | `threads/` 已在 `FORGELET_HOME`；列表曾混扫 harness-sessions / 旧 snapshot |
+| Hooks | `preToolUse` / `postToolUse` 已有 | 未注册；轨迹未统一 |
+| 事件 | `AgentEvent` 经 IPC | `useAgentRun` 已消费；**默认不落盘 trace** |
 
-会话路径（Harness）：
+**P1 已拍板（见 layout 文档）**
 
-- `{workspace}/.forgelet/harness-sessions/{id}.json`
-- 桌面端 `thread-store` 从 harness 会话建侧边栏列表
+- `threadId === agentSessionId`（一张卡片一个 ID）
+- 侧边栏 **只扫** `FORGELET_HOME/workspaces/{workspaceHash}/threads/*.json`
+- Session：`FORGELET_HOME/sessions/{workspaceHash}/{sessionId}.json`
+- Trace / 评测 runs：repo 外，见 [forgelet-home-layout.md §4–§6](./forgelet-home-layout.md)
 
 ---
 
@@ -28,16 +33,19 @@
 ```mermaid
 sequenceDiagram
   participant UI as Renderer
+  participant TS as threads/*.json
   participant Main as agent-runner
   participant HE as HarnessEngine
   participant AL as AgentLoop
   participant TE as ToolExecutor
   participant SS as SessionStore
+  participant TR as TraceSink
 
-  UI->>Main: startRun / resumeRun
-  Main->>SS: load(sessionId) on resume
-  Main->>HE: runTask + options
-  HE->>AL: run(prompt) with threadContext=messages
+  UI->>TS: 侧边栏 list / 选中卡片
+  UI->>Main: startRun / resumeRun(sessionId=threadId)
+  Main->>SS: load(threadId) on resume
+  Main->>HE: runTask + trace config
+  HE->>AL: run(prompt) + initialMessages
   loop each turn
     AL->>TE: execute(tool)
     TE->>TE: hooks.preToolUse
@@ -49,9 +57,11 @@ sequenceDiagram
       Main-->>TE: allow/deny
     end
     TE->>TE: hooks.postToolUse
+    HE->>TR: append AgentEvent
     AL->>SS: save checkpoint (async)
   end
-  HE-->>UI: agent.done
+  HE-->>UI: agent.done via IPC
+  UI->>TS: saveThreadSnapshot(messages)
 ```
 
 ---
@@ -62,50 +72,59 @@ sequenceDiagram
 
 #### 3.1.1 存储
 
-- **路径**：`{workspaceRoot}/.forgelet/harness-sessions/{sessionId}.json`
-- **格式**：复用 `SessionData`（`messages` + `metadata`）
+- **路径**：`${FORGELET_HOME}/sessions/{workspaceHash}/{sessionId}.json`（**不在**用户 workspace 内）
+- **ID**：`sessionId === threadId`（侧边栏卡片 ID）
+- **格式**：`SessionData`（`messages` + `metadata`）
 - **写入时机**：
-  - 每个 turn 结束后异步 `save`（防抖 500ms，避免 IO 风暴）
+  - 每个 turn 结束后异步 `save`（防抖 500ms）
   - `agent.done` / `agent.error` 时强制 flush
-- **读取**：`runMode === "resume"` 且存在文件 → `load` → 注入 `AgentLoop`
+- **读取**：`runMode === "resume"` → `load(sessionId)` → 注入 `AgentLoop`
 
 #### 3.1.2 Harness API 变更
 
 ```ts
+// session-store.ts — 构造依赖 workspaceRoot（用于 hash），不再 resolveHarnessSessionDir(repo)
+export class SessionStore {
+  constructor(options: { workspaceRoot: string } | string /* storeDir 高级覆盖 */);
+}
+
 // harness-engine.ts
 export interface HarnessEngineOptions {
-  // ...
-  sessionStore?: SessionStore;       // 默认 workspace/.forgelet/harness-sessions
-  persistSession?: boolean;            // 默认 true
+  sessionStore?: SessionStore;
+  persistSession?: boolean;            // default true
+  trace?: TraceConfig;                 // 见 layout §6；P1d
 }
 
 // agent-loop.ts
 export interface AgentLoopOptions {
-  initialMessages?: ChatMessage[];   // resume 时跳过仅 system+空，直接 append user
-  onMessagesChanged?: (messages: ChatMessage[]) => void;  // 供 engine 持久化
+  initialMessages?: ChatMessage[];
+  onMessagesChanged?: (messages: ChatMessage[]) => void;
 }
 ```
 
-**Resume 语义**：
+**Resume 语义**
 
-1. `load(sessionId)` → `messages`（含 system、历史 assistant/tool）
-2. 新 user 消息 = 桌面 Composer 输入（不再塞整段 `THREAD_CONTEXT` 进单条 user）
-3. 可选保留 `buildAgentPromptEnvelope` 仅附加 `[WORKSPACE_ROOT]` 一行
+1. `load(threadId)` → 完整 `messages[]`（含 system、assistant/tool、`reasoning_content`）
+2. Composer 新输入 = 单条 user 消息（**不**再塞整段 `[THREAD_CONTEXT]`）
+3. 仅附加 `[WORKSPACE_ROOT]` 等短 envelope
 
 #### 3.1.3 桌面端
 
 | 改动点 | 说明 |
 |--------|------|
-| `agent-runner.ts` | 创建 `SessionStore(workspace/.forgelet/harness-sessions)`，传给 `HarnessEngine` |
-| `resume-run` | `load` 失败 → 降级为当前文本 resume（兼容旧线程） |
-| `useAgentRun` | `resumePrompt` 前可选 `loadHarnessSession` IPC 恢复 UI messages（与 harness 对齐） |
-| `thread-store` | 列表 metadata 增加 `harnessSession: true` 标记（渐进） |
+| `agent-runner.ts` | `SessionStore({ workspaceRoot })` → `sessions/{hash}/{sessionId}.json` |
+| **New Chat** | 生成 `threadId`，写 `threads/{threadId}.json` |
+| **Send** | 有 `threadId` 则 **始终** `resume` + `sessionId=threadId`；无 thread 时 `run` 且 `sessionId=threadId` |
+| `Composer` | 不再要求 `sessionId && threadId` 才 resume；以 `threadId` 为准 |
+| `thread-store` | **列表仅** `listStoredThreads` → `workspaces/{hash}/threads/`；移除从 `harness-sessions` 拼列表 |
+| `ChatList` | 选中卡片 → `setSessionId(threadId)`；废弃 `runSessionIds[0]` 启发式 |
+| `AppContext` | 保存 thread 时 `id === sessionId`，不再维护 `runSessionIds` |
 
 #### 3.1.4 兼容与迁移
 
-- 不自动迁移旧 snapshot；`loadSessionThread` 仍服务历史列表
-- 新会话统一写 `harness-sessions`
-- `ChatMessage.reasoning_content` 必须持久化（DeepSeek 续跑必需）
+- 旧 `{workspace}/.forgelet/harness-sessions/`：**不**作为列表源；可选只读 import，非 P1 必须
+- 旧 `loadSessionThread` / SDK snapshot：**不**驱动侧边栏；可选单卡历史回显
+- `ChatMessage.reasoning_content` 全量持久化（DeepSeek 续跑）
 
 ---
 
@@ -122,12 +141,12 @@ export interface AgentLoopOptions {
 
 ```ts
 interface ToolPermissionRequestPayload {
-  requestId: string;          // 关联 pending promise
+  requestId: string;
   toolCallId?: string;
   toolName: string;
   args: Record<string, unknown>;
   reason: string;
-  decision: "ask";            // 固定 ask
+  decision: "ask";
 }
 
 interface ToolPermissionResponse {
@@ -152,7 +171,6 @@ function createPermissionCallback(sender: WebContents, sessionId: string): Permi
     const requestId = randomUUID();
     pendingPermissions.set(requestId, { resolve, sessionId });
     emitAgentEvent(sender, { type: "tool.permission_request", ... });
-    // 超时 5min 默认 deny
   });
 }
 
@@ -161,20 +179,18 @@ function createPermissionCallback(sender: WebContents, sessionId: string): Permi
 
 `HarnessEngine` → `ToolExecutor` 注入 `onPermissionConfirm`。
 
-**`allow_always`**：写入 session 级 allowlist（内存 + 可选 `{workspace}/.forgelet/permission-allowlist.json`），对 bash 存 command 前缀或正则。
+**`allow_always`**：session 级 allowlist（内存 + 可选 `FORGELET_HOME/workspaces/{hash}/permission-allowlist.json`），**不写用户 repo**。
 
 #### 3.2.3 Renderer UI
 
 - 组件：`PermissionDialog`（Modal）
-  - 展示：tool 名、bash command、path、reason
-  - 按钮：拒绝 / 允许一次 / 始终允许（bash 可对当前 pattern）
 - `useAgentRun`：监听 `tool.permission_request`，调 `respondPermission`
-- 运行中若弹窗：agent 处于 **waiting_permission** 子状态（`runState` 扩展或本地 pending 栈）
+- 运行中：**waiting_permission**（pending 栈或扩展 `runState`）
 
 #### 3.2.4 Policy 配置（Phase 1b 可选）
 
-- 设置页读取 `DEFAULT_POLICY` 的 deny 列表（只读展示）
-- 用户自定义 rules 存 `settings.json` → 序列化正则字符串 → `PermissionPolicy`
+- 设置页展示 `DEFAULT_POLICY` deny 列表
+- 用户 rules → `settings.json`（Electron userData）
 
 ---
 
@@ -182,23 +198,12 @@ function createPermissionCallback(sender: WebContents, sessionId: string): Permi
 
 #### 3.3.1 接口（harness）
 
-新文件 `packages/harness/src/hooks.ts`：
+见 `packages/harness/src/hooks.ts`：
 
 ```ts
-export interface PreToolUseResult {
-  allow: boolean;
-  args?: Record<string, unknown>;
-  reason?: string;
-}
-
 export interface HarnessHooks {
-  preToolUse?: (
-    ctx: { toolName: string; args: Record<string, unknown>; sessionId?: string },
-  ) => Promise<PreToolUseResult | void>;
-
-  postToolUse?: (
-    ctx: { toolName: string; args: Record<string, unknown>; result: ToolExecutionResult },
-  ) => Promise<void>;
+  preToolUse?: (ctx: PreToolUseContext) => Promise<PreToolUseResult | void>;
+  postToolUse?: (ctx: PostToolUseContext) => Promise<void>;
 }
 ```
 
@@ -208,30 +213,39 @@ export interface HarnessHooks {
 preToolUse → PermissionGuard.check → [执行工具] → postToolUse
 ```
 
-`preToolUse` 返回 `{ allow: false }` 时等同 deny，不弹权限 UI。
-
 #### 3.3.2 桌面注册（Phase 1c）
 
-- `HarnessEngineOptions.hooks`
-- 内置示例 hook：`audit-log.ts` 追加到 `{appData}/logs/tool-audit.jsonl`（仅 Main）
-- **不做** shell 脚本 hooks（Claude Code 级，放 P2）
+- `HarnessEngineOptions.hooks` 注入策略 hook
+- **轨迹**：由 `TraceSink` 在 `emitEvent` 统一写入（见 layout §6），**不**与 postToolUse 重复写 audit 文件
+- **不做** shell 脚本 hooks（P2）
 
 #### 3.3.3 项目级配置（可选延后）
 
-`.forgelet/hooks.json` 仅声明启用哪些内置 hook id，不执行任意 shell。
+`FORGELET_HOME` 或 workspace 内 `.forgelet/hooks.json` 仅声明内置 hook id（不执行任意 shell）。
+
+---
+
+### 3.4 统一轨迹（P1d，概要）
+
+完整约定见 [forgelet-home-layout.md §6](./forgelet-home-layout.md)。
+
+- `HarnessEngine.emitEvent` → `JsonlTraceSink` + IPC
+- 桌面：`traces/desktop/{workspaceHash}/{threadId}/trace.jsonl`
+- swe-bench / eval：默认开启；产物在 `FORGELET_HOME/traces` 与 `FORGELET_HOME/runs`
+- 废弃 `--save-traces`、repo 内 `packages/harness/eval/swe-bench/runs/` 作为默认输出
 
 ---
 
 ## 4. 实施分期
 
-| 阶段 | 内容 | 交付物 | 估时 |
-|------|------|--------|------|
-| **1a** | Session 持久化 + resume | harness API、agent-runner、单测 | 中 |
-| **1b** | 权限 IPC + Dialog | shared-types 事件、UI、E2E 手测 | 中 |
-| **1c** | Hooks API + audit hook | hooks.ts、executor 集成、单测 | 小 |
-| **1d** | 文档 + 回归 | eval 仍默认 loop；README 片段 | 小 |
+| 阶段 | 内容 | 交付物 |
+|------|------|--------|
+| **1a** | Session 迁 `FORGELET_HOME/sessions/{hash}/`；`threadId===sessionId`；resume 语义；侧边栏仅 threads | storage-core 路径 helper、`SessionStore`、`agent-runner`、thread-store、Composer |
+| **1b** | 权限 IPC + Dialog | shared-types、UI |
+| **1c** | Hooks 注册（策略）；与 Trace 分离 | executor、单测 |
+| **1d** | TraceSink + eval/swe 输出迁出 repo | `trace-sink.ts`、runner、README |
 
-**依赖顺序**：1a 与 1b 可并行；1c 依赖 1b 的 executor 管线稳定。
+**依赖**：1a 与 1b 可并行；1d 依赖 1a 的 `emitEvent` 稳定；1c 与 1d 可部分并行。
 
 ---
 
@@ -239,11 +253,11 @@ preToolUse → PermissionGuard.check → [执行工具] → postToolUse
 
 | 层 | 内容 |
 |----|------|
-| 单元 | `SessionStore` round-trip；`PermissionGuard` + mock confirm；hooks pre/post |
-| 集成 | 临时目录跑 `AgentLoop` resume 两轮对话；deny bash 返回 tool error |
-| 手测 | 桌面 `git push` 弹窗；关窗重开 resume 同一 sessionId |
+| 单元 | `SessionStore` 使用 `FORGELET_HOME` 临时目录 + `workspaceHash`；hooks pre/post |
+| 集成 | 同一 `threadId` 连续两轮 resume，第二轮能引用上一轮 tool 结果 |
+| 手测 | New Chat → 多轮 Send 不换 sessionId；侧边栏仅 threads 列表；切换卡片后 resume |
 
-Eval **不切换** plan 模式；P1 不改变 eval pass 基线。
+Eval 不改变 plan 基线；swe-bench 默认带 trace（1d）。
 
 ---
 
@@ -251,50 +265,62 @@ Eval **不切换** plan 模式；P1 不改变 eval pass 基线。
 
 | 议题 | 决策 |
 |------|------|
-| Resume 与 UI messages 双份状态 | **以 harness SessionStore 为 source of truth**；UI 从 IPC 同步或 run 结束后 reload |
-| Confirm 阻塞 API | Main 进程 Promise 等待；agent 仍在 running，需处理用户关窗 → abort → deny all pending |
-| 正则 policy 序列化 | 存 string[]，`new RegExp(s)` 加载；无效 pattern 忽略并 log |
-| `reasoning_content` 体积 | 全量持久化；后续 P2 可做压缩 strip |
+| Resume 与 UI messages | **Session** 为 Harness 真相；Thread 为 UI 真相；run 结束后同步 Thread.messages |
+| `threadId` vs `agentSessionId` | **永远相等** |
+| 侧边栏列表 | **仅** `workspaces/{hash}/threads/` |
+| Confirm 阻塞 | Main Promise；关窗 abort → deny all pending |
+| `reasoning_content` | 全量持久化；P2 可压缩 |
+| 轨迹 vs Session | 分工见 layout §3；禁止把 `AgentEvent` 流写入 session JSON |
 
 ---
 
 ## 7. 文件改动清单（预估）
 
+**packages/storage-core**
+
+- `paths.ts` — `resolveHarnessSessionPath(workspaceRoot, sessionId)` → `sessions/{hash}/{id}.json`
+
 **packages/harness**
 
-- `hooks.ts`（新）
-- `agent-loop.ts` — `initialMessages`, checkpoint callback
-- `harness-engine.ts` — SessionStore, hooks, permission callback 透传
-- `tools/executor.ts` — 集成 hooks
-- `permissions.ts` — session allowlist
-- `tests/session-resume.test.ts`, `tests/hooks.test.ts`（新）
+- `session-store.ts` — 按 workspaceHash 分目录；弃用 `resolveHarnessSessionDir(workspaceRoot)` 写 repo
+- `harness-engine.ts` — SessionStore、TraceSink（1d）、permission、hooks
+- `agent-loop.ts`、`tools/executor.ts`、`permissions.ts`
+- `trace-sink.ts`（新，1d）
+- `tests/session-resume.test.ts`、`tests/hooks.test.ts`
 
 **packages/shared-types**
 
-- `events.ts` — 新事件类型与 payload
+- `events.ts` — permission 事件
 
 **apps/chat-desktop**
 
-- `agent-runner.ts` — SessionStore、permission pending map
-- `ipc/chat.ipc.ts`, `preload.cjs` — `respond-permission`
-- `useAgentRun.ts` — 处理 permission 事件
-- `PermissionDialog.tsx`（新）
-- `types.ts` — DesktopConfig 扩展
+- `agent-runner.ts` — SessionStore(workspaceRoot)、trace 配置
+- `thread-store.ts` — 仅 threads 列表；去掉 harness-sessions 列表逻辑
+- `ChatList.tsx`、`Composer.tsx`、`AppContext.tsx` — `sessionId=threadId`、始终 resume
+- `useAgentRun.ts`、`PermissionDialog.tsx`、ipc/preload
+
+**docs**
+
+- [forgelet-home-layout.md](./forgelet-home-layout.md)（布局真相源）
 
 ---
 
 ## 8. 验收标准
 
-- [ ] 同一 `sessionId` 连续两次 resume，模型能引用上一轮 tool 结果（不靠 THREAD_CONTEXT 堆砌）
-- [ ] `git push` 触发确认弹窗，拒绝后 tool 返回 deny 且 agent 可继续
-- [ ] `allow_always` 后同 pattern 不再弹窗（当前 session）
-- [ ] `preToolUse` deny 不调用 LLM 工具执行
+- [ ] 同一 `threadId` 连续两次 Send（resume），模型能引用上一轮 tool 结果
+- [ ] `threadId === sessionId` 全链路一致；New Chat 不复用旧 sessionId
+- [ ] 侧边栏列表 **仅**来自 `FORGELET_HOME/workspaces/{hash}/threads/`
+- [ ] Session 文件 **不在**用户 workspace 的 `.forgelet/` 下
+- [ ] `git push` 确认弹窗；拒绝后 agent 可继续
+- [ ] `preToolUse` deny 不执行工具
+- [ ] （1d）swe-bench 跑完在 `FORGELET_HOME/traces/swe-bench/{runId}/` 可见 jsonl
 - [ ] 单元测试 ≥ 50 通过（含新增）
 
 ---
 
 ## 9. 后续（P2 预览，不在本分支）
 
-- 索引 / `@file` 引用、子 agent
-- Settings 可视化 permission rules 编辑器
-- Shell-based hooks（需安全审查）
+- 从 trace 回放 UI；`@file` 引用、子 agent
+- Settings 可视化 permission rules
+- Shell-based hooks（安全审查）
+- 旧数据一次性迁移工具

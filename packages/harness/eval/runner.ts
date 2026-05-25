@@ -91,11 +91,20 @@ async function runSingleTask(config: LlmConfig, taskPath: string): Promise<EvalR
       // No workspace template — start empty
     }
 
+    const evalRunId = process.env.FORGELET_EVAL_RUN_ID || "local";
+
     // Run the agent
     const engine = new HarnessEngine({
       workspaceRoot: workspaceDir,
       config,
       maxTurns: 20,
+      trace: {
+        enabled: true,
+        runKind: "eval",
+        runId: evalRunId,
+        instanceId: task.id,
+        workspaceRoot: workspaceDir,
+      },
     });
 
     const controller = new AbortController();

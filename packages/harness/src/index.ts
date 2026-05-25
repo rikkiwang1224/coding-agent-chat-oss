@@ -10,7 +10,19 @@ export {
   type PermissionLevel,
   type PermissionCallback,
 } from "./permissions.js";
-export { SessionStore, resolveHarnessSessionDir, type SessionData } from "./session-store.js";
+export {
+  SessionStore,
+  resolveHarnessSessionDir,
+  sumSessionRunCosts,
+  type SessionData,
+  type SessionRunRecord,
+} from "./session-store.js";
+export {
+  createTraceSink,
+  type TraceConfig,
+  type TraceRecord,
+  type TraceSink,
+} from "./trace-sink.js";
 export type { HarnessHooks, PreToolUseContext, PreToolUseResult, PostToolUseContext } from "./hooks.js";
 export { TOOL_DEFINITIONS, ToolExecutor, ShellSession } from "./tools/index.js";
 export { buildSystemPrompt, detectWorkspaceContext, type PromptContext } from "./prompt.js";

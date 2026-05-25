@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@forgelet/sdk-core": "workspace:*",
+    "@forgelet/sdk-runtime": "workspace:*",
     "@forgelet/shared-types": "workspace:*",
     "@forgelet/storage-core": "workspace:*"
   },

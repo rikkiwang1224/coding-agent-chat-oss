@@ -114,6 +114,9 @@ importers:
       '@forgelet/sdk-core':
         specifier: workspace:*
         version: link:../sdk-core
+      '@forgelet/sdk-runtime':
+        specifier: workspace:*
+        version: link:../sdk-runtime
       '@forgelet/shared-types':
         specifier: workspace:*
         version: link:../shared-types

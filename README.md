@@ -30,7 +30,7 @@ You can configure the provider from the app's Settings screen. Settings are stor
 - Links rendered from chat messages are not allowed to create new Electron windows. External `http` and `https` links open in the system browser; other protocols are ignored.
 - API keys saved in Settings are stored locally in Electron's user data directory as part of `chat-desktop-settings.json`. This is convenient for local development, but it is not an OS keychain-backed secret store yet.
 - Runtime data is stored under `~/.forgelet` by default. Set `FORGELET_HOME` to use a different directory.
-- Harness sessions are persisted under `{workspace}/.forgelet/harness-sessions/`.
+- Harness sessions, chat threads, and agent traces are persisted under `FORGELET_HOME` (default `~/.forgelet`). See [docs/design/forgelet-home-layout.md](docs/design/forgelet-home-layout.md).
 
 ## Provider Support
 

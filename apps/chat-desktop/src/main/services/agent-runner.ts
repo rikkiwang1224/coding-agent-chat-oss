@@ -1,10 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { type IpcMainInvokeEvent, type WebContents } from "electron";
-import {
-  HarnessEngine,
-  SessionStore,
-  resolveHarnessSessionDir,
-} from "@forgelet/harness";
+import { HarnessEngine, SessionStore } from "@forgelet/harness";
 import type { AgentEvent } from "@forgelet/shared-types";
 import type { PermissionRequestOutcome } from "@forgelet/shared-types";
 import { collapseText, readTextBlock, formatError } from "../utils/text.js";
@@ -127,7 +123,7 @@ export async function startAgentRun(
   if (!workspaceRoot) throw new Error("Workspace root is required");
   if (activeAgentConnections.has(senderId)) throw new Error("An agent run is already in progress");
 
-  const sessionStore = new SessionStore(resolveHarnessSessionDir(workspaceRoot));
+  const sessionStore = SessionStore.forWorkspace(workspaceRoot);
   let harnessResume = false;
   if (runMode === "resume") {
     const existing = await sessionStore.load(sessionId);
@@ -151,10 +147,17 @@ export async function startAgentRun(
     workspaceRoot,
     sessionStore,
     persistSession: true,
+    trace: {
+      enabled: true,
+      runKind: "desktop",
+      runId: sessionId,
+      workspaceRoot,
+    },
     config: {
       apiKey: llmConfig.apiKey,
       baseUrl: llmConfig.baseUrl || "https://api.deepseek.com",
       model: llmConfig.primaryModel || "deepseek-v4-pro",
+      provider: llmConfig.provider,
     },
     onPermissionConfirm: createPermissionCallback(
       event.sender,

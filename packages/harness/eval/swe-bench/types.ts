@@ -44,7 +44,9 @@ export interface SweBenchRunOptions {
   maxTurns: number;
   timeoutS: number;
   concurrency: number;
-  /** Write per-instance Agent event traces under outputDir/traces/ (default true for swe-bench CLI) */
+  /** SWE-bench run id for FORGELET_HOME/traces/swe-bench/eval-{runId}/ */
+  traceRunId: string;
+  /** Write per-instance trace JSONL (default true; use --no-trace to disable) */
   saveTraces?: boolean;
 }
 
@@ -56,6 +58,7 @@ export interface SweBenchInstanceResult {
   patchLength: number;
   error?: string;
   workspaceDir?: string;
+  tracePath?: string;
 }
 
 export interface SweBenchRunReport {

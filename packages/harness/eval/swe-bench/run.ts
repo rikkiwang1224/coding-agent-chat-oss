@@ -16,6 +16,7 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveForgeletTracesDir, resolveSweBenchRunDir } from "@forgelet/storage-core";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { access } from "node:fs/promises";
@@ -57,13 +58,12 @@ const runId = getArg("run-id") || String(Date.now());
 const evaluateOnly = hasFlag("evaluate-only");
 const skipEval = hasFlag("skip-eval");
 const resume = hasFlag("resume");
-/** Traces default on for benchmark debugging; opt out with --no-save-traces. */
-const saveTraces = !hasFlag("no-save-traces");
+/** Traces default on for benchmark debugging; opt out with --no-trace. */
+const saveTraces = !hasFlag("no-trace") && !hasFlag("no-save-traces");
 
 const sweDir = __dirname;
 const reposCacheDir = path.resolve(getArg("repos-cache") || path.join(sweDir, "repos"));
-const runsDir = path.resolve(getArg("runs-dir") || path.join(sweDir, "runs"));
-const outputDir = path.resolve(getArg("output") || path.join(runsDir, `eval-${runId}`));
+const outputDir = path.resolve(getArg("output") || resolveSweBenchRunDir(runId));
 const predictionsPath = path.join(outputDir, "predictions.jsonl");
 
 async function resolvePython(): Promise<string> {
@@ -163,7 +163,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const config: LlmConfig = { apiKey, model, baseUrl };
+  const config: LlmConfig = { apiKey, model, baseUrl, provider: "deepseek" };
 
   console.log(`\nSWE-bench agent run`);
   console.log(`  Model:    ${model}`);
@@ -179,6 +179,7 @@ async function main(): Promise<void> {
     maxTurns,
     timeoutS,
     concurrency: 1,
+    traceRunId: runId,
     saveTraces,
   });
 
@@ -190,7 +191,9 @@ async function main(): Promise<void> {
   console.log(`  Report:   ${reportPath}`);
   console.log(`  Predictions: ${predictionsPath}`);
   if (saveTraces) {
-    console.log(`  Traces:   ${path.join(outputDir, "traces")}/<instance_id>.json`);
+    console.log(
+      `  Traces:   ${path.join(resolveForgeletTracesDir(), "swe-bench", `eval-${runId}`, "instances")}/<instance_id>.jsonl`,
+    );
   }
   console.log();
 

@@ -8,7 +8,10 @@ const SESSIONS_DIRNAME = "sessions";
 const WORKSPACE_SESSION_INDEX_FILENAME = "session-index.json";
 const WORKSPACE_METADATA_FILENAME = "workspace.json";
 const WORKSPACE_THREADS_DIRNAME = "threads";
+const TRACES_DIRNAME = "traces";
+const RUNS_DIRNAME = "runs";
 export type AgentStorageRuntime = "harness";
+export type TraceRunKind = "desktop" | "eval" | "swe-bench";
 
 export interface WorkspaceSessionIndexEntry {
   sessionId: string;
@@ -66,8 +69,77 @@ export function resolveWorkspaceThreadPath(workspaceRoot: string, threadId: stri
   return path.join(resolveWorkspaceThreadsDir(workspaceRoot), `${sanitizeStorageSegment(threadId)}.json`);
 }
 
+export function resolveForgeletTracesDir(): string {
+  const override = process.env.FORGELET_TRACE_ROOT?.trim();
+  if (override) {
+    return path.resolve(override);
+  }
+  return path.join(resolveAgentHome(), TRACES_DIRNAME);
+}
+
+export function resolveForgeletRunsDir(): string {
+  const override = process.env.FORGELET_RUNS_ROOT?.trim();
+  if (override) {
+    return path.resolve(override);
+  }
+  return path.join(resolveAgentHome(), RUNS_DIRNAME);
+}
+
+/** Harness resume sessions: FORGELET_HOME/sessions/{workspaceHash}/{sessionId}.json */
+export function resolveHarnessSessionsDir(workspaceRoot: string): string {
+  return path.join(resolveAgentHome(), SESSIONS_DIRNAME, resolveWorkspaceHash(workspaceRoot));
+}
+
+export function resolveHarnessSessionPath(workspaceRoot: string, sessionId: string): string {
+  return path.join(
+    resolveHarnessSessionsDir(workspaceRoot),
+    `${sanitizeStorageSegment(sessionId)}.json`,
+  );
+}
+
+export function resolveDesktopTraceDir(workspaceRoot: string, sessionId: string): string {
+  return path.join(
+    resolveForgeletTracesDir(),
+    "desktop",
+    resolveWorkspaceHash(workspaceRoot),
+    sanitizeStorageSegment(sessionId),
+  );
+}
+
+export function resolveEvalRunDir(runId: string): string {
+  return path.join(resolveForgeletRunsDir(), "eval", sanitizeStorageSegment(runId));
+}
+
+export function resolveEvalTraceDir(runId: string): string {
+  return path.join(resolveForgeletTracesDir(), "eval", sanitizeStorageSegment(runId));
+}
+
+export function resolveSweBenchRunDir(runId: string): string {
+  return path.join(resolveForgeletRunsDir(), "swe-bench", sanitizeRunId(runId));
+}
+
+export function resolveSweBenchTraceDir(runId: string): string {
+  return path.join(resolveForgeletTracesDir(), "swe-bench", sanitizeRunId(runId));
+}
+
+export function resolveSweBenchTraceInstancePath(runId: string, instanceId: string): string {
+  return path.join(
+    resolveSweBenchTraceDir(runId),
+    "instances",
+    `${sanitizeStorageSegment(instanceId)}.jsonl`,
+  );
+}
+
 export function resolveSessionsDir(): string {
   return path.join(resolveAgentHome(), SESSIONS_DIRNAME);
+}
+
+function sanitizeRunId(runId: string): string {
+  const trimmed = runId.trim();
+  if (trimmed.startsWith("eval-")) {
+    return sanitizeStorageSegment(trimmed);
+  }
+  return sanitizeStorageSegment(`eval-${trimmed}`);
 }
 
 export function resolveSessionStorageDir(sessionId: string): string {
@@ -97,6 +169,11 @@ export function resolveTimestampPrefixedSessionSnapshotPath(
   createdAt: string | Date | undefined
 ): string {
   return path.join(resolveTimestampPrefixedSessionStorageDir(sessionId, createdAt), SESSION_SNAPSHOT_FILENAME);
+}
+
+/** @deprecated Use resolveHarnessSessionsDir — sessions live under FORGELET_HOME, not the repo. */
+export function resolveHarnessSessionDir(workspaceRoot: string): string {
+  return resolveHarnessSessionsDir(workspaceRoot);
 }
 
 export function sanitizeStorageSegment(input: string): string {

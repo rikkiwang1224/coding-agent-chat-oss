@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef } from "react";
 import { Bot, Brain } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { formatCostUsd } from "@forgelet/sdk-runtime";
 import { UserTurn, AssistantTurn } from "./MessageBubble";
 import { useApp } from "@/context/AppContext";
-import type { Message } from "@/types";
+import type { Message, MessageTurnCost } from "@/types";
 
 interface ConversationTurn {
   id: string;
   type: "user" | "assistant";
   messages: Message[];
+  turnCost?: MessageTurnCost;
 }
 
 function groupIntoTurns(messages: Message[]): ConversationTurn[] {
@@ -21,8 +23,14 @@ function groupIntoTurns(messages: Message[]): ConversationTurn[] {
       const last = turns[turns.length - 1];
       if (last && last.type === "assistant") {
         last.messages.push(msg);
+        if (msg.turnCost) last.turnCost = msg.turnCost;
       } else {
-        turns.push({ id: msg.id, type: "assistant", messages: [msg] });
+        turns.push({
+          id: msg.id,
+          type: "assistant",
+          messages: [msg],
+          turnCost: msg.turnCost,
+        });
       }
     }
   }
@@ -77,6 +85,7 @@ export function MessageList() {
             <AssistantTurn
               key={turn.id}
               messages={turn.messages}
+              turnCost={turn.turnCost}
               isLast={idx === turns.length - 1}
               isRunning={isRunning}
             />

@@ -2,12 +2,14 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { SessionStore, resolveHarnessSessionDir } from "../src/session-store.js";
+import { SessionStore } from "../src/session-store.js";
 
 describe("SessionStore", () => {
   it("saves and loads messages with reasoning_content", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "harness-session-"));
-    const store = new SessionStore(resolveHarnessSessionDir(root));
+    const previousHome = process.env.FORGELET_HOME;
+    process.env.FORGELET_HOME = root;
+    const store = SessionStore.forWorkspace(root);
 
     await store.save({
       id: "sess-1",
@@ -33,6 +35,11 @@ describe("SessionStore", () => {
     expect(loaded?.messages).toHaveLength(3);
     expect(loaded?.messages[1].reasoning_content).toBe("thinking...");
 
+    if (previousHome === undefined) {
+      delete process.env.FORGELET_HOME;
+    } else {
+      process.env.FORGELET_HOME = previousHome;
+    }
     await rm(root, { recursive: true, force: true });
   });
 });
