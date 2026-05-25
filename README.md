@@ -57,6 +57,9 @@ The runtime maps provider settings into the environment expected by the Claude A
 ## Project Layout
 
 - `apps/chat-desktop`: Electron main process, preload bridge, and React renderer.
+- `packages/harness`: Standalone coding agent loop (tools + LLM) for eval and automation.
+  - `packages/harness/eval/tasks`: Synthetic integration tasks (daily harness iteration).
+  - `packages/harness/eval/swe-bench`: [SWE-bench](packages/harness/eval/swe-bench/README.md) real-repo benchmark (Mac agent + cloud Docker eval).
 - `packages/sdk-runtime`: Claude Agent SDK adapter, provider/env resolution, session snapshots, and cost estimation.
 - `packages/sdk-core`: engine/session contracts and runtime config helpers.
 - `packages/shared-types`: shared event and tool protocol types.
@@ -68,6 +71,12 @@ The runtime maps provider settings into the environment expected by the Claude A
 pnpm typecheck
 pnpm --filter @forgelet/chat-desktop build
 pnpm --filter @forgelet/chat-desktop start
+
+# Harness eval (synthetic tasks)
+pnpm --filter @forgelet/harness eval
+
+# SWE-bench (real repos; see packages/harness/eval/swe-bench/README.md)
+pnpm --filter @forgelet/harness eval:swe -- --dataset lite --limit 3 --skip-eval
 ```
 
 ## Brand Assets

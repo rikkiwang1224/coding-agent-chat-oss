@@ -48,16 +48,25 @@ flowchart TB
 
 ---
 
-### 0. 仓库与工作目录
+### 0. 仓库与目录
 
-SWE-bench 相关代码在 git 分支 **`feat/swe-bench`**，常用独立 worktree：
+SWE-bench 评测在 **Forgelet monorepo**（本仓库 `coding-agent-chat-oss`）内，与桌面端、harness 共用同一 git 仓库：
 
 ```text
-coding-agent-chat-oss-swe-bench/   ← 跑 eval:swe 用这个目录
-coding-agent-chat-oss/             ← master，日常开发（可能没有 eval/swe-bench）
+coding-agent-chat-oss/                 # 仓库根（在此执行 pnpm install / eval:swe）
+├── packages/harness/
+│   ├── eval/
+│   │   ├── tasks/                       # 内置合成任务（日常迭代）
+│   │   └── swe-bench/                   # SWE-bench 真实仓库评测（本文档）
+│   │       ├── run.ts                   # Agent + 可选云端评测入口
+│   │       ├── evaluate.sh              # 官方 Docker harness（多在云上执行）
+│   │       ├── runs/eval-<run-id>/      # Agent 产出（gitignore）
+│   │       └── repos/                   # 真实仓库 bare clone 缓存（gitignore）
+│   └── src/                             # harness 引擎与工具
+└── .env                                 # 建议放 DEEPSEEK_API_KEY（勿提交）
 ```
 
-以下路径均相对于 **`coding-agent-chat-oss-swe-bench` 仓库根**。
+以下命令均在 **仓库根目录** 执行（`pnpm --filter @forgelet/harness ...`）；路径如 `packages/harness/eval/swe-bench/...` 均相对仓库根。
 
 ---
 
@@ -208,12 +217,16 @@ bash evaluate.sh gold SWE-bench/SWE-bench_Lite validate-gold 1
 
 #### 3.1 Mac：跑 Agent（生成 patch）
 
-在 **`coding-agent-chat-oss-swe-bench` 根目录**：
+在 **仓库根目录**（`coding-agent-chat-oss/`）：
 
 ```bash
+cd /path/to/coding-agent-chat-oss
+pnpm install
+
+# API Key 可从 .env 读取后 export，或:
 export DEEPSEEK_API_KEY=sk-...
 export SWEBENCH_PYTHON="$(pwd)/packages/harness/eval/swe-bench/.venv/bin/python"
-# 若只有 .venv-mac：把路径改成 .venv-mac/bin/python
+# 临时 venv 也可用 .venv-mac/bin/python
 
 pnpm --filter @forgelet/harness eval:swe -- \
   --dataset lite \
@@ -306,8 +319,8 @@ scp -r ubuntu@<ECS_IP>:~/forgelet-eval/evaluation_results/tencent-smoke ./
 
 | 步骤 | 位置 | 命令 |
 |------|------|------|
-| Agent | Mac worktree | `eval:swe -- --skip-eval --run-id <id> [--limit N]` |
-| 传 patch | Mac | `scp runs/eval-<id>/predictions.jsonl ubuntu@<IP>:~/forgelet-eval/` |
+| Agent | Mac（仓库根） | `pnpm --filter @forgelet/harness eval:swe -- --skip-eval --run-id <id> [--limit N]` |
+| 传 patch | Mac | `scp packages/harness/eval/swe-bench/runs/eval-<id>/predictions.jsonl ubuntu@<IP>:~/forgelet-eval/` |
 | 开代理 | Mac | `pproxy` + `ssh -R 7890:127.0.0.1:7890` |
 | 评测 | 云 | `bash evaluate.sh predictions.jsonl SWE-bench/SWE-bench_Lite <run-id> 1` |
 | 看分 | 云 | `evaluation_results/<run-id>/results.json` |
