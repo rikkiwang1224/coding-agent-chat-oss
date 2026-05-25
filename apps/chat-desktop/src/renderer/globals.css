@@ -1,0 +1,124 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #f6f3ed;
+  --color-panel: rgba(255, 252, 247, 0.82);
+  --color-panel-solid: #fffdf9;
+  --color-surface: rgba(255, 255, 255, 0.88);
+  --color-line: rgba(32, 27, 20, 0.08);
+  --color-line-strong: rgba(32, 27, 20, 0.14);
+  --color-text: #1f1a17;
+  --color-muted: #7a7266;
+  --color-soft: #9d9487;
+  --color-accent: #171514;
+  --color-positive: #14914f;
+  --color-warning: #8a5a16;
+  --color-error: #8f3434;
+
+  --color-diff-add-bg: rgba(34, 197, 94, 0.18);
+  --color-diff-add-fg: #dbffe7;
+  --color-diff-remove-bg: rgba(239, 68, 68, 0.18);
+  --color-diff-remove-fg: #ffd7d1;
+  --color-diff-hunk-bg: rgba(245, 158, 11, 0.12);
+  --color-diff-hunk-fg: #f8d68a;
+
+  --shadow-soft: 0 20px 70px rgba(32, 24, 17, 0.07);
+  --shadow-card: 0 12px 36px rgba(32, 24, 17, 0.06);
+
+  --radius-card: 20px;
+  --radius-pill: 999px;
+
+  --font-sans: "SF Pro Display", "IBM Plex Sans", "Avenir Next", sans-serif;
+  --font-mono: "SF Mono", "IBM Plex Mono", "Menlo", monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  min-height: 100%;
+  overflow: hidden;
+}
+
+body {
+  min-height: 100vh;
+  font-family: var(--font-sans);
+  color: var(--color-text);
+  background:
+    radial-gradient(circle at top, rgba(255, 255, 255, 0.78), transparent 38%),
+    linear-gradient(180deg, #faf8f3 0%, var(--color-bg) 100%);
+}
+
+#root {
+  height: 100vh;
+  overflow: hidden;
+}
+
+button,
+textarea,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    color 150ms ease,
+    opacity 150ms ease,
+    transform 150ms ease;
+}
+
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+button:not(:disabled):active,
+[role="button"]:not([aria-disabled="true"]):active {
+  transform: translateY(1px) scale(0.99);
+}
+
+button:focus-visible,
+[role="button"]:focus-visible,
+input:focus-visible {
+  outline: 2px solid rgba(23, 21, 20, 0.24);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button,
+  [role="button"] {
+    transition-duration: 0.01ms;
+  }
+
+  button:not(:disabled):active,
+  [role="button"]:not([aria-disabled="true"]):active {
+    transform: none;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

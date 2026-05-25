@@ -1,0 +1,35 @@
+{
+  "appId": "dev.forgelet.chat",
+  "productName": "Forgelet",
+  "directories": {
+    "app": ".packager/app",
+    "output": "release"
+  },
+  "icon": "build/icon.png",
+  "afterPack": "./scripts/repair-macos-frameworks.mjs",
+  "files": [
+    "**/*"
+  ],
+  "electronDist": "node_modules/electron/dist",
+  "asar": false,
+  "npmRebuild": false,
+  "nodeGypRebuild": false,
+  "mac": {
+    "category": "public.app-category.developer-tools",
+    "target": [
+      "dmg",
+      "zip"
+    ]
+  },
+  "win": {
+    "target": [
+      "nsis"
+    ]
+  },
+  "linux": {
+    "target": [
+      "AppImage"
+    ],
+    "category": "Development"
+  }
+}

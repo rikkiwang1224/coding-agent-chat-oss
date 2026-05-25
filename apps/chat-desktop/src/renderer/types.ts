@@ -1,0 +1,175 @@
+export type AgentEventType =
+  | "agent.started"
+  | "agent.progress"
+  | "agent.delta"
+  | "tool.called"
+  | "tool.output"
+  | "tool.error"
+  | "agent.done"
+  | "agent.error";
+
+export interface AgentEvent {
+  type: AgentEventType;
+  sessionId?: string;
+  taskId?: string;
+  timestamp?: string;
+  payload: Record<string, unknown>;
+}
+
+export type RunState =
+  | "idle"
+  | "connecting"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type AppMode = "chat" | "settings";
+
+export type LlmProvider =
+  | "anthropic"
+  | "deepseek"
+  | "kimi"
+  | "glm"
+  | "bedrock"
+  | "vertex"
+  | "custom";
+
+export interface AppSettings {
+  general: {
+    provider: LlmProvider;
+    primaryModel: string;
+    lightModel: string;
+    apiKey: string;
+    baseUrl: string;
+  };
+}
+
+export interface WorkspaceInfo {
+  name: string;
+  path: string;
+  branch: string;
+  threadGroups?: ThreadGroup[];
+}
+
+export interface ThreadGroup {
+  label: string;
+  threads: ThreadSummary[];
+}
+
+export interface ThreadSummary {
+  id: string;
+  title: string;
+  summary: string;
+  time: string;
+  placeholder?: string;
+  sessionState?: string;
+  scope?: string;
+  updatedAt: string;
+  isLocal?: boolean;
+}
+
+export interface LocalThread {
+  id: string;
+  title: string;
+  summary: string;
+  placeholder?: string;
+  sessionState?: string;
+  scope?: string;
+  updatedAt: string;
+  runSessionIds: string[];
+  messages: SerializedMessage[];
+  sdkSessionId?: string;
+}
+
+export interface SerializedMessage {
+  role: MessageRole;
+  body: string;
+  attachments?: ImageAttachment[];
+  toolCalls?: ToolCallInfo[];
+}
+
+export type MessageRole = "user" | "assistant" | "system" | "error";
+
+export interface Message {
+  id: string;
+  role: MessageRole;
+  body: string;
+  attachments: ImageAttachment[];
+  toolCalls?: ToolCallInfo[];
+}
+
+export interface ToolCallInfo {
+  id: string;
+  toolName: string;
+  status: "pending" | "success" | "error";
+  input?: Record<string, unknown>;
+  output?: string;
+  error?: string;
+}
+
+export interface ImageAttachment {
+  id: string;
+  path: string;
+  name: string;
+  mediaType: string;
+}
+
+export interface WorkspaceState {
+  activeWorkspacePath: string | null;
+  workspaces: WorkspaceInfo[];
+}
+
+export interface DesktopConfig {
+  appName: string;
+  getWorkspaceState: () => Promise<WorkspaceState>;
+  pickWorkspace: () => Promise<WorkspaceState>;
+  pickImages: () => Promise<ImageAttachment[]>;
+  pasteClipboardImage: () => Promise<{
+    attachment?: ImageAttachment | null;
+    debug?: Record<string, unknown>;
+  }>;
+  savePastedImage: (input: {
+    dataUrl: string;
+    name?: string;
+    mediaType?: string;
+  }) => Promise<ImageAttachment | null>;
+  setActiveWorkspace: (workspacePath: string) => Promise<WorkspaceState>;
+  getStoredThreads: (workspacePath: string) => Promise<LocalThread[]>;
+  loadSessionThread: (
+    workspacePath: string,
+    sessionId: string,
+  ) => Promise<{
+    id: string;
+    title: string;
+    summary: string;
+    updatedAt: string;
+    sdkSessionId?: string;
+    messages: SerializedMessage[];
+  } | null>;
+  saveStoredThread: (workspacePath: string, thread: LocalThread) => Promise<LocalThread>;
+  deleteStoredThread: (workspacePath: string, threadId: string) => Promise<void>;
+  startRun: (input: {
+    prompt?: string;
+    workspaceRoot?: string;
+    sessionId?: string;
+    threadContext?: string;
+    imageAttachments?: unknown[];
+    runMode?: "run" | "resume";
+  }) => Promise<{ sessionId?: string }>;
+  resumeRun: DesktopConfig["startRun"];
+  onAgentEvent: (listener: (event: AgentEvent) => void) => void;
+  debugPing: () => Promise<{
+    ok: boolean;
+    timestamp: string;
+    capabilities?: { storedThreads?: boolean; legacyThreadImport?: boolean };
+  }>;
+  getSettings: () => Promise<AppSettings>;
+  updateSettings: (settings: AppSettings) => Promise<{ ok: boolean }>;
+}
+
+declare global {
+  interface Window {
+    desktopConfig?: Partial<DesktopConfig>;
+  }
+}

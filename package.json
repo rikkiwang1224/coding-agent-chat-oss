@@ -1,0 +1,22 @@
+{
+  "name": "forgelet",
+  "version": "0.1.0",
+  "description": "Open-source desktop chat client for Claude Agent SDK compatible coding agents.",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@8.10.2",
+  "license": "MIT",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm --filter @forgelet/chat-desktop dev",
+    "start": "pnpm --filter @forgelet/chat-desktop start",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

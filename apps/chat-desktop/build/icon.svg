@@ -1,0 +1,42 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Forgelet icon</title>
+  <desc id="desc">A full-bleed dark desktop app icon with a coding chat bubble and Forgelet F mark.</desc>
+  <defs>
+    <linearGradient id="bg" x1="128" y1="104" x2="878" y2="914" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#15171B"/>
+      <stop offset="0.56" stop-color="#1F3433"/>
+      <stop offset="1" stop-color="#101216"/>
+    </linearGradient>
+    <radialGradient id="warm" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(704 308) rotate(118) scale(360)">
+      <stop stop-color="#F4A84C" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#F4A84C" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="mint" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(520 648) rotate(118) scale(380)">
+      <stop stop-color="#54C7B8" stop-opacity="0.32"/>
+      <stop offset="1" stop-color="#54C7B8" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="170" y="198" width="690" height="650" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="26" stdDeviation="20" flood-color="#000" flood-opacity="0.36"/>
+    </filter>
+  </defs>
+
+  <rect x="64" y="64" width="896" height="896" rx="220" fill="url(#bg)"/>
+  <rect x="64" y="64" width="896" height="896" rx="220" fill="url(#warm)"/>
+  <rect x="64" y="64" width="896" height="896" rx="220" fill="url(#mint)"/>
+  <rect x="94" y="94" width="836" height="836" rx="190" stroke="white" stroke-opacity="0.12" stroke-width="2"/>
+
+  <g filter="url(#shadow)">
+    <path d="M328 255H696C749.019 255 792 297.981 792 351V574C792 627.019 749.019 670 696 670H536L382 766V670H328C274.981 670 232 627.019 232 574V351C232 297.981 274.981 255 328 255Z" fill="#E8DDC9" fill-opacity="0.94"/>
+  </g>
+
+  <path d="M356 420L292 470L356 520" stroke="#121A1B" stroke-width="46" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M668 420L732 470L668 520" stroke="#121A1B" stroke-width="46" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="422" y="346" width="90" height="280" rx="45" fill="#121A1B"/>
+  <rect x="468" y="348" width="182" height="82" rx="41" fill="#F48E45"/>
+  <rect x="468" y="466" width="140" height="82" rx="41" fill="#54C7B8"/>
+
+  <path d="M704 306V382" stroke="#F4A84C" stroke-width="18" stroke-linecap="round"/>
+  <path d="M666 344H742" stroke="#F4A84C" stroke-width="18" stroke-linecap="round"/>
+  <path d="M680 320L728 368" stroke="#FFF4DC" stroke-opacity="0.9" stroke-width="12" stroke-linecap="round"/>
+  <path d="M728 320L680 368" stroke="#FFF4DC" stroke-opacity="0.9" stroke-width="12" stroke-linecap="round"/>
+</svg>

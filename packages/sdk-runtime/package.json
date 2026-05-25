@@ -1,0 +1,23 @@
+{
+  "name": "@forgelet/sdk-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "pnpm run typecheck",
+    "test": "echo 'No tests configured'"
+  },
+  "dependencies": {
+    "@forgelet/sdk-core": "workspace:*",
+    "@forgelet/shared-types": "workspace:*",
+    "@forgelet/storage-core": "workspace:*"
+  },
+  "optionalDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.114",
+    "zod": "^4.3.6"
+  }
+}
