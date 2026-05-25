@@ -11,6 +11,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeFile } from "node:fs/promises";
+import { resolveEvalTraceDir } from "@forgelet/storage-core";
 import { loadEvalEnv } from "./load-env.js";
 import { runEval } from "./runner.js";
 import type { LlmConfig } from "../src/types.js";
@@ -24,10 +25,16 @@ function getArg(name: string): string | undefined {
   return idx >= 0 ? args[idx + 1] : undefined;
 }
 
+function hasFlag(name: string): boolean {
+  return args.includes(`--${name}`);
+}
+
 const apiKey = getArg("api-key") || process.env.DEEPSEEK_API_KEY || "";
 const model = getArg("model") || "deepseek-v4-pro";
 const baseUrl = getArg("base-url") || "https://api.deepseek.com";
 const taskFilter = getArg("task");
+const evalRunId = getArg("run-id") || String(Date.now());
+const saveTraces = !hasFlag("no-trace");
 
 if (!apiKey) {
   console.error("Error: Set DEEPSEEK_API_KEY env var or pass --api-key <key>");
@@ -38,18 +45,36 @@ const config: LlmConfig = { apiKey, model, baseUrl };
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tasksDir = path.resolve(__dirname, "tasks");
 
-console.log(`\n🧪 Running eval suite`);
-console.log(`   Model: ${model}`);
-console.log(`   Tasks: ${tasksDir}`);
-console.log(`   Filter: ${taskFilter || "(all)"}\n`);
+process.env.FORGELET_EVAL_RUN_ID = evalRunId;
+if (saveTraces) {
+  process.env.FORGELET_EVAL_TRACE = "1";
+}
 
-process.env.FORGELET_EVAL_RUN_ID = String(Date.now());
+const traceDir = resolveEvalTraceDir(evalRunId);
+
+console.log(`\n🧪 Running eval suite`);
+console.log(`   Model:   ${model}`);
+console.log(`   Run ID:  ${evalRunId}`);
+console.log(`   Tasks:   ${tasksDir}`);
+console.log(`   Filter:  ${taskFilter || "(all)"}`);
+if (saveTraces) {
+  console.log(`   Traces:  ${traceDir}/instances/<taskId>.jsonl`);
+} else {
+  console.log(`   Traces:  (disabled, use default or omit --no-trace)`);
+}
+console.log();
+
 const report = await runEval(config, tasksDir);
 
 console.log(`\n── Results ──`);
 console.log(`   Pass rate: ${report.passRate} (${report.passed}/${report.totalTasks})`);
 console.log(`   Duration:  ${(report.totalDurationMs / 1000).toFixed(1)}s`);
-console.log(`   Model:     ${report.model}\n`);
+console.log(`   Model:     ${report.model}`);
+console.log(`   Run ID:    ${evalRunId}`);
+if (saveTraces) {
+  console.log(`   Traces:    ${traceDir}/instances/`);
+}
+console.log();
 
 // Save report
 const reportPath = path.resolve(__dirname, "reports", `${Date.now()}.json`);

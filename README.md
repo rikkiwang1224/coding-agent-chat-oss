@@ -64,11 +64,11 @@ pnpm typecheck
 pnpm --filter @forgelet/chat-desktop build
 pnpm --filter @forgelet/chat-desktop start
 
-# Harness eval (synthetic tasks)
-pnpm --filter @forgelet/harness eval
+# Harness eval (synthetic tasks; reads DEEPSEEK_API_KEY from repo-root .env)
+pnpm eval
 
 # SWE-bench (real repos; see packages/harness/eval/swe-bench/README.md)
-pnpm --filter @forgelet/harness eval:swe -- --dataset lite --limit 3 --skip-eval
+pnpm eval:swe -- --dataset lite --limit 3 --skip-eval
 ```
 
 Cursor project skill for the full Mac + cloud workflow: `.cursor/skills/swe-bench-eval/`.

@@ -1,5 +1,6 @@
 #!/bin/bash
 # Test: fibonacci(0)=0, fibonacci(1)=1, fibonacci(5)=5, fibonacci(10)=55
+WORKSPACE="${1:-$WORKSPACE}"
 cd "$WORKSPACE" || exit 1
 
 cat > __eval_test.ts << 'EOF'

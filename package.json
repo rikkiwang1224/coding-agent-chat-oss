@@ -12,7 +12,11 @@
     "start": "pnpm --filter @forgelet/chat-desktop start",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
-    "test": "pnpm -r test"
+    "test": "pnpm -r test",
+    "eval": "pnpm --filter @forgelet/harness eval",
+    "eval:swe": "pnpm --filter @forgelet/harness eval:swe",
+    "eval:swe:verify": "pnpm --filter @forgelet/harness eval:swe:verify",
+    "eval:swe:setup": "pnpm --filter @forgelet/harness eval:swe:setup"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
