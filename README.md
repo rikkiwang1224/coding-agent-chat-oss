@@ -79,6 +79,8 @@ pnpm --filter @forgelet/harness eval
 pnpm --filter @forgelet/harness eval:swe -- --dataset lite --limit 3 --skip-eval
 ```
 
+Cursor project skill for the full Mac + cloud workflow: `.cursor/skills/swe-bench-eval/`.
+
 ## Brand Assets
 
 The source icon and brand notes live in `brand/`.
