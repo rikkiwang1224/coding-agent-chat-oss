@@ -18,6 +18,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { access } from "node:fs/promises";
 import { mkdir } from "node:fs/promises";
 import {
   filterPendingInstances,
@@ -63,13 +64,35 @@ const runsDir = path.resolve(getArg("runs-dir") || path.join(sweDir, "runs"));
 const outputDir = path.resolve(getArg("output") || path.join(runsDir, `eval-${runId}`));
 const predictionsPath = path.join(outputDir, "predictions.jsonl");
 
+async function resolvePython(): Promise<string> {
+  if (process.env.SWEBENCH_PYTHON) return process.env.SWEBENCH_PYTHON;
+
+  const candidates = [
+    path.join(sweDir, ".venv", "bin", "python"),
+    path.join(sweDir, ".venv-mac", "bin", "python"),
+    "python3",
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      await access(candidate);
+      return candidate;
+    } catch {
+      // try next
+    }
+  }
+
+  throw new Error(
+    "Python not found. Create a venv: cd packages/harness/eval/swe-bench && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt",
+  );
+}
+
 async function fetchInstances(): Promise<string> {
   const outPath = path.join(outputDir, "instances.json");
   await mkdir(outputDir, { recursive: true });
 
   const py = path.join(sweDir, "fetch_instances.py");
-  const venvPython = path.join(sweDir, ".venv", "bin", "python");
-  const pythonCmd = process.env.SWEBENCH_PYTHON || venvPython;
+  const pythonCmd = await resolvePython();
 
   const pyArgs = [
     py,

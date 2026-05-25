@@ -30,9 +30,9 @@ export const DATASET_HF_IDS: Record<SweBenchDatasetId, string> = {
 
 /** Dataset name passed to `swebench.harness.run_evaluation --dataset_name`. */
 export const DATASET_EVAL_NAMES: Record<SweBenchDatasetId, string> = {
-  lite: "princeton-nlp/SWE-bench_Lite",
-  verified: "princeton-nlp/SWE-bench_Verified",
-  full: "princeton-nlp/SWE-bench",
+  lite: "SWE-bench/SWE-bench_Lite",
+  verified: "SWE-bench/SWE-bench_Verified",
+  full: "SWE-bench/SWE-bench",
 };
 
 export interface SweBenchRunOptions {

@@ -1,8 +1,338 @@
 # SWE-bench 评测
 
-用 [SWE-bench](https://github.com/SWE-bench/SWE-bench) 真实开源仓库做**最终验证**：本 harness 负责 agent 推理并生成 patch，官方 Docker harness 负责在隔离环境里跑测试判定是否 resolved。
+用 [SWE-bench](https://github.com/SWE-bench/SWE-bench) 真实开源仓库做**最终验证**：本 harness 负责 agent 推理并生成 patch，官方 Docker harness 在隔离环境里跑测试判定是否 resolved。
 
-## 流程
+推荐分工：**Mac 跑 Agent**，**国内云（腾讯云等）跑 Docker 评测**。
+
+---
+
+## 完整一次评测流程（端到端）
+
+### 总览
+
+```mermaid
+flowchart TB
+  subgraph mac [Mac 本地]
+    A1[pnpm eval:swe --skip-eval]
+    A2[predictions.jsonl]
+    A3[可选: 打包 HF 缓存]
+  end
+  subgraph cloud [腾讯云 ECS]
+    B1[解压 HF 缓存 离线]
+    B2[evaluate.sh + Docker]
+    B3[evaluation_results/]
+  end
+  subgraph tunnel [Mac 保持运行]
+    P1[pproxy :7890]
+    P2[ssh -R 隧道]
+  end
+  A1 --> A2
+  A2 -->|scp| B2
+  A3 -->|scp| B1
+  B1 --> B2
+  B2 --> B3
+  P1 --> P2
+  P2 -->|GitHub 代理| B2
+```
+
+| 阶段 | 在哪里 | 产出 | 耗时量级 |
+|------|--------|------|----------|
+| 1. 拉任务 + Agent | Mac | `predictions.jsonl` | 每条数分钟～数十分钟 |
+| 2. 传文件 | Mac → 云 | 云上 `predictions.jsonl` | 秒级 |
+| 3. Docker 评测 | 云 | `evaluation_results/<run-id>/` | 每条数十分钟～数小时（首次更久） |
+
+**不要混淆：**
+
+- `eval:swe --skip-eval` = 只「做题」（生成 patch），**不是** SWE-bench 评分。
+- `evaluate.sh` = 「阅卷」（容器里跑测试），看 **resolved** 才算通过。
+
+---
+
+### 0. 仓库与工作目录
+
+SWE-bench 相关代码在 git 分支 **`feat/swe-bench`**，常用独立 worktree：
+
+```text
+coding-agent-chat-oss-swe-bench/   ← 跑 eval:swe 用这个目录
+coding-agent-chat-oss/             ← master，日常开发（可能没有 eval/swe-bench）
+```
+
+以下路径均相对于 **`coding-agent-chat-oss-swe-bench` 仓库根**。
+
+---
+
+### 1. 一次性准备（Mac）
+
+```bash
+# 仓库根
+pnpm install
+
+# API Key 建议放 .env，不要写在命令行
+export DEEPSEEK_API_KEY=sk-...
+
+# 拉任务用 Python（二选一）
+cd packages/harness/eval/swe-bench
+python3 -m venv .venv          # 或 .venv-mac
+.venv/bin/pip install datasets huggingface_hub
+
+# 验证能拉到 Lite（注意数据集名，不要用 princeton-nlp/...）
+export HF_ENDPOINT=https://hf-mirror.com   # 国内 Mac 建议
+.venv/bin/python -c "
+from datasets import load_dataset
+ds = load_dataset('SWE-bench/SWE-bench_Lite', split='test')
+print('rows', len(ds))
+"
+# 应输出 rows 300
+```
+
+可选：打包 HuggingFace 缓存供云主机离线使用（云无法访问 HF 时必需）：
+
+```bash
+COPYFILE_DISABLE=1 tar czf ~/hf-cache.tar.gz -C ~/.cache huggingface
+```
+
+---
+
+### 2. 一次性准备（腾讯云 ECS）
+
+**推荐规格：** Ubuntu 24.04 x86_64 · 8C16G · 系统盘 ≥150GB · 公网 IP · 安全组放行 TCP:22（不必开 80/443）。
+
+#### 2.1 安装 Docker + 镜像加速
+
+```bash
+sudo apt-get update
+sudo apt-get install -y docker.io git python3 python3-venv python3-pip
+sudo systemctl enable --now docker
+sudo usermod -aG docker ubuntu
+# 重新登录 SSH
+
+sudo mkdir -p /etc/docker
+sudo tee /etc/docker/daemon.json <<'EOF'
+{
+  "registry-mirrors": ["https://mirror.ccs.tencentyun.com"]
+}
+EOF
+sudo systemctl restart docker
+docker run --rm hello-world
+```
+
+#### 2.2 评测目录与 Python 依赖
+
+```bash
+mkdir -p ~/forgelet-eval && cd ~/forgelet-eval
+# 从 Mac scp 整个 swe-bench 脚本目录，或 git clone 后拷贝
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+chmod +x evaluate.sh fetch_instances.py
+```
+
+#### 2.3 上传 HF 缓存（Mac → 云）
+
+```bash
+# Mac
+scp ~/hf-cache.tar.gz ubuntu@<ECS_IP>:~/
+
+# 云
+mkdir -p ~/.cache
+tar xzf ~/hf-cache.tar.gz -C ~/.cache
+# tar 的 LIBARCHIVE.xattr... 警告可忽略（Mac 打包附带扩展属性）
+```
+
+#### 2.4 GitHub 代理（云无法访问 raw.githubusercontent.com 时必需）
+
+公司内网 Mac 能访问 GitHub，但**没有** Clash 等本地代理时：在 Mac 起临时 HTTP 代理，经 SSH 反向隧道给云用。
+
+**终端 A（Mac，保持运行）— 代理：**
+
+```bash
+python3 -m pip install --user pproxy
+python3 -m pproxy -l http://127.0.0.1:7890
+
+# 另开终端验证
+curl -I --proxy http://127.0.0.1:7890 https://raw.githubusercontent.com
+# 应看到 HTTP/1.1 200 Connection established
+```
+
+**终端 B（Mac，保持运行）— 隧道：**
+
+```bash
+ssh -N -o ServerAliveInterval=60 -R 7890:127.0.0.1:7890 ubuntu@<ECS_IP>
+```
+
+**云终端验证：**
+
+```bash
+curl -I --proxy http://127.0.0.1:7890 https://raw.githubusercontent.com
+```
+
+**Docker 也走代理（建议）：**
+
+```bash
+sudo mkdir -p /etc/systemd/system/docker.service.d
+sudo tee /etc/systemd/system/docker.service.d/http-proxy.conf <<'EOF'
+[Service]
+Environment="HTTP_PROXY=http://127.0.0.1:7890"
+Environment="HTTPS_PROXY=http://127.0.0.1:7890"
+Environment="NO_PROXY=localhost,127.0.0.1,mirror.ccs.tencentyun.com"
+EOF
+sudo systemctl daemon-reload
+sudo systemctl restart docker
+```
+
+评测期间 **终端 A、B 不要关**。
+
+#### 2.5 环境自检（gold patch）
+
+```bash
+export http_proxy=http://127.0.0.1:7890
+export https_proxy=http://127.0.0.1:7890
+export HTTP_PROXY=http://127.0.0.1:7890
+export HTTPS_PROXY=http://127.0.0.1:7890
+export NO_PROXY=localhost,127.0.0.1,mirror.ccs.tencentyun.com
+
+export HF_HOME=$HOME/.cache/huggingface
+export HF_DATASETS_CACHE=$HOME/.cache/huggingface/datasets
+export HF_HUB_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
+
+cd ~/forgelet-eval
+export SWEBENCH_PYTHON=$HOME/forgelet-eval/.venv/bin/python
+bash evaluate.sh gold SWE-bench/SWE-bench_Lite validate-gold 1
+```
+
+进度条在 `0/300` 或 `0/1` 停很久**可能正常**（首条在构建镜像+跑测试）；用 `docker ps` 确认有容器在跑。
+
+---
+
+### 3. 每次正式评测
+
+#### 3.1 Mac：跑 Agent（生成 patch）
+
+在 **`coding-agent-chat-oss-swe-bench` 根目录**：
+
+```bash
+export DEEPSEEK_API_KEY=sk-...
+export SWEBENCH_PYTHON="$(pwd)/packages/harness/eval/swe-bench/.venv/bin/python"
+# 若只有 .venv-mac：把路径改成 .venv-mac/bin/python
+
+pnpm --filter @forgelet/harness eval:swe -- \
+  --dataset lite \
+  --limit 3 \
+  --skip-eval \
+  --run-id tencent-smoke
+```
+
+| 参数 | 含义 |
+|------|------|
+| `--limit 3` | 只跑 3 条（省略则拉满 Lite 300 条） |
+| `--skip-eval` | 不在本机跑 Docker，只写 `predictions.jsonl` |
+| `--run-id` | 输出目录 `runs/eval-<run-id>/` |
+
+成功时类似：
+
+```text
+[OK] astropy__astropy-12907 (... patch 503 chars)
+Patches: 3/3 non-empty
+Skipped harness. Run verification: ...
+```
+
+产物：
+
+```text
+packages/harness/eval/swe-bench/runs/eval-tencent-smoke/
+  instances.json
+  predictions.jsonl    ← 上传云端
+  run-report.json
+  repos/               ← 本地 git 缓存，不必上传
+```
+
+断点续跑：
+
+```bash
+pnpm --filter @forgelet/harness eval:swe -- \
+  --output packages/harness/eval/swe-bench/runs/eval-tencent-smoke \
+  --instances packages/harness/eval/swe-bench/runs/eval-tencent-smoke/instances.json \
+  --resume --skip-eval
+```
+
+#### 3.2 Mac → 云：上传 predictions
+
+```bash
+scp packages/harness/eval/swe-bench/runs/eval-tencent-smoke/predictions.jsonl \
+  ubuntu@<ECS_IP>:~/forgelet-eval/predictions.jsonl
+```
+
+#### 3.3 云：Docker 官方评测
+
+确认 **pproxy + ssh -R** 仍在 Mac 上运行，然后：
+
+```bash
+export http_proxy=http://127.0.0.1:7890
+export https_proxy=http://127.0.0.1:7890
+export HTTP_PROXY=http://127.0.0.1:7890
+export HTTPS_PROXY=http://127.0.0.1:7890
+export NO_PROXY=localhost,127.0.0.1,mirror.ccs.tencentyun.com
+
+export HF_HOME=$HOME/.cache/huggingface
+export HF_HUB_OFFLINE=1
+export HF_DATASETS_OFFLINE=1
+
+cd ~/forgelet-eval
+export SWEBENCH_PYTHON=$HOME/forgelet-eval/.venv/bin/python
+
+bash evaluate.sh \
+  ~/forgelet-eval/predictions.jsonl \
+  SWE-bench/SWE-bench_Lite \
+  tencent-smoke \
+  1
+```
+
+- 第 4 个参数 `1` = `max_workers`（建议先 1，稳定后再 4）。
+- 进度 `0/3` 停 30～60 分钟可能正常；完成后变为 `1/3`、`2/3`、`3/3`。
+
+#### 3.4 查看结果
+
+```bash
+cat ~/forgelet-eval/evaluation_results/tencent-smoke/results.json
+# 或拉回 Mac
+scp -r ubuntu@<ECS_IP>:~/forgelet-eval/evaluation_results/tencent-smoke ./
+```
+
+关注 **resolved**（测试通过、issue 算修好的比例）。
+
+---
+
+### 4. 日常速查表
+
+| 步骤 | 位置 | 命令 |
+|------|------|------|
+| Agent | Mac worktree | `eval:swe -- --skip-eval --run-id <id> [--limit N]` |
+| 传 patch | Mac | `scp runs/eval-<id>/predictions.jsonl ubuntu@<IP>:~/forgelet-eval/` |
+| 开代理 | Mac | `pproxy` + `ssh -R 7890:127.0.0.1:7890` |
+| 评测 | 云 | `bash evaluate.sh predictions.jsonl SWE-bench/SWE-bench_Lite <run-id> 1` |
+| 看分 | 云 | `evaluation_results/<run-id>/results.json` |
+
+---
+
+### 5. 常见问题
+
+| 现象 | 原因 | 处理 |
+|------|------|------|
+| `princeton-nlp/SWE-bench_Lite` 拉取失败 | 旧数据集 ID，应用 `SWE-bench/SWE-bench_Lite` | 见上文 |
+| 云 HF `Network is unreachable` | 云访问不了 HuggingFace | Mac 打包 `~/.cache/huggingface` + `HF_*_OFFLINE=1` |
+| 云 GitHub `raw.githubusercontent.com` 失败 | 国内云常见 | Mac `pproxy` + `ssh -R`，并配置 Docker 代理 |
+| Mac `127.0.0.1:7890` 连不上 | 没有 Clash，公司直连 GitHub | 用 `pproxy`，不是开 Clash 端口 |
+| 只跑了 3 条 | 命令行有 `--limit 3` | 去掉或改大 |
+| `readFile(...).trim is not a function` | 已修复 | 拉最新 `runner.ts` |
+| `.venv/bin/python ENOENT` | 未建 venv | `eval:swe:setup` 或设 `SWEBENCH_PYTHON` |
+| 评测 `0/3` 很久不动 | 首条 Docker+测试很慢 | `docker ps` 看是否在跑；首条完才涨进度 |
+| tar `LIBARCHIVE.xattr` 警告 | Mac 打包属性 | 可忽略；用 `COPYFILE_DISABLE=1 tar` 可减少 |
+
+**数据集名（评测 `--dataset_name`）：** 使用 `SWE-bench/SWE-bench_Lite`，不要用 `princeton-nlp/...`（`load_dataset` 会失败）。
+
+---
+
+## 架构说明
 
 ```mermaid
 flowchart LR
@@ -12,256 +342,60 @@ flowchart LR
   D --> E[evaluation_results/]
 ```
 
-1. **拉取任务**：从 HuggingFace 导出 instance（`problem_statement` + `base_commit` + `repo`）
-2. **Agent 修复**：在 `base_commit` 的 worktree 里跑 `@forgelet/harness` agent，收集 `git diff`
-3. **官方评测**：`predictions.jsonl` 交给 `swebench.harness.run_evaluation`（需 Docker）
+1. **拉取任务**：HuggingFace `SWE-bench/SWE-bench_Lite`（或 Verified / Full）
+2. **Agent 修复**：`base_commit` worktree 上跑 harness，`git diff` → patch
+3. **官方评测**：Docker 内应用 patch 并跑项目测试
 
-## 环境准备
+## 环境准备（摘要）
 
-### Agent 阶段（Node）
+### Agent（Node，Mac）
 
 ```bash
-# 仓库根目录
 pnpm install
 export DEEPSEEK_API_KEY=sk-...
 ```
 
-### 评测阶段（Python + Docker）
+### 评测（Python + Docker，云）
 
 ```bash
 cd packages/harness/eval/swe-bench
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-
-# 安装并启动 Docker（见 SWE-bench 文档）
-# macOS Apple Silicon 评测时需本地构建镜像，verify 脚本会自动加 --namespace ''
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+# 或: pnpm --filter @forgelet/harness eval:swe:setup
 ```
 
-资源建议（来自 SWE-bench 文档）：x86_64、约 120GB 磁盘、16GB RAM；`--max-workers` 按机器调整。
-
-> **Mac 用户**：本机磁盘/ARM 往往不适合跑完整 Docker 评测，推荐下面「阿里云」流程——Agent 留本地，评测上云。
-
-## 阿里云：本地 Agent + 云端评测
-
-Harness agent 在**本地 Mac** 跑；**阿里云 ECS** 只负责 Docker 官方评测。两边通过 `predictions.jsonl` 衔接，无需上传 `repos/`、`worktrees/`。
-
-```text
-┌─────────────────────────────┐         ┌──────────────────────────────┐
-│  本地 Mac                    │  scp   │  阿里云 ECS（Ubuntu x86_64）  │
-│  pnpm eval:swe --skip-eval  │ ──────► │  evaluate.sh / eval:swe:verify│
-│    → predictions.jsonl      │         │    → evaluation_results/     │
-└─────────────────────────────┘         └──────────────────────────────┘
-```
-
-| 阶段 | 机器 | 需要什么 |
-|------|------|----------|
-| 拉任务 + Agent | 本地 | Node/pnpm、`DEEPSEEK_API_KEY`、git；**不必** Docker |
-| 官方评测 | 阿里云 | Docker、Python venv + `swebench`；**不必** API Key |
-
-云上 harness 会按 `instance_id` 在容器内准备对应 repo 与 `base_commit`，再应用你提交的 `model_patch`，与本地 worktree 无关。
-
-### 1. 本地：跑 Agent（`--skip-eval`）
-
-```bash
-# 仓库根目录
-pnpm install
-export DEEPSEEK_API_KEY=sk-...
-
-# 仅拉 instance 列表（小 venv，非 Docker）
-cd packages/harness/eval/swe-bench
-python3 -m venv .venv
-.venv/bin/pip install datasets huggingface_hub
-
-# 回到仓库根，跑 agent
-pnpm --filter @forgelet/harness eval:swe -- \
-  --dataset lite \
-  --limit 10 \
-  --skip-eval \
-  --run-id local-lite-10
-```
-
-产物：`packages/harness/eval/swe-bench/runs/eval-local-lite-10/predictions.jsonl`（**需上传**）。
-
-断点续跑：同一 `--output` 目录加 `--resume --skip-eval`。
-
-### 2. 阿里云：开 ECS
-
-| 项 | 建议 |
-|----|------|
-| 镜像 | Ubuntu 22.04 / 24.04，**x86_64** |
-| 规格 | 8 vCPU、16GB 内存 |
-| 系统盘 | **≥ 150GB** |
-| 安全组 | 放行 **22**（SSH） |
-| 网络 | 可访问公网（拉 Docker 镜像） |
-
-### 3. 阿里云：装 Docker + 评测环境
-
-SSH 登录后（示例）：
-
-```bash
-# 安装 Docker（按 Ubuntu / 阿里云文档安装 docker.io 或 Docker CE）
-sudo apt-get update
-sudo apt-get install -y docker.io
-sudo usermod -aG docker $USER
-# 退出 SSH 重新登录，使 docker 组生效
-
-mkdir -p ~/forgelet-eval && cd ~/forgelet-eval
-```
-
-将评测所需文件放到 ECS（任选其一）：
-
-- **最小**：`scp` 本仓库的 `packages/harness/eval/swe-bench/` 下  
-  `evaluate.sh`、`requirements.txt`，以及 `.venv` 在云上自行 `pip install`
-- **完整**：`git clone` 整个仓库，`cd packages/harness/eval/swe-bench`
-
-```bash
-cd ~/forgelet-eval   # 或 clone 后的 swe-bench 目录
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-```
-
-云上**不需要** Node、pnpm，也**不要**配置 `DEEPSEEK_API_KEY`。
-
-### 4. 上传 predictions（Mac → ECS）
-
-在**本地**执行（将 `<ECS_IP>` 换成公网 IP）：
-
-```bash
-scp packages/harness/eval/swe-bench/runs/eval-local-lite-10/predictions.jsonl \
-  user@<ECS_IP>:~/forgelet-eval/predictions.jsonl
-```
-
-也可用 `rsync`、OSS 等；传的是文本 JSONL，不含密钥。
-
-### 5. 阿里云：跑官方 harness
-
-SSH 到 ECS：
-
-```bash
-cd ~/forgelet-eval
-export SWEBENCH_PYTHON=$PWD/.venv/bin/python
-
-bash evaluate.sh \
-  ~/forgelet-eval/predictions.jsonl \
-  princeton-nlp/SWE-bench_Lite \
-  aliyun-lite-10 \
-  4
-```
-
-若已 `git clone` 完整仓库，也可：
-
-```bash
-pnpm --filter @forgelet/harness eval:swe:verify -- \
-  ~/forgelet-eval/predictions.jsonl \
-  --dataset lite \
-  --run-id aliyun-lite-10 \
-  --max-workers 4
-```
-
-结果目录：`evaluation_results/aliyun-lite-10/`。需要时在 ECS 上打包 `scp` 回本地查看 `results.json`。
-
-### 日常流程速查
-
-| 步骤 | 位置 | 命令 |
-|------|------|------|
-| 1 | Mac | `eval:swe -- --skip-eval --run-id <id>` |
-| 2 | Mac → ECS | `scp .../predictions.jsonl user@<IP>:~/forgelet-eval/` |
-| 3 | ECS | `bash evaluate.sh predictions.jsonl princeton-nlp/SWE-bench_Lite <run-id> 4` |
-| 4 | 可选 | `scp` 拉回 `evaluation_results/` |
-
-### 常见问题
-
-- **本地 clone 和云上仓库一致吗？**  
-  不必一致。评测在 SWE-bench 预制 Docker 环境内进行，只认 `instance_id` + `model_patch`。
-
-- **为什么 Mac 不推荐本地 Docker 评测？**  
-  Apple Silicon 需本地构建 Linux 镜像；SWE-bench 镜像缓存常需 **100GB+** 磁盘，多数 Mac 可用空间不足。
-
-- **ECS 在国内拉镜像慢？**  
-  可配置 Docker 镜像加速，或降低 `--cache_level`（更省盘、更慢）。首次评测会拉取较多镜像。
-
-- **费用？**  
-  按量 8C16G + 大系统盘，跑 Lite 子集通常为几小时量级；测完可关机或释放实例。
-
-## 快速开始
-
-### 冒烟（3 条 Lite）
-
-```bash
-pnpm --filter @forgelet/harness eval:swe -- --dataset lite --limit 3 --skip-eval
-```
-
-仅生成 patch，不跑 Docker：
-
-```bash
-# 之后单独验证
-pnpm --filter @forgelet/harness eval:swe:verify -- \
-  packages/harness/eval/swe-bench/runs/eval-<timestamp>/predictions.jsonl \
-  --dataset lite
-```
-
-### 完整流程（agent + Docker 评测）
-
-```bash
-pnpm --filter @forgelet/harness eval:swe -- \
-  --dataset lite \
-  --limit 10 \
-  --run-id forgelet-lite-10
-```
-
-### 指定 instance
-
-```bash
-pnpm --filter @forgelet/harness eval:swe -- \
-  --instance-ids sympy__sympy-20590,astropy__astropy-12907 \
-  --skip-eval
-```
-
-### 断点续跑
-
-```bash
-pnpm --filter @forgelet/harness eval:swe -- \
-  --output packages/harness/eval/swe-bench/runs/eval-123 \
-  --instances packages/harness/eval/swe-bench/runs/eval-123/instances.json \
-  --resume \
-  --skip-eval
-```
+资源建议（SWE-bench 官方）：x86_64 · ≥120GB 磁盘 · 16GB RAM。
 
 ## CLI 参数
 
 | 参数 | 说明 |
 |------|------|
 | `--dataset` | `lite`（默认）、`verified`、`full` |
-| `--limit` | 最多跑几条 |
-| `--instance-ids` | 逗号分隔的 instance_id |
-| `--instances` | 本地 JSON/JSONL，跳过 HF 拉取 |
+| `--limit` | 最多跑几条 instance |
+| `--instance-ids` | 逗号分隔 |
+| `--instances` | 本地 JSON，跳过 HF 拉取 |
 | `--max-turns` | Agent 最大轮次（默认 75） |
-| `--timeout-s` | 单条超时秒数（默认 1800） |
-| `--skip-eval` | 只生成 predictions，不跑 Docker |
-| `--resume` | 跳过 predictions.jsonl 里已有的 instance |
-| `--run-id` | 运行目录名 `runs/eval-<run-id>` |
-| `--evaluate-only` | 仅跑官方 harness（需已有 predictions） |
+| `--timeout-s` | 单条超时秒（默认 1800） |
+| `--skip-eval` | 只生成 predictions |
+| `--resume` | 跳过 predictions.jsonl 已有行 |
+| `--run-id` | 目录 `runs/eval-<run-id>` |
 
-环境变量：`DEEPSEEK_API_KEY`、`SWEBENCH_PYTHON`（非默认 venv 的 python 路径）。
+环境变量：`DEEPSEEK_API_KEY`、`SWEBENCH_PYTHON`。
 
 ## 输出目录
 
-```
+```text
 runs/eval-<run-id>/
-  instances.json      # 本次任务列表
-  predictions.jsonl   # 官方格式，供 harness 消费
-  run-report.json       # agent 运行摘要
-  worktrees/            # 临时 git worktree（运行中）
+  instances.json
+  predictions.jsonl
+  run-report.json
+  worktrees/          # 临时，运行中
+  repos/              # bare clone 缓存
+
+evaluation_results/<run-id>/   # 云上 evaluate.sh
+logs/                          # 云上 harness 日志
 ```
-
-官方 harness 日志与结果：
-
-- `eval/swe-bench/logs/`
-- `eval/swe-bench/evaluation_results/<run-id>/`
 
 ## predictions 格式
-
-每行一条 JSON（与 SWE-bench 文档一致）：
 
 ```json
 {
@@ -276,16 +410,24 @@ runs/eval-<run-id>/
 | | `eval/tasks/*` | SWE-bench |
 |--|----------------|-----------|
 | 代码库 | 小型合成 workspace | 真实 GitHub 仓库 |
-| 判定 | `judge.sh` / 本地脚本 | Docker + 项目测试套件 |
-| 用途 | 开发迭代、能力分层 | **最终能力验证** |
+| 判定 | `judge.sh` | Docker + 项目测试 |
+| 用途 | 日常迭代 | **发版 / 对比模型** |
 
-建议：日常改 agent 用 `pnpm --filter @forgelet/harness eval`；发版或对比模型前跑 SWE-bench Lite 子集。
+日常：`pnpm --filter @forgelet/harness eval`  
+发版前：SWE-bench Lite 子集 + 云端 `evaluate.sh`。
 
-## 验证 gold patch（环境自检）
+## 脚本命令
 
 ```bash
-cd packages/harness/eval/swe-bench
-./evaluate.sh gold princeton-nlp/SWE-bench_Lite validate-gold 1 ''
+pnpm --filter @forgelet/harness eval:swe          # Agent（可加 --skip-eval）
+pnpm --filter @forgelet/harness eval:swe:verify   # 仅 Docker 评测
+pnpm --filter @forgelet/harness eval:swe:setup    # 云/Macos 上装 Python 依赖
 ```
 
-（`predictions_path` 为字面量 `gold` 时使用数据集金标准 patch。）
+## 验证 gold patch
+
+```bash
+bash evaluate.sh gold SWE-bench/SWE-bench_Lite validate-gold 1
+```
+
+`predictions_path` 为字面量 `gold` 时使用数据集标准答案 patch。

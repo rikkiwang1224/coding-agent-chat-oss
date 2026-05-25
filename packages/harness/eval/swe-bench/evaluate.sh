@@ -5,14 +5,14 @@
 #   ./evaluate.sh <predictions.jsonl> <dataset_name> <run_id> [max_workers] [namespace]
 #
 # Examples:
-#   ./evaluate.sh runs/eval-123/predictions.jsonl princeton-nlp/SWE-bench_Lite my-run 4
+#   ./evaluate.sh runs/eval-123/predictions.jsonl SWE-bench/SWE-bench_Lite my-run 4
 #   # macOS ARM — build images locally:
-#   ./evaluate.sh predictions.jsonl princeton-nlp/SWE-bench_Lite my-run 1 ''
+#   ./evaluate.sh predictions.jsonl SWE-bench/SWE-bench_Lite my-run 1 ''
 
 set -euo pipefail
 
 PREDICTIONS="${1:?predictions path required}"
-DATASET_NAME="${2:-princeton-nlp/SWE-bench_Lite}"
+DATASET_NAME="${2:-SWE-bench/SWE-bench_Lite}"
 RUN_ID="${3:-eval-$(date +%s)}"
 MAX_WORKERS="${4:-4}"
 NAMESPACE="${5-}"

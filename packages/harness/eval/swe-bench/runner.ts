@@ -14,7 +14,7 @@ import type {
 } from "./types.js";
 
 export async function loadInstancesFromJson(filePath: string): Promise<SweBenchInstance[]> {
-  const raw = await readFile(filePath, "utf8").trim();
+  const raw = (await readFile(filePath, "utf8")).trim();
   if (raw.startsWith("[")) {
     return JSON.parse(raw) as SweBenchInstance[];
   }
