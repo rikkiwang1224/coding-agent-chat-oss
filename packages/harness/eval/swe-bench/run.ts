@@ -21,12 +21,15 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { access } from "node:fs/promises";
 import { mkdir } from "node:fs/promises";
+import { loadEvalEnv } from "../load-env.js";
 import {
   filterPendingInstances,
   loadInstancesFromJson,
   runSweBench,
   writeRunReport,
 } from "./runner.js";
+
+loadEvalEnv();
 import type { LlmConfig } from "../../src/types.js";
 import type { SweBenchDatasetId } from "./types.js";
 import { DATASET_EVAL_NAMES } from "./types.js";
