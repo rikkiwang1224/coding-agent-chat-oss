@@ -11,7 +11,10 @@
     "lint": "pnpm run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
-    "eval": "tsx eval/run.ts"
+    "eval": "tsx eval/run.ts",
+    "eval:swe": "tsx eval/swe-bench/run.ts",
+    "eval:swe:verify": "tsx eval/swe-bench/verify.ts",
+    "eval:swe:setup": "cd eval/swe-bench && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"
   },
   "dependencies": {
     "@forgelet/sdk-core": "workspace:*",
