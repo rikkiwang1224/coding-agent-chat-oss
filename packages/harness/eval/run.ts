@@ -13,8 +13,9 @@ import { fileURLToPath } from "node:url";
 import { writeFile } from "node:fs/promises";
 import { resolveEvalTraceDir } from "@forgelet/storage-core";
 import { loadEvalEnv } from "./load-env.js";
-import { runEval } from "./runner.js";
+import { formatCostUsd, runEval } from "./runner.js";
 import type { LlmConfig } from "../src/types.js";
+import type { LlmProvider } from "@forgelet/sdk-runtime";
 
 loadEvalEnv();
 
@@ -41,7 +42,8 @@ if (!apiKey) {
   process.exit(1);
 }
 
-const config: LlmConfig = { apiKey, model, baseUrl };
+const provider = (getArg("provider") || "deepseek") as LlmProvider;
+const config: LlmConfig = { apiKey, model, baseUrl, provider };
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tasksDir = path.resolve(__dirname, "tasks");
 
@@ -53,7 +55,8 @@ if (saveTraces) {
 const traceDir = resolveEvalTraceDir(evalRunId);
 
 console.log(`\n🧪 Running eval suite`);
-console.log(`   Model:   ${model}`);
+console.log(`   Model:    ${model}`);
+console.log(`   Provider: ${provider}`);
 console.log(`   Run ID:  ${evalRunId}`);
 console.log(`   Tasks:   ${tasksDir}`);
 console.log(`   Filter:  ${taskFilter || "(all)"}`);
@@ -70,6 +73,10 @@ console.log(`\n── Results ──`);
 console.log(`   Pass rate: ${report.passRate} (${report.passed}/${report.totalTasks})`);
 console.log(`   Duration:  ${(report.totalDurationMs / 1000).toFixed(1)}s`);
 console.log(`   Model:     ${report.model}`);
+console.log(
+  `   Tokens:    ${report.usage.inputTokens.toLocaleString()} in / ${report.usage.outputTokens.toLocaleString()} out (${report.usage.totalTokens.toLocaleString()} total)`,
+);
+console.log(`   Est. cost: ${formatCostUsd(report.usage.totalCostUsd)}`);
 console.log(`   Run ID:    ${evalRunId}`);
 if (saveTraces) {
   console.log(`   Traces:    ${traceDir}/instances/`);

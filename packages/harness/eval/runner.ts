@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 import { HarnessEngine } from "../src/harness-engine.js";
 import type { LlmConfig } from "../src/types.js";
 import type { AgentEvent } from "@forgelet/shared-types";
+import { formatCostUsd, summarizeEvalUsage, summarizeTaskUsage, type EvalUsageSummary } from "./usage-summary.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -24,17 +25,20 @@ export interface EvalResult {
   durationMs: number;
   turnCount: number;
   error?: string;
+  usage?: EvalUsageSummary;
   events: AgentEvent[];
 }
 
 export interface EvalReport {
   model: string;
+  provider?: string;
   timestamp: string;
   totalTasks: number;
   passed: number;
   failed: number;
   passRate: string;
   totalDurationMs: number;
+  usage: EvalUsageSummary;
   results: EvalResult[];
 }
 
@@ -76,18 +80,26 @@ export async function runEval(config: LlmConfig, tasksDir: string): Promise<Eval
 
   const passed = results.filter((r) => r.passed).length;
   const totalDurationMs = Date.now() - startTime;
+  const usage = summarizeEvalUsage(results, {
+    provider: config.provider ?? "deepseek",
+    model: config.model,
+  });
 
   return {
     model: config.model || "unknown",
+    provider: config.provider,
     timestamp: new Date().toISOString(),
     totalTasks: results.length,
     passed,
     failed: results.length - passed,
     passRate: `${((passed / results.length) * 100).toFixed(1)}%`,
     totalDurationMs,
+    usage,
     results,
   };
 }
+
+export { formatCostUsd };
 
 async function runSingleTask(config: LlmConfig, taskPath: string): Promise<EvalResult> {
   const taskJson = await readFile(path.join(taskPath, "task.json"), "utf8");
@@ -151,7 +163,9 @@ async function runSingleTask(config: LlmConfig, taskPath: string): Promise<EvalR
     const durationMs = Date.now() - startTime;
     const { passed, error: judgeError } = await judgeTask(task, taskPath, workspaceDir);
 
-    return { taskId: task.id, passed, durationMs, turnCount, error: judgeError, events };
+    const usage = summarizeTaskUsage(events);
+
+    return { taskId: task.id, passed, durationMs, turnCount, error: judgeError, usage, events };
   } finally {
     await rm(workspaceDir, { recursive: true, force: true }).catch(() => {});
   }
