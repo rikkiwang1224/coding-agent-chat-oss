@@ -1,7 +1,7 @@
 {
   "id": "08-find-bug",
   "name": "Find and fix an off-by-one bug",
-  "prompt": "The function `paginate` in src/paginate.ts has a bug. When called with `paginate([1,2,3,4,5], 2, 2)` it should return `[3,4]` (page 2, size 2 — zero-indexed pages starting from 0 would give [1,2],[3,4],[5]). Currently it returns wrong results. Find and fix the bug.",
+  "prompt": "The function `paginate` in src/paginate.ts has a bug. Pages are zero-indexed (page 0 is the first page). When called with `paginate([1,2,3,4,5], 2, 2)` it should return `[5]` — pages are `[1,2]`, `[3,4]`, `[5]`. Currently it returns wrong results. Find and fix the bug.",
   "timeout_s": 120,
   "judge": "script",
   "judge_args": {}

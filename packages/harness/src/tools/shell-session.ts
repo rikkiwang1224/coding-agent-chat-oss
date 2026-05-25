@@ -1,5 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 
+const MAX_BUFFER_CHARS = 512 * 1024;
+
 /**
  * Persistent shell session that maintains state (cwd, env vars) across commands.
  * Uses boundary markers to delimit command output.
@@ -7,12 +9,20 @@ import { spawn, type ChildProcess } from "node:child_process";
 export class ShellSession {
   private process: ChildProcess | null = null;
   private buffer = "";
+  private pendingExecute: PendingExecute | null = null;
   private readonly workspaceRoot: string;
   private readonly env: Record<string, string>;
 
   constructor(workspaceRoot: string, env?: Record<string, string>) {
     this.workspaceRoot = workspaceRoot;
-    this.env = { ...process.env as Record<string, string>, ...env, TERM: "dumb" };
+    this.env = {
+      ...(process.env as Record<string, string>),
+      ...env,
+      TERM: "dumb",
+      BASH_SILENCE_DEPRECATION_WARNING: "1",
+      PS1: "",
+      PS2: "",
+    };
   }
 
   private ensureStarted(): ChildProcess {
@@ -20,24 +30,42 @@ export class ShellSession {
       return this.process;
     }
 
-    this.process = spawn("bash", ["--norc", "--noprofile", "-i"], {
+    this.buffer = "";
+
+    this.process = spawn("bash", ["--norc", "--noprofile"], {
       cwd: this.workspaceRoot,
       env: this.env,
       stdio: ["pipe", "pipe", "pipe"],
     });
 
     this.process.stdout!.on("data", (chunk: Buffer) => {
-      this.buffer += chunk.toString();
+      this.appendBuffer(chunk.toString());
     });
 
     this.process.stderr!.on("data", (chunk: Buffer) => {
-      this.buffer += chunk.toString();
+      this.appendBuffer(chunk.toString());
     });
 
-    // Disable echo and set a simple prompt to avoid noise
-    this.writeRaw("set +o history; export PS1=''; export PS2=''\n");
+    this.process.on("exit", (code) => {
+      if (this.pendingExecute) {
+        const { startIdx, marker, finish } = this.pendingExecute;
+        this.pendingExecute = null;
+        const output = this.cleanOutput(this.buffer.slice(startIdx), marker);
+        finish({ exitCode: code ?? 1, output: output || "Shell process exited" });
+      }
+      this.process = null;
+    });
+
+    this.writeRaw("set +o history 2>/dev/null; export PS1=''; export PS2=''\n");
 
     return this.process;
+  }
+
+  private appendBuffer(chunk: string): void {
+    this.buffer += chunk;
+    if (this.buffer.length > MAX_BUFFER_CHARS) {
+      this.buffer = this.buffer.slice(-MAX_BUFFER_CHARS);
+    }
   }
 
   private writeRaw(data: string): void {
@@ -45,82 +73,81 @@ export class ShellSession {
   }
 
   async execute(command: string, timeoutMs = 60_000): Promise<{ exitCode: number; output: string }> {
-    const proc = this.ensureStarted();
+    this.ensureStarted();
 
-    // Generate a unique boundary marker
-    const marker = `__SHELL_BOUNDARY_${Date.now()}_${Math.random().toString(36).slice(2)}__`;
+    const marker = `__FORGELET_BOUNDARY_${Date.now()}_${Math.random().toString(36).slice(2)}__`;
+    const markerPattern = new RegExp(`(?:^|\\n)${escapeRegExp(marker)}:(\\d+)(?:\\r)?(?:\\n|$)`);
 
-    return new Promise<{ exitCode: number; output: string }>((resolve, reject) => {
+    return new Promise<{ exitCode: number; output: string }>((resolve) => {
       const startIdx = this.buffer.length;
       let settled = false;
 
+      const finish = (result: { exitCode: number; output: string }): void => {
+        if (settled) return;
+        settled = true;
+        this.pendingExecute = null;
+        clearInterval(check);
+        clearTimeout(timer);
+        resolve(result);
+      };
+
+      this.pendingExecute = { startIdx, marker, finish };
+
+      const tryResolveFromBuffer = (): boolean => {
+        const slice = this.buffer.slice(startIdx);
+        const match = markerPattern.exec(slice);
+        if (!match) return false;
+
+        const endMarkerIdx = startIdx + match.index;
+        finish(this.parseOutput(startIdx, endMarkerIdx, marker, Number(match[1])));
+        return true;
+      };
+
       const timer = setTimeout(() => {
-        if (!settled) {
-          settled = true;
-          // Kill the timed-out command but keep the shell alive
-          proc.kill("SIGINT");
-          const output = this.extractOutput(startIdx, marker);
-          resolve({ exitCode: 124, output: output + "\n[command timed out]" });
-        }
+        if (tryResolveFromBuffer()) return;
+
+        // Interrupt the foreground job without tearing down the shell.
+        this.writeRaw("\x03");
+        const output = this.cleanOutput(this.buffer.slice(startIdx), marker);
+        finish({ exitCode: 124, output: output + "\n[command timed out]" });
       }, timeoutMs);
 
       const check = setInterval(() => {
-        const endMarkerIdx = this.buffer.indexOf(marker, startIdx);
-        if (endMarkerIdx !== -1) {
-          clearInterval(check);
-          clearTimeout(timer);
-          if (!settled) {
-            settled = true;
-            const { exitCode, output } = this.parseOutput(startIdx, endMarkerIdx, marker);
-            resolve({ exitCode, output });
-          }
-        }
-      }, 50);
+        tryResolveFromBuffer();
+      }, 25);
 
-      // Send the command followed by the exit-code echoing boundary
-      const wrappedCommand = `${command}\n__ec=$?\necho "${marker}:$__ec"\n`;
+      const wrappedCommand = `${command}
+__ec=$?
+printf '\\n${marker}:%s\\n' "$__ec"
+`;
       this.writeRaw(wrappedCommand);
-
-      // If the process dies unexpectedly
-      proc.once("exit", () => {
-        clearInterval(check);
-        clearTimeout(timer);
-        if (!settled) {
-          settled = true;
-          const output = this.buffer.slice(startIdx);
-          resolve({ exitCode: 1, output: output || "Shell process exited unexpectedly" });
-        }
-      });
     });
   }
 
-  private parseOutput(startIdx: number, endMarkerIdx: number, marker: string): { exitCode: number; output: string } {
-    // Extract everything between start and the boundary marker line
+  private parseOutput(
+    startIdx: number,
+    endMarkerIdx: number,
+    marker: string,
+    exitCode: number,
+  ): { exitCode: number; output: string } {
     const raw = this.buffer.slice(startIdx, endMarkerIdx);
+    return { exitCode, output: this.cleanOutput(raw, marker) };
+  }
 
-    // Parse exit code from the marker line
-    const afterMarker = this.buffer.slice(endMarkerIdx);
-    const markerLine = afterMarker.split("\n")[0];
-    const ecMatch = markerLine.match(/:(\d+)/);
-    const exitCode = ecMatch ? parseInt(ecMatch[1], 10) : 0;
-
-    // Clean up: remove the command echo and any prompt artifacts
-    const output = raw
+  private cleanOutput(raw: string, marker: string): string {
+    return raw
       .split("\n")
       .filter((line) => {
-        // Filter out our internal commands
         if (line.includes("__ec=$?")) return false;
-        if (line.includes("echo \"" + marker)) return false;
+        if (line.includes(marker)) return false;
+        if (line.includes("bash: no job control in this shell")) return false;
+        if (line.includes("The default interactive shell is now zsh")) return false;
+        if (line.includes("support.apple.com/kb/HT208050")) return false;
+        if (/^bash-[\d.]+$/.test(line.trim())) return false;
         return true;
       })
       .join("\n")
       .trim();
-
-    return { exitCode, output };
-  }
-
-  private extractOutput(startIdx: number, _marker: string): string {
-    return this.buffer.slice(startIdx).trim();
   }
 
   getCwd(): Promise<string> {
@@ -134,4 +161,14 @@ export class ShellSession {
     this.process = null;
     this.buffer = "";
   }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+interface PendingExecute {
+  startIdx: number;
+  marker: string;
+  finish: (result: { exitCode: number; output: string }) => void;
 }

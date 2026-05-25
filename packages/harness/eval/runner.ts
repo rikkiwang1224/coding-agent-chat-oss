@@ -38,8 +38,20 @@ export interface EvalReport {
   results: EvalResult[];
 }
 
+const JUDGE_TIMEOUT_MS = 60_000;
+
+async function warmupJudgeDeps(): Promise<void> {
+  try {
+    await execFileAsync("npx", ["--yes", "tsx", "--version"], { timeout: JUDGE_TIMEOUT_MS });
+  } catch {
+    // Best-effort: eval judges still run if warmup fails.
+  }
+}
+
 export async function runEval(config: LlmConfig, tasksDir: string): Promise<EvalReport> {
   const startTime = Date.now();
+  await warmupJudgeDeps();
+
   const taskDirs = await readdir(tasksDir, { withFileTypes: true });
   const tasks = taskDirs
     .filter((d) => d.isDirectory())
@@ -52,7 +64,11 @@ export async function runEval(config: LlmConfig, tasksDir: string): Promise<Eval
     const result = await runSingleTask(config, taskPath);
     results.push(result);
     const status = result.passed ? "PASS" : "FAIL";
-    console.log(`  [${status}] ${result.taskId} (${result.durationMs}ms, ${result.turnCount} turns)`);
+    const runId = process.env.FORGELET_EVAL_RUN_ID;
+    const runSuffix = runId ? `, run ${runId}` : "";
+    console.log(
+      `  [${status}] ${result.taskId} (${result.durationMs}ms, ${result.turnCount} turns${runSuffix})`,
+    );
     if (result.error) {
       console.log(`         ${result.error}`);
     }
@@ -94,17 +110,22 @@ async function runSingleTask(config: LlmConfig, taskPath: string): Promise<EvalR
     const evalRunId = process.env.FORGELET_EVAL_RUN_ID || "local";
 
     // Run the agent
+    const traceEnabled = process.env.FORGELET_EVAL_TRACE === "1";
+
     const engine = new HarnessEngine({
       workspaceRoot: workspaceDir,
       config,
       maxTurns: 20,
-      trace: {
-        enabled: true,
-        runKind: "eval",
-        runId: evalRunId,
-        instanceId: task.id,
-        workspaceRoot: workspaceDir,
-      },
+      persistSession: false,
+      trace: traceEnabled
+        ? {
+            enabled: true,
+            runKind: "eval",
+            runId: evalRunId,
+            instanceId: task.id,
+            workspaceRoot: workspaceDir,
+          }
+        : undefined,
     });
 
     const controller = new AbortController();
@@ -128,26 +149,31 @@ async function runSingleTask(config: LlmConfig, taskPath: string): Promise<EvalR
 
     // Judge the result regardless of whether the agent completed or timed out
     const durationMs = Date.now() - startTime;
-    const passed = await judgeTask(task, taskPath, workspaceDir);
+    const { passed, error: judgeError } = await judgeTask(task, taskPath, workspaceDir);
 
-    return { taskId: task.id, passed, durationMs, turnCount, events };
+    return { taskId: task.id, passed, durationMs, turnCount, error: judgeError, events };
   } finally {
     await rm(workspaceDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 
-async function judgeTask(task: EvalTask, taskPath: string, workspaceDir: string): Promise<boolean> {
+async function judgeTask(
+  task: EvalTask,
+  taskPath: string,
+  workspaceDir: string,
+): Promise<{ passed: boolean; error?: string }> {
   switch (task.judge) {
     case "script": {
       const scriptPath = path.join(taskPath, "judge.sh");
       try {
         await execFileAsync("bash", [scriptPath, workspaceDir], {
-          timeout: 30_000,
+          timeout: JUDGE_TIMEOUT_MS,
           env: { ...process.env, WORKSPACE: workspaceDir },
         });
-        return true;
-      } catch {
-        return false;
+        return { passed: true };
+      } catch (err) {
+        const message = formatExecError(err);
+        return { passed: false, error: `judge failed: ${message}` };
       }
     }
 
@@ -156,9 +182,9 @@ async function judgeTask(task: EvalTask, taskPath: string, workspaceDir: string)
       const expected = String(task.judge_args?.expected || "");
       try {
         const content = await readFile(path.join(workspaceDir, file), "utf8");
-        return content.includes(expected);
-      } catch {
-        return false;
+        return { passed: content.includes(expected) };
+      } catch (err) {
+        return { passed: false, error: formatExecError(err) };
       }
     }
 
@@ -167,26 +193,38 @@ async function judgeTask(task: EvalTask, taskPath: string, workspaceDir: string)
       for (const f of files) {
         try {
           await readFile(path.join(workspaceDir, f));
-        } catch {
-          return false;
+        } catch (err) {
+          return { passed: false, error: `missing file: ${f} (${formatExecError(err)})` };
         }
       }
-      return files.length > 0;
+      return { passed: files.length > 0 };
     }
 
     case "typecheck": {
       try {
         await execFileAsync("npx", ["tsc", "--noEmit"], {
           cwd: workspaceDir,
-          timeout: 30_000,
+          timeout: JUDGE_TIMEOUT_MS,
         });
-        return true;
-      } catch {
-        return false;
+        return { passed: true };
+      } catch (err) {
+        return { passed: false, error: formatExecError(err) };
       }
     }
 
     default:
-      return false;
+      return { passed: false, error: `unknown judge type: ${task.judge}` };
   }
+}
+
+function formatExecError(err: unknown): string {
+  if (!err || typeof err !== "object") return String(err);
+  const execErr = err as { message?: string; stderr?: string; stdout?: string; killed?: boolean };
+  const parts = [execErr.message?.trim()].filter(Boolean);
+  const stderr = execErr.stderr?.trim();
+  const stdout = execErr.stdout?.trim();
+  if (stderr) parts.push(stderr);
+  else if (stdout) parts.push(stdout);
+  if (execErr.killed) parts.push("(timed out)");
+  return parts.join(" — ") || "unknown error";
 }
