@@ -5,6 +5,8 @@ export type AgentEventType =
   | "tool.called"
   | "tool.output"
   | "tool.error"
+  | "tool.permission_request"
+  | "tool.permission_resolved"
   | "agent.done"
   | "agent.error";
 
@@ -158,6 +160,10 @@ export interface DesktopConfig {
     runMode?: "run" | "resume";
   }) => Promise<{ sessionId?: string }>;
   resumeRun: DesktopConfig["startRun"];
+  respondPermission: (
+    requestId: string,
+    outcome: "allow_once" | "allow_always" | "deny",
+  ) => Promise<boolean>;
   onAgentEvent: (listener: (event: AgentEvent) => void) => void;
   debugPing: () => Promise<{
     ok: boolean;

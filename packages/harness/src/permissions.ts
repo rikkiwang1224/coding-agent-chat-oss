@@ -55,10 +55,26 @@ export type PermissionCallback = (
 export class PermissionGuard {
   private readonly policy: PermissionPolicy;
   private readonly onConfirm?: PermissionCallback;
+  private readonly sessionAllowlist = new Set<string>();
 
   constructor(policy?: PermissionPolicy, onConfirm?: PermissionCallback) {
     this.policy = policy ?? DEFAULT_POLICY;
     this.onConfirm = onConfirm;
+  }
+
+  /** Remember a command or tool pattern for the rest of this guard instance (e.g. allow_always). */
+  addAlwaysAllow(key: string): void {
+    const trimmed = key.trim();
+    if (trimmed) this.sessionAllowlist.add(trimmed);
+  }
+
+  private isSessionAllowed(toolName: string, args: Record<string, unknown>): boolean {
+    if (this.sessionAllowlist.has(toolName)) return true;
+    const command = String(args.command || "");
+    for (const entry of this.sessionAllowlist) {
+      if (command && (command === entry || command.includes(entry))) return true;
+    }
+    return false;
   }
 
   /**
@@ -69,6 +85,10 @@ export class PermissionGuard {
     toolName: string,
     args: Record<string, unknown>,
   ): Promise<{ allowed: boolean; reason?: string }> {
+    if (this.isSessionAllowed(toolName, args)) {
+      return { allowed: true };
+    }
+
     // Check tool-level permission
     const toolLevel = this.policy.tools?.[toolName] ?? this.policy.default;
 

@@ -1,17 +1,29 @@
 import type { AgentEngine, RunTaskInput, EventSink } from "@forgelet/sdk-core";
 import type { AgentEvent, AgentRunMetrics } from "@forgelet/shared-types";
-import type { LlmConfig } from "./types.js";
+import type { ChatMessage, LlmConfig } from "./types.js";
 import { AgentLoop } from "./agent-loop.js";
 import { PlanExecutor } from "./plan-execute.js";
 import { detectWorkspaceContext, type PromptContext } from "./prompt.js";
+import { SessionStore, resolveHarnessSessionDir, type SessionData } from "./session-store.js";
+import {
+  PermissionGuard,
+  type PermissionCallback,
+  type PermissionPolicy,
+} from "./permissions.js";
+import type { HarnessHooks } from "./hooks.js";
 
 export interface HarnessEngineOptions {
   workspaceRoot: string;
   config: LlmConfig;
   maxTurns?: number;
   promptContext?: PromptContext;
-  /** Use plan-then-execute for complex multi-step tasks */
   usePlanExecute?: boolean;
+  sessionStore?: SessionStore;
+  /** Persist messages to sessionStore (default: true when sessionStore is set) */
+  persistSession?: boolean;
+  onPermissionConfirm?: PermissionCallback;
+  permissionPolicy?: PermissionPolicy;
+  hooks?: HarnessHooks;
 }
 
 export class HarnessEngine implements AgentEngine {
@@ -19,6 +31,10 @@ export class HarnessEngine implements AgentEngine {
   private readonly config: LlmConfig;
   private readonly maxTurns?: number;
   private readonly usePlanExecute: boolean;
+  private readonly sessionStore?: SessionStore;
+  private readonly persistSession: boolean;
+  private readonly permissionGuard: PermissionGuard;
+  private readonly hooks?: HarnessHooks;
   private promptContext?: PromptContext;
 
   constructor(options: HarnessEngineOptions) {
@@ -26,7 +42,20 @@ export class HarnessEngine implements AgentEngine {
     this.config = options.config;
     this.maxTurns = options.maxTurns;
     this.usePlanExecute = options.usePlanExecute ?? false;
+    this.sessionStore =
+      options.sessionStore ??
+      new SessionStore(resolveHarnessSessionDir(options.workspaceRoot));
+    this.persistSession = options.persistSession ?? true;
+    this.permissionGuard = new PermissionGuard(
+      options.permissionPolicy,
+      options.onPermissionConfirm,
+    );
+    this.hooks = options.hooks;
     this.promptContext = options.promptContext;
+  }
+
+  getPermissionGuard(): PermissionGuard {
+    return this.permissionGuard;
   }
 
   async runTask(input: RunTaskInput, emit: EventSink): Promise<void> {
@@ -36,10 +65,21 @@ export class HarnessEngine implements AgentEngine {
 
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
+    let sessionCreatedAt = new Date().toISOString();
 
-    // Auto-detect workspace context if not provided
     if (!this.promptContext) {
       this.promptContext = await detectWorkspaceContext(this.workspaceRoot);
+    }
+
+    let initialMessages: ChatMessage[] | undefined;
+    if (input.runMode === "resume" && this.sessionStore) {
+      const existing = await this.sessionStore.load(sessionId);
+      if (existing?.messages?.length) {
+        initialMessages = existing.messages;
+        sessionCreatedAt = existing.createdAt;
+        totalInputTokens = existing.metadata.totalInputTokens ?? 0;
+        totalOutputTokens = existing.metadata.totalOutputTokens ?? 0;
+      }
     }
 
     const emitEvent = (type: AgentEvent["type"], payload: unknown): void => {
@@ -50,6 +90,32 @@ export class HarnessEngine implements AgentEngine {
         timestamp: new Date().toISOString(),
         payload,
       });
+    };
+
+    let saveTimer: ReturnType<typeof setTimeout> | undefined;
+    const flushSession = async (messages: ChatMessage[], turnCount: number): Promise<void> => {
+      if (!this.persistSession || !this.sessionStore) return;
+      const data: SessionData = {
+        id: sessionId,
+        createdAt: sessionCreatedAt,
+        updatedAt: new Date().toISOString(),
+        messages,
+        metadata: {
+          model: this.config.model,
+          workspaceRoot: this.workspaceRoot,
+          turnCount,
+          totalInputTokens,
+          totalOutputTokens,
+        },
+      };
+      await this.sessionStore.save(data);
+    };
+
+    const scheduleSave = (messages: ChatMessage[], turnCount: number): void => {
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        void flushSession(messages, turnCount).catch(() => {});
+      }, 500);
     };
 
     emitEvent("agent.started", {
@@ -86,10 +152,12 @@ export class HarnessEngine implements AgentEngine {
             output: truncateForEvent(output),
           });
         } else {
+          const isDenied = output.includes("Permission denied") || output.includes("User denied");
           emitEvent("tool.error", {
             toolCallId: callId,
             toolName,
             error: truncateForEvent(output),
+            decision: isDenied ? "deny" : undefined,
           });
         }
       },
@@ -171,12 +239,22 @@ export class HarnessEngine implements AgentEngine {
         maxTurns: this.maxTurns,
         signal,
         callbacks: loopCallbacks,
+        initialMessages,
+        sessionId,
+        permissionGuard: this.permissionGuard,
+        hooks: this.hooks,
+        onMessagesChanged: (messages) => {
+          const turns = messages.filter((m) => m.role === "user").length;
+          scheduleSave(messages, turns);
+        },
       });
 
       const result = await loop.run(prompt);
+      if (saveTimer) clearTimeout(saveTimer);
+      await flushSession(result.messages, result.turnCount);
       loop.destroy();
-      const durationMs = Date.now() - startTime;
 
+      const durationMs = Date.now() - startTime;
       const finalMessage = result.messages[result.messages.length - 1];
       const summary =
         finalMessage?.role === "assistant" && finalMessage.content
@@ -203,11 +281,10 @@ export class HarnessEngine implements AgentEngine {
         terminalReason: "completed",
       });
     } catch (error) {
+      if (saveTimer) clearTimeout(saveTimer);
       const durationMs = Date.now() - startTime;
       const message = error instanceof Error ? error.message : String(error);
-
-      const isCancelled =
-        message.includes("cancelled") || message.includes("aborted");
+      const isCancelled = message.includes("cancelled") || message.includes("aborted");
 
       emitEvent("agent.error", {
         error: message,

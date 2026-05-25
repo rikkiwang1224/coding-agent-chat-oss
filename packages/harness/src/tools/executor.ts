@@ -4,6 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { ShellSession } from "./shell-session.js";
 import { PermissionGuard, type PermissionPolicy, type PermissionCallback } from "../permissions.js";
+import type { HarnessHooks } from "../hooks.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -19,16 +20,29 @@ export interface ToolExecutorOptions {
   workspaceRoot: string;
   permissionPolicy?: PermissionPolicy;
   onPermissionConfirm?: PermissionCallback;
+  permissionGuard?: PermissionGuard;
+  hooks?: HarnessHooks;
+  sessionId?: string;
 }
 
 export class ToolExecutor {
   private readonly workspaceRoot: string;
   private readonly guard: PermissionGuard;
+  private readonly hooks?: HarnessHooks;
+  private readonly sessionId?: string;
   private shell: ShellSession | null = null;
 
   constructor(options: ToolExecutorOptions) {
     this.workspaceRoot = path.resolve(options.workspaceRoot);
-    this.guard = new PermissionGuard(options.permissionPolicy, options.onPermissionConfirm);
+    this.guard =
+      options.permissionGuard ??
+      new PermissionGuard(options.permissionPolicy, options.onPermissionConfirm);
+    this.hooks = options.hooks;
+    this.sessionId = options.sessionId;
+  }
+
+  getPermissionGuard(): PermissionGuard {
+    return this.guard;
   }
 
   private getShell(): ShellSession {
@@ -44,37 +58,69 @@ export class ToolExecutor {
   }
 
   async execute(toolName: string, args: Record<string, unknown>): Promise<ToolExecutionResult> {
+    if (this.hooks?.preToolUse) {
+      const pre = await this.hooks.preToolUse({
+        toolName,
+        args,
+        sessionId: this.sessionId,
+      });
+      if (pre) {
+        if (!pre.allow) {
+          return {
+            ok: false,
+            output: `Blocked by preToolUse hook: ${pre.reason || "not allowed"}`,
+          };
+        }
+        if (pre.args) args = pre.args;
+      }
+    }
+
     // Permission check
     const permission = await this.guard.check(toolName, args);
     if (!permission.allowed) {
       return { ok: false, output: `Permission denied: ${permission.reason}` };
     }
 
+    let result: ToolExecutionResult;
     try {
       switch (toolName) {
         case "read_file":
-          return await this.readFile(args);
+          result = await this.readFile(args);
+          break;
         case "write_file":
-          return await this.writeFile(args);
+          result = await this.writeFile(args);
+          break;
         case "edit_file":
-          return await this.editFile(args);
+          result = await this.editFile(args);
+          break;
         case "bash":
-          return await this.bash(args);
+          result = await this.bash(args);
+          break;
         case "run_command":
-          return await this.bash(args);
+          result = await this.bash(args);
+          break;
         case "glob_search":
-          return await this.globSearch(args);
+          result = await this.globSearch(args);
+          break;
         case "grep_search":
-          return await this.grepSearch(args);
+          result = await this.grepSearch(args);
+          break;
         case "list_directory":
-          return await this.listDirectory(args);
+          result = await this.listDirectory(args);
+          break;
         default:
-          return { ok: false, output: `Unknown tool: ${toolName}` };
+          result = { ok: false, output: `Unknown tool: ${toolName}` };
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { ok: false, output: `Error executing ${toolName}: ${message}` };
+      result = { ok: false, output: `Error executing ${toolName}: ${message}` };
     }
+
+    if (this.hooks?.postToolUse) {
+      await this.hooks.postToolUse({ toolName, args, result, sessionId: this.sessionId });
+    }
+
+    return result;
   }
 
   private resolvePath(filePath: string): string {

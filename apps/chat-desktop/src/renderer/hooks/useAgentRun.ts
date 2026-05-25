@@ -7,6 +7,8 @@ import type {
   ImageAttachment,
   ToolCallInfo,
 } from "@/types";
+import type { PermissionRequestOutcome } from "@forgelet/shared-types";
+import type { PendingPermissionRequest } from "@/components/ChatArea/PermissionDialog";
 
 let messageCounter = 0;
 function nextMessageId(): string {
@@ -95,6 +97,8 @@ export interface AgentRunHook {
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   setSessionId: React.Dispatch<React.SetStateAction<string | null>>;
   isRunBusy: boolean;
+  pendingPermission: PendingPermissionRequest | null;
+  respondToPermission: (outcome: PermissionRequestOutcome) => void;
 }
 
 export function useAgentRun(): AgentRunHook {
@@ -107,6 +111,8 @@ export function useAgentRun(): AgentRunHook {
     ImageAttachment[]
   >([]);
   const [sdkSessionId, setSdkSessionId] = useState<string | null>(null);
+  const [pendingPermission, setPendingPermission] =
+    useState<PendingPermissionRequest | null>(null);
 
   const activeAssistantIdRef = useRef<string | null>(null);
   const messagesRef = useRef(messages);
@@ -228,7 +234,20 @@ export function useAgentRun(): AgentRunHook {
           break;
         }
 
+        case "tool.permission_request": {
+          const requestId = String(payload.requestId ?? "");
+          if (!requestId) break;
+          setPendingPermission({
+            requestId,
+            toolName: String(payload.toolName ?? "tool"),
+            args: (payload.args as Record<string, unknown>) ?? {},
+            reason: String(payload.reason ?? "Confirmation required"),
+          });
+          break;
+        }
+
         case "agent.done": {
+          setPendingPermission(null);
           setRunState("completed");
           setRunError("");
           if (typeof payload.sdkSessionId === "string" && payload.sdkSessionId) {
@@ -262,6 +281,7 @@ export function useAgentRun(): AgentRunHook {
         }
 
         case "agent.error": {
+          setPendingPermission(null);
           const error = String(
             (payload.error as string) || "Agent run failed",
           );
@@ -378,6 +398,16 @@ export function useAgentRun(): AgentRunHook {
     [config, isRunBusy, sessionId, prepareUserMessage, pushMessage],
   );
 
+  const respondToPermission = useCallback(
+    (outcome: PermissionRequestOutcome) => {
+      if (!pendingPermission || !config.respondPermission) return;
+      const { requestId } = pendingPermission;
+      setPendingPermission(null);
+      void config.respondPermission(requestId, outcome);
+    },
+    [config, pendingPermission],
+  );
+
   const resetConversation = useCallback(() => {
     setMessages([]);
     setRunState("idle");
@@ -385,6 +415,7 @@ export function useAgentRun(): AgentRunHook {
     setSessionId(null);
     setSdkSessionId(null);
     setComposerAttachments([]);
+    setPendingPermission(null);
     activeAssistantIdRef.current = null;
   }, []);
 
@@ -402,5 +433,7 @@ export function useAgentRun(): AgentRunHook {
     setMessages,
     setSessionId,
     isRunBusy,
+    pendingPermission,
+    respondToPermission,
   };
 }

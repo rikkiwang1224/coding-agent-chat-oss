@@ -7,6 +7,8 @@ export type AgentEventType =
   | "tool.called"
   | "tool.output"
   | "tool.error"
+  | "tool.permission_request"
+  | "tool.permission_resolved"
   | "agent.done"
   | "agent.error";
 
@@ -90,6 +92,22 @@ export interface ToolErrorPayload {
   toolName: string;
   error: string;
   decision?: PermissionDecision;
+}
+
+export type PermissionRequestOutcome = "allow_once" | "allow_always" | "deny";
+
+export interface ToolPermissionRequestPayload {
+  requestId: string;
+  toolCallId?: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  reason: string;
+  decision: Extract<PermissionDecision, "ask">;
+}
+
+export interface ToolPermissionResolvedPayload {
+  requestId: string;
+  outcome: PermissionRequestOutcome;
 }
 
 export interface AgentToolCalledEvent {

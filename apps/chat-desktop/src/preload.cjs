@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld("desktopConfig", {
   importLegacyThreads: (payload) => ipcRenderer.invoke("chat-desktop:import-legacy-threads", payload),
   startRun: (input) => ipcRenderer.invoke("chat-desktop:start-run", input),
   resumeRun: (input) => ipcRenderer.invoke("chat-desktop:resume-run", input),
+  respondPermission: (requestId, outcome) =>
+    ipcRenderer.invoke("chat-desktop:respond-permission", requestId, outcome),
   onAgentEvent: (listener) => {
     ipcRenderer.removeAllListeners("chat-desktop:agent-event");
     if (typeof listener !== "function") return;

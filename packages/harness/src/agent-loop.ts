@@ -9,6 +9,8 @@ import { LlmClient } from "./api-client.js";
 import { TOOL_DEFINITIONS, ToolExecutor } from "./tools/index.js";
 import { buildSystemPrompt, type PromptContext } from "./prompt.js";
 import { ContextCompressor, estimateTokens } from "./context-compressor.js";
+import type { HarnessHooks } from "./hooks.js";
+import type { PermissionGuard, PermissionCallback } from "./permissions.js";
 
 export interface AgentLoopCallbacks {
   onTextDelta?: (delta: string) => void;
@@ -37,7 +39,15 @@ export interface AgentLoopOptions {
   maxContextTokens?: number;
   signal?: AbortSignal;
   callbacks: AgentLoopCallbacks;
+  /** @deprecated Prefer initialMessages for resume */
   threadContext?: ChatMessage[];
+  /** Restored conversation (e.g. from SessionStore on resume) */
+  initialMessages?: ChatMessage[];
+  onMessagesChanged?: (messages: ChatMessage[]) => void;
+  sessionId?: string;
+  permissionGuard?: PermissionGuard;
+  onPermissionConfirm?: PermissionCallback;
+  hooks?: HarnessHooks;
 }
 
 const DEFAULT_MAX_TURNS = 50;
@@ -51,6 +61,7 @@ export class AgentLoop {
   private readonly compressor: ContextCompressor;
   private readonly signal?: AbortSignal;
   private readonly callbacks: AgentLoopCallbacks;
+  private readonly onMessagesChanged?: (messages: ChatMessage[]) => void;
   private messages: ChatMessage[];
 
   private turnCount = 0;
@@ -59,7 +70,13 @@ export class AgentLoop {
 
   constructor(options: AgentLoopOptions) {
     this.client = new LlmClient(options.config);
-    this.executor = new ToolExecutor({ workspaceRoot: options.workspaceRoot });
+    this.executor = new ToolExecutor({
+      workspaceRoot: options.workspaceRoot,
+      permissionGuard: options.permissionGuard,
+      onPermissionConfirm: options.onPermissionConfirm,
+      hooks: options.hooks,
+      sessionId: options.sessionId,
+    });
     this.workspaceRoot = options.workspaceRoot;
     this.maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
     this.maxTotalTokens = options.maxTokens ?? Infinity;
@@ -69,19 +86,33 @@ export class AgentLoop {
     });
     this.signal = options.signal;
     this.callbacks = options.callbacks;
+    this.onMessagesChanged = options.onMessagesChanged;
 
-    this.messages = [
-      { role: "system", content: buildSystemPrompt(options.promptContext ?? options.workspaceRoot) },
-      ...(options.threadContext || []),
-    ];
+    if (options.initialMessages && options.initialMessages.length > 0) {
+      this.messages = [...options.initialMessages];
+    } else {
+      this.messages = [
+        { role: "system", content: buildSystemPrompt(options.promptContext ?? options.workspaceRoot) },
+        ...(options.threadContext || []),
+      ];
+    }
+  }
+
+  getMessages(): ChatMessage[] {
+    return this.messages;
   }
 
   destroy(): void {
     this.executor.destroy();
   }
 
+  private notifyMessagesChanged(): void {
+    this.onMessagesChanged?.(this.messages);
+  }
+
   async run(userPrompt: string): Promise<{ messages: ChatMessage[]; turnCount: number; tokenUsage: TokenUsage }> {
     this.messages.push({ role: "user", content: userPrompt });
+    this.notifyMessagesChanged();
 
     while (this.turnCount < this.maxTurns) {
       if (this.signal?.aborted) {
@@ -93,12 +124,14 @@ export class AgentLoop {
 
       const assistantMessage = await this.executeTurn();
       this.messages.push(assistantMessage);
+      this.notifyMessagesChanged();
 
       if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
         // No tool calls — the model is done
         this.callbacks.onTurnEnd?.(this.turnCount);
         const finalText = assistantMessage.content || "";
         this.callbacks.onComplete?.(finalText);
+        this.notifyMessagesChanged();
         return {
           messages: this.messages,
           turnCount: this.turnCount,
@@ -115,6 +148,7 @@ export class AgentLoop {
       for (const result of toolResults) {
         this.messages.push(result);
       }
+      this.notifyMessagesChanged();
 
       this.callbacks.onTurnEnd?.(this.turnCount);
     }

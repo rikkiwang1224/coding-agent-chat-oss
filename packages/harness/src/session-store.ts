@@ -2,6 +2,11 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import type { ChatMessage } from "./types.js";
 
+/** Directory for harness-native session files under a workspace. */
+export function resolveHarnessSessionDir(workspaceRoot: string): string {
+  return path.join(workspaceRoot, ".forgelet", "harness-sessions");
+}
+
 export interface SessionData {
   id: string;
   createdAt: string;
