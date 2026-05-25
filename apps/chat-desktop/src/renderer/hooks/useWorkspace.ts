@@ -51,16 +51,25 @@ function getThreadGroupLabel(timestamp: string): string {
   return "Earlier";
 }
 
+function sortThreadsByUpdatedAt(threads: ThreadSummary[]): ThreadSummary[] {
+  return [...threads].sort(
+    (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+  );
+}
+
 function groupThreadsByDate(threads: ThreadSummary[]): ThreadGroup[] {
   const grouped = new Map<string, ThreadSummary[]>();
-  threads.forEach((t) => {
+  for (const t of sortThreadsByUpdatedAt(threads)) {
     const label = getThreadGroupLabel(t.updatedAt);
     const bucket = grouped.get(label) ?? [];
     bucket.push(t);
     grouped.set(label, bucket);
-  });
+  }
   return ["Today", "Yesterday", "Earlier"]
-    .map((label) => ({ label, threads: grouped.get(label) ?? [] }))
+    .map((label) => ({
+      label,
+      threads: sortThreadsByUpdatedAt(grouped.get(label) ?? []),
+    }))
     .filter((g) => g.threads.length > 0);
 }
 
@@ -157,32 +166,41 @@ export function useWorkspace(): WorkspaceHook {
   const getAllThreads = useCallback(
     (ws: WorkspaceInfo | null): ThreadSummary[] => {
       if (!ws) return [];
-      const local = getWorkspaceLocalThreads(ws.path);
-      const hiddenIds = new Set(local.flatMap((t) => t.runSessionIds));
-      const persisted =
-        ws.threadGroups
-          ?.flatMap((g) => g.threads)
-          .filter((t) => !hiddenIds.has(t.id)) ?? [];
-      const merged: ThreadSummary[] = [
-        ...local.map(
-          (t): ThreadSummary => ({
-            id: t.id,
-            title: t.title,
-            summary: t.summary,
-            time: formatRelativeTime(t.updatedAt),
-            placeholder: t.placeholder,
-            sessionState: t.sessionState || "Saved thread",
-            scope: t.scope || "Workspace root",
-            updatedAt: t.updatedAt,
-            isLocal: true,
-          }),
-        ),
-        ...persisted,
-      ];
-      return merged.sort(
-        (a, b) =>
-          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-      );
+
+      const byId = new Map<string, ThreadSummary>();
+
+      const upsert = (candidate: ThreadSummary): void => {
+        const existing = byId.get(candidate.id);
+        if (
+          !existing ||
+          new Date(candidate.updatedAt).getTime() >= new Date(existing.updatedAt).getTime()
+        ) {
+          byId.set(candidate.id, candidate);
+        }
+      };
+
+      for (const t of getWorkspaceLocalThreads(ws.path)) {
+        upsert({
+          id: t.id,
+          title: t.title,
+          summary: t.summary,
+          time: formatRelativeTime(t.updatedAt),
+          placeholder: t.placeholder,
+          sessionState: t.sessionState || "Saved thread",
+          scope: t.scope || "Workspace root",
+          updatedAt: t.updatedAt,
+          isLocal: true,
+        });
+      }
+
+      // workspace.threadGroups is a snapshot from last IPC load; only fill gaps
+      for (const t of ws.threadGroups?.flatMap((g) => g.threads) ?? []) {
+        if (!byId.has(t.id)) {
+          upsert(t);
+        }
+      }
+
+      return sortThreadsByUpdatedAt([...byId.values()]);
     },
     [getWorkspaceLocalThreads],
   );
@@ -350,7 +368,7 @@ export function useWorkspace(): WorkspaceHook {
   }, [config, hydrateStoredThreads, normalizeWorkspaceState]);
 
   const startNewChat = useCallback(() => {
-    setThreadId(null);
+    setThreadId(crypto.randomUUID());
   }, []);
 
   useEffect(() => {

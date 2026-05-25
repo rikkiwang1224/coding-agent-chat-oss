@@ -3,7 +3,9 @@ import { User, Bot, Wrench, Brain, AlertCircle } from "lucide-react";
 import { ToolCallCard } from "./ToolCallCard";
 import { MarkdownContent } from "./MarkdownContent";
 import { toFileUrl } from "@/lib/file-url";
-import type { ImageAttachment, Message, ToolCallInfo } from "@/types";
+import { formatCostUsd } from "@forgelet/sdk-runtime";
+import { collapseDuplicateAssistantTextItems } from "@/lib/message-dedupe";
+import type { ImageAttachment, Message, MessageTurnCost, ToolCallInfo } from "@/types";
 
 function escapeHtml(value: string): string {
   return value
@@ -104,17 +106,19 @@ function buildTurnItems(messages: Message[]): TurnItem[] {
       items.push({ kind: "text", msg });
     }
   }
-  return items;
+  return collapseDuplicateAssistantTextItems(items);
 }
 
 interface AssistantTurnProps {
   messages: Message[];
+  turnCost?: MessageTurnCost;
   isLast: boolean;
   isRunning: boolean;
 }
 
 export function AssistantTurn({
   messages,
+  turnCost,
   isLast,
   isRunning,
 }: AssistantTurnProps) {
@@ -183,6 +187,18 @@ export function AssistantTurn({
               )}
             </div>
           </div>
+        )}
+
+        {turnCost && !showStatus && (
+          <p
+            className="text-[11px] text-muted pt-0.5"
+            title="Estimated API cost for this reply"
+          >
+            {formatCostUsd(turnCost.costUsd)}
+            {turnCost.inputTokens !== undefined && turnCost.outputTokens !== undefined
+              ? ` · ${turnCost.inputTokens.toLocaleString()} in / ${turnCost.outputTokens.toLocaleString()} out`
+              : ""}
+          </p>
         )}
       </div>
     </div>

@@ -1,7 +1,8 @@
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { resolveHarnessSessionDir, type SessionData } from "@forgelet/harness";
+import type { SessionData } from "@forgelet/harness";
 import {
+  resolveHarnessSessionPath,
   resolveWorkspaceSessionIndexPath,
   resolveWorkspaceThreadPath,
   resolveWorkspaceThreadsDir,
@@ -26,6 +27,11 @@ export interface ChatDesktopStoredMessage {
   body: string;
   attachments?: ChatDesktopImageAttachment[];
   toolCalls?: ChatDesktopStoredToolCall[];
+  turnCost?: {
+    costUsd: number;
+    inputTokens?: number;
+    outputTokens?: number;
+  };
 }
 
 export interface ChatDesktopStoredThread {
@@ -92,6 +98,22 @@ function normalizeStoredThread(input: unknown): ChatDesktopStoredThread | null {
           body: m.body,
           attachments: readImageAttachments(m.attachments),
           toolCalls: Array.isArray(m.toolCalls) ? m.toolCalls : undefined,
+          turnCost:
+            m.turnCost &&
+            typeof m.turnCost === "object" &&
+            typeof (m.turnCost as { costUsd?: unknown }).costUsd === "number"
+              ? {
+                  costUsd: (m.turnCost as { costUsd: number }).costUsd,
+                  inputTokens:
+                    typeof (m.turnCost as { inputTokens?: unknown }).inputTokens === "number"
+                      ? (m.turnCost as { inputTokens: number }).inputTokens
+                      : undefined,
+                  outputTokens:
+                    typeof (m.turnCost as { outputTokens?: unknown }).outputTokens === "number"
+                      ? (m.turnCost as { outputTokens: number }).outputTokens
+                      : undefined,
+                }
+              : undefined,
         }))
       : [],
   };
@@ -189,6 +211,13 @@ export interface LoadedSessionThread {
   summary: string;
   updatedAt: string;
   messages: LoadedSessionMessage[];
+  runs?: Array<{
+    turnIndex: number;
+    inputTokens: number;
+    outputTokens: number;
+    costUsd?: number;
+  }>;
+  totalCostUsd?: number;
 }
 
 function extractUserRequest(rawPrompt: unknown): string {
@@ -227,41 +256,6 @@ function deriveHarnessThreadSummary(session: SessionData): string {
   const summary = collapseText(lastAssistant?.content);
   if (summary) return truncateText(summary, 120);
   return `Harness session (${session.metadata.turnCount} turns)`;
-}
-
-function buildHarnessThreadPlaceholder(workspaceName: string, session: SessionData): string {
-  const firstUser = session.messages.find((m) => m.role === "user");
-  const prompt = extractUserRequest(firstUser?.content ?? "") || collapseText(firstUser?.content);
-  return prompt
-    ? `Continue in ${workspaceName}: ${truncateText(prompt, 140)}`
-    : `Ask ${workspaceName} to inspect the codebase, explain a file, or plan a change.`;
-}
-
-async function addThreadFromHarnessSession(
-  threadsById: Map<string, ChatDesktopThreadSummary>,
-  session: SessionData,
-  workspacePath: string,
-): Promise<void> {
-  const messages = harnessMessagesToLoaded(session.messages);
-  if (messages.length === 0) return;
-
-  const updatedAt = session.updatedAt || session.createdAt || new Date().toISOString();
-  const workspaceName = path.basename(workspacePath);
-  const thread: ChatDesktopThreadSummary = {
-    id: session.id,
-    title: deriveHarnessThreadTitle(session),
-    summary: deriveHarnessThreadSummary(session),
-    time: formatRelativeTime(updatedAt),
-    placeholder: buildHarnessThreadPlaceholder(workspaceName, session),
-    sessionState: "Saved session",
-    scope: "Workspace root",
-    updatedAt,
-  };
-
-  const existing = threadsById.get(thread.id);
-  if (!existing || new Date(thread.updatedAt).getTime() >= new Date(existing.updatedAt).getTime()) {
-    threadsById.set(thread.id, thread);
-  }
 }
 
 export { extractUserRequest };
@@ -304,37 +298,37 @@ export function groupThreads(threads: ChatDesktopThreadSummary[]): ChatDesktopTh
     .filter((g) => g.threads.length > 0);
 }
 
-// ── Workspace thread listing (harness sessions) ──
+function storedThreadToSummary(
+  thread: ChatDesktopStoredThread,
+  workspacePath: string,
+): ChatDesktopThreadSummary {
+  const workspaceName = path.basename(workspacePath);
+  const firstUser = thread.messages.find((m) => m.role === "user");
+  const prompt = collapseText(firstUser?.body);
+  return {
+    id: thread.id,
+    title: thread.title,
+    summary: thread.summary,
+    time: formatRelativeTime(thread.updatedAt),
+    placeholder:
+      thread.placeholder ||
+      (prompt
+        ? `Continue in ${workspaceName}: ${truncateText(prompt, 140)}`
+        : `Ask ${workspaceName} to inspect the codebase, explain a file, or plan a change.`),
+    sessionState: thread.sessionState || "Ready for follow-up",
+    scope: thread.scope || "Workspace root",
+    updatedAt: thread.updatedAt,
+  };
+}
 
+/** Sidebar list source: only FORGELET_HOME/workspaces/{hash}/threads/*.json */
 export async function listWorkspaceThreads(workspacePath: string): Promise<ChatDesktopThreadSummary[]> {
-  const threadsById = new Map<string, ChatDesktopThreadSummary>();
-  const sessionsDirectory = resolveHarnessSessionDir(workspacePath);
-
-  let entries;
-  try {
-    entries = await readdir(sessionsDirectory, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    try {
-      const raw = await readFile(path.join(sessionsDirectory, entry.name), "utf8");
-      const session = JSON.parse(raw) as SessionData;
-      await addThreadFromHarnessSession(threadsById, session, workspacePath);
-    } catch {
-      continue;
-    }
-  }
-
-  const threads = [...threadsById.values()];
-  threads.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-  return threads;
+  const stored = await listStoredThreads(workspacePath);
+  return stored.map((thread) => storedThreadToSummary(thread, workspacePath));
 }
 
 export async function loadSessionThread(workspacePath: string, sessionId: string): Promise<LoadedSessionThread | null> {
-  const filePath = path.join(resolveHarnessSessionDir(workspacePath), `${sessionId}.json`);
+  const filePath = resolveHarnessSessionPath(workspacePath, sessionId);
   try {
     const raw = await readFile(filePath, "utf8");
     const session = JSON.parse(raw) as SessionData;
@@ -347,6 +341,13 @@ export async function loadSessionThread(workspacePath: string, sessionId: string
       summary: deriveHarnessThreadSummary(session),
       updatedAt: session.updatedAt || session.createdAt || new Date().toISOString(),
       messages,
+      runs: session.metadata.runs?.map((run) => ({
+        turnIndex: run.turnIndex,
+        inputTokens: run.inputTokens,
+        outputTokens: run.outputTokens,
+        costUsd: run.costUsd,
+      })),
+      totalCostUsd: session.metadata.totalCostUsd,
     };
   } catch {
     return null;

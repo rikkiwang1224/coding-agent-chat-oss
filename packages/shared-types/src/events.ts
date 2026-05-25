@@ -175,7 +175,14 @@ export interface AgentRunMetrics {
   durationMs?: number;
   durationApiMs?: number;
   numTurns?: number;
+  /** Estimated cost for this run only (USD) */
   totalCostUsd?: number;
+  /** Token usage for this run only */
+  runInputTokens?: number;
+  runOutputTokens?: number;
+  /** Session cumulative cost after this run (USD) */
+  sessionTotalCostUsd?: number;
+  /** Session cumulative token usage */
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;

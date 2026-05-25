@@ -40,6 +40,7 @@ console.log(`   Model: ${model}`);
 console.log(`   Tasks: ${tasksDir}`);
 console.log(`   Filter: ${taskFilter || "(all)"}\n`);
 
+process.env.FORGELET_EVAL_RUN_ID = String(Date.now());
 const report = await runEval(config, tasksDir);
 
 console.log(`\n── Results ──`);

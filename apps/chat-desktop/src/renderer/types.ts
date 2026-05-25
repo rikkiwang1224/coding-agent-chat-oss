@@ -79,7 +79,8 @@ export interface LocalThread {
   sessionState?: string;
   scope?: string;
   updatedAt: string;
-  runSessionIds: string[];
+  /** @deprecated threadId === agentSessionId; do not write */
+  runSessionIds?: string[];
   messages: SerializedMessage[];
 }
 
@@ -88,9 +89,16 @@ export interface SerializedMessage {
   body: string;
   attachments?: ImageAttachment[];
   toolCalls?: ToolCallInfo[];
+  turnCost?: MessageTurnCost;
 }
 
 export type MessageRole = "user" | "assistant" | "system" | "error";
+
+export interface MessageTurnCost {
+  costUsd: number;
+  inputTokens?: number;
+  outputTokens?: number;
+}
 
 export interface Message {
   id: string;
@@ -98,6 +106,7 @@ export interface Message {
   body: string;
   attachments: ImageAttachment[];
   toolCalls?: ToolCallInfo[];
+  turnCost?: MessageTurnCost;
 }
 
 export interface ToolCallInfo {
@@ -146,6 +155,13 @@ export interface DesktopConfig {
     summary: string;
     updatedAt: string;
     messages: SerializedMessage[];
+    runs?: Array<{
+      turnIndex: number;
+      inputTokens: number;
+      outputTokens: number;
+      costUsd?: number;
+    }>;
+    totalCostUsd?: number;
   } | null>;
   saveStoredThread: (workspacePath: string, thread: LocalThread) => Promise<LocalThread>;
   deleteStoredThread: (workspacePath: string, threadId: string) => Promise<void>;

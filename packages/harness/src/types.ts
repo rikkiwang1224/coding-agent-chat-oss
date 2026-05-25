@@ -1,7 +1,11 @@
+import type { LlmProvider } from "@forgelet/sdk-runtime";
+
 export interface LlmConfig {
   apiKey: string;
   baseUrl?: string;
   model?: string;
+  /** Used for USD cost estimation from token usage */
+  provider?: LlmProvider;
   maxTokens?: number;
   temperature?: number;
   thinking?: boolean;

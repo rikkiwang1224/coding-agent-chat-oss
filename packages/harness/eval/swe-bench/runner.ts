@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { AgentEvent } from "@forgelet/shared-types";
 import { HarnessEngine } from "../../src/harness-engine.js";
+import { SessionStore } from "../../src/session-store.js";
 import type { LlmConfig } from "../../src/types.js";
 import { buildSweBenchPrompt } from "./prompt.js";
 import { extractModelPatch } from "./patch.js";
@@ -51,6 +51,9 @@ export async function runSweBench(options: SweBenchRunOptions): Promise<SweBench
     if (result.error) {
       console.log(`         ${result.error}`);
     }
+    if (result.tracePath) {
+      console.log(`         trace: ${result.tracePath}`);
+    }
   }
 
   const completed = results.filter((r) => r.success).length;
@@ -67,24 +70,6 @@ export async function runSweBench(options: SweBenchRunOptions): Promise<SweBench
   };
 }
 
-async function writeInstanceTrace(
-  outputDir: string,
-  payload: {
-    instance_id: string;
-    durationMs: number;
-    turnCount: number;
-    patchLength: number;
-    error?: string;
-    events: AgentEvent[];
-  },
-): Promise<string> {
-  const tracesDir = path.join(outputDir, "traces");
-  await mkdir(tracesDir, { recursive: true });
-  const tracePath = path.join(tracesDir, `${payload.instance_id}.json`);
-  await writeFile(tracePath, JSON.stringify(payload, null, 2));
-  return tracePath;
-}
-
 async function runSingleInstance(
   instance: SweBenchInstance,
   options: SweBenchRunOptions,
@@ -93,9 +78,10 @@ async function runSingleInstance(
 ): Promise<SweBenchInstanceResult> {
   const startTime = Date.now();
   let turnCount = 0;
-  const events: AgentEvent[] = [];
+  let tracePath: string | undefined;
   let workspaceDir: string | undefined;
   const cachePath = path.join(options.reposCacheDir, instance.repo.replace("/", "__"));
+  const sessionId = `swe-${instance.instance_id}`;
 
   try {
     workspaceDir = await createInstanceWorkspace(
@@ -104,10 +90,21 @@ async function runSingleInstance(
       worktreesDir,
     );
 
+    const traceEnabled = options.saveTraces !== false;
     const engine = new HarnessEngine({
       workspaceRoot: workspaceDir,
       config: options.config,
       maxTurns: options.maxTurns,
+      sessionStore: SessionStore.forWorkspace(workspaceDir),
+      trace: traceEnabled
+        ? {
+            enabled: true,
+            runKind: "swe-bench",
+            runId: options.traceRunId,
+            instanceId: instance.instance_id,
+            workspaceRoot: workspaceDir,
+          }
+        : undefined,
     });
 
     const controller = new AbortController();
@@ -116,12 +113,11 @@ async function runSingleInstance(
     try {
       await engine.runTask(
         {
-          sessionId: `swe-${instance.instance_id}`,
+          sessionId,
           prompt: buildSweBenchPrompt(instance),
           signal: controller.signal,
         },
         (event) => {
-          if (options.saveTraces !== false) events.push(event);
           if (event.type === "tool.called") turnCount++;
         },
       );
@@ -134,6 +130,11 @@ async function runSingleInstance(
       clearTimeout(timeout);
     }
 
+    if (traceEnabled) {
+      const { resolveSweBenchTraceInstancePath } = await import("@forgelet/storage-core");
+      tracePath = resolveSweBenchTraceInstancePath(options.traceRunId, instance.instance_id);
+    }
+
     const modelPatch = await extractModelPatch(workspaceDir);
     const prediction: SweBenchPrediction = {
       instance_id: instance.instance_id,
@@ -143,16 +144,6 @@ async function runSingleInstance(
 
     await appendFile(predictionsPath, `${JSON.stringify(prediction)}\n`);
 
-    if (options.saveTraces !== false) {
-      await writeInstanceTrace(options.outputDir, {
-        instance_id: instance.instance_id,
-        durationMs: Date.now() - startTime,
-        turnCount,
-        patchLength: modelPatch.length,
-        events,
-      });
-    }
-
     return {
       instance_id: instance.instance_id,
       success: modelPatch.length > 0,
@@ -161,6 +152,7 @@ async function runSingleInstance(
       patchLength: modelPatch.length,
       error: modelPatch.length === 0 ? "Empty patch (no git diff)" : undefined,
       workspaceDir,
+      tracePath,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -172,14 +164,8 @@ async function runSingleInstance(
     await appendFile(predictionsPath, `${JSON.stringify(emptyPrediction)}\n`);
 
     if (options.saveTraces !== false) {
-      await writeInstanceTrace(options.outputDir, {
-        instance_id: instance.instance_id,
-        durationMs: Date.now() - startTime,
-        turnCount,
-        patchLength: 0,
-        error: message,
-        events,
-      });
+      const { resolveSweBenchTraceInstancePath } = await import("@forgelet/storage-core");
+      tracePath = resolveSweBenchTraceInstancePath(options.traceRunId, instance.instance_id);
     }
 
     return {
@@ -190,6 +176,7 @@ async function runSingleInstance(
       patchLength: 0,
       error: message,
       workspaceDir,
+      tracePath,
     };
   } finally {
     if (workspaceDir) {
