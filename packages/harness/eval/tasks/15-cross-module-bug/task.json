@@ -1,0 +1,8 @@
+{
+  "id": "15-cross-module-bug",
+  "name": "Cross-module bug — symptom in session service, root cause in utilities",
+  "prompt": "The session tests are failing: `npx tsx tests/session.test.ts` reports that sessions expire immediately after creation even though the TTL is set to 30 minutes. The bug is NOT in the test file (the expected behavior is correct). Investigate the source code across modules to find and fix the root cause.",
+  "timeout_s": 120,
+  "judge": "script",
+  "judge_args": {}
+}

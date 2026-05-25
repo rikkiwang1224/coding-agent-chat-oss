@@ -1,0 +1,8 @@
+{
+  "id": "11-debug-from-test",
+  "name": "Debug failing test by tracing dependency chain",
+  "prompt": "Running `npx tsx tests/order.test.ts` fails. The tests were passing before and the expected values in the test are correct. Find and fix the bug in the source code (do NOT modify the test file).",
+  "timeout_s": 120,
+  "judge": "script",
+  "judge_args": {}
+}

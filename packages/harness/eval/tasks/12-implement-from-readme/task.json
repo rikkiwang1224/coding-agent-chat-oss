@@ -1,0 +1,8 @@
+{
+  "id": "12-implement-from-readme",
+  "name": "Implement module by reading README specification",
+  "prompt": "Read the README.md to understand the project architecture and implement the Pipeline class in src/pipeline.py. The tests in tests/test_pipeline.py should pass after your implementation.",
+  "timeout_s": 120,
+  "judge": "script",
+  "judge_args": {}
+}
