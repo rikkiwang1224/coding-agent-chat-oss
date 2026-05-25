@@ -1,0 +1,8 @@
+{
+  "id": "02-fix-typo",
+  "name": "Fix a typo in source code",
+  "prompt": "There is a typo in src/utils.ts — the function name `calcualteSum` should be `calculateSum`. Please fix it.",
+  "timeout_s": 30,
+  "judge": "contains",
+  "judge_args": { "file": "src/utils.ts", "expected": "function calculateSum" }
+}

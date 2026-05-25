@@ -9,11 +9,16 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "pnpm run typecheck",
-    "test": "echo 'No tests configured'"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "eval": "tsx eval/run.ts"
   },
   "dependencies": {
     "@forgelet/sdk-core": "workspace:*",
     "@forgelet/shared-types": "workspace:*",
     "@forgelet/storage-core": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.7"
   }
 }

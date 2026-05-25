@@ -98,6 +98,7 @@ export class AgentLoop {
     });
 
     let fullContent = "";
+    let fullReasoning = "";
     const toolCalls = new Map<number, { id: string; name: string; arguments: string }>();
     let lastUsage: ChatCompletionChunk["usage"] | undefined;
 
@@ -120,8 +121,9 @@ export class AgentLoop {
         this.callbacks.onTextDelta?.(delta.content);
       }
 
-      // Reasoning content (thinking mode)
+      // Reasoning content (thinking mode) — must be preserved and passed back
       if (delta.reasoning_content) {
+        fullReasoning += delta.reasoning_content;
         this.callbacks.onReasoningDelta?.(delta.reasoning_content);
       }
 
@@ -139,6 +141,7 @@ export class AgentLoop {
     const message: ChatMessage = {
       role: "assistant",
       content: fullContent || null,
+      reasoning_content: fullReasoning || undefined,
     };
 
     if (toolCalls.size > 0) {

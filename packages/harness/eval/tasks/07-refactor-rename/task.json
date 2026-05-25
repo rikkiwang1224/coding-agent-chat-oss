@@ -1,0 +1,8 @@
+{
+  "id": "07-refactor-rename",
+  "name": "Rename a function across multiple files",
+  "prompt": "Rename the function `getData` to `fetchUserData` in all files where it's used or defined.",
+  "timeout_s": 60,
+  "judge": "script",
+  "judge_args": {}
+}
