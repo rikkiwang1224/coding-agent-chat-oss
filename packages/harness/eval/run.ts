@@ -11,8 +11,11 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeFile } from "node:fs/promises";
+import { loadEvalEnv } from "./load-env.js";
 import { runEval } from "./runner.js";
 import type { LlmConfig } from "../src/types.js";
+
+loadEvalEnv();
 
 const args = process.argv.slice(2);
 
