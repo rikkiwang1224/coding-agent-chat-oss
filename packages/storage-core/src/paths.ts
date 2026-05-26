@@ -11,7 +11,7 @@ const WORKSPACE_THREADS_DIRNAME = "threads";
 const TRACES_DIRNAME = "traces";
 const RUNS_DIRNAME = "runs";
 export type AgentStorageRuntime = "harness";
-export type TraceRunKind = "desktop" | "eval" | "swe-bench";
+export type TraceRunKind = "desktop" | "cli" | "eval" | "swe-bench";
 
 export interface WorkspaceSessionIndexEntry {
   sessionId: string;
@@ -101,6 +101,15 @@ export function resolveDesktopTraceDir(workspaceRoot: string, sessionId: string)
   return path.join(
     resolveForgeletTracesDir(),
     "desktop",
+    resolveWorkspaceHash(workspaceRoot),
+    sanitizeStorageSegment(sessionId),
+  );
+}
+
+export function resolveCliTraceDir(workspaceRoot: string, sessionId: string): string {
+  return path.join(
+    resolveForgeletTracesDir(),
+    "cli",
     resolveWorkspaceHash(workspaceRoot),
     sanitizeStorageSegment(sessionId),
   );

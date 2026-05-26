@@ -1,0 +1,29 @@
+{
+  "name": "@forgelet/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Terminal CLI for Forgelet coding agents.",
+  "type": "module",
+  "bin": {
+    "forgelet": "./dist/main.js"
+  },
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/main.ts",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "pnpm run typecheck",
+    "test": "vitest run",
+    "build:deps": "pnpm --filter @forgelet/shared-types build && pnpm --filter @forgelet/storage-core build && pnpm --filter @forgelet/sdk-core build && pnpm --filter @forgelet/sdk-runtime build && pnpm --filter @forgelet/harness build"
+  },
+  "dependencies": {
+    "@forgelet/harness": "workspace:*",
+    "@forgelet/sdk-runtime": "workspace:*",
+    "@forgelet/shared-types": "workspace:*",
+    "@forgelet/storage-core": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.7"
+  }
+}

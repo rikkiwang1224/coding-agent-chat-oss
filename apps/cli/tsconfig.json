@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "include": ["src/**/*.ts"],
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "baseUrl": ".",
+    "paths": {
+      "@forgelet/harness": ["../../packages/harness/dist/index.d.ts"],
+      "@forgelet/sdk-runtime": ["../../packages/sdk-runtime/dist/index.d.ts"],
+      "@forgelet/shared-types": ["../../packages/shared-types/dist/index.d.ts"],
+      "@forgelet/storage-core": ["../../packages/storage-core/dist/index.d.ts"]
+    }
+  }
+}

@@ -109,6 +109,25 @@ importers:
         specifier: ^6.4.2
         version: 6.4.2(@types/node@22.19.19)(tsx@4.22.3)
 
+  apps/cli:
+    dependencies:
+      '@forgelet/harness':
+        specifier: workspace:*
+        version: link:../../packages/harness
+      '@forgelet/sdk-runtime':
+        specifier: workspace:*
+        version: link:../../packages/sdk-runtime
+      '@forgelet/shared-types':
+        specifier: workspace:*
+        version: link:../../packages/shared-types
+      '@forgelet/storage-core':
+        specifier: workspace:*
+        version: link:../../packages/storage-core
+    devDependencies:
+      vitest:
+        specifier: ^4.1.7
+        version: 4.1.7(@types/node@22.19.19)(vite@6.4.2)
+
   packages/harness:
     dependencies:
       '@forgelet/sdk-core':

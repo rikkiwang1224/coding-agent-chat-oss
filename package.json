@@ -1,7 +1,7 @@
 {
   "name": "forgelet",
   "version": "0.1.0",
-  "description": "Open-source desktop chat client for coding agents powered by the Forgelet harness.",
+  "description": "Open-source coding agent — desktop chat and terminal CLI powered by the Forgelet harness.",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@8.10.2",
@@ -9,7 +9,9 @@
   "scripts": {
     "build": "pnpm -r build",
     "dev": "pnpm --filter @forgelet/chat-desktop dev",
+    "dev:cli": "pnpm --filter @forgelet/cli dev",
     "start": "pnpm --filter @forgelet/chat-desktop start",
+    "forgelet": "pnpm --filter @forgelet/cli dev",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",

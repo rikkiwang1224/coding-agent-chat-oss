@@ -3,6 +3,7 @@ import path from "node:path";
 import type { AgentEvent } from "@forgelet/shared-types";
 import type { TraceRunKind } from "@forgelet/storage-core";
 import {
+  resolveCliTraceDir,
   resolveDesktopTraceDir,
   resolveEvalTraceDir,
   resolveSweBenchTraceInstancePath,
@@ -103,6 +104,8 @@ function resolveTraceDir(config: TraceConfig): string {
   switch (config.runKind) {
     case "desktop":
       return resolveDesktopTraceDir(config.workspaceRoot, config.runId);
+    case "cli":
+      return resolveCliTraceDir(config.workspaceRoot, config.runId);
     case "eval":
       return config.instanceId
         ? path.join(resolveEvalTraceDir(config.runId), "instances")
