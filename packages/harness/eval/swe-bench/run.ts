@@ -16,7 +16,7 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveForgeletTracesDir, resolveSweBenchRunDir } from "@forgelet/storage-core";
+import { resolveSweBenchRunDir, resolveSweBenchTraceDir } from "@forgelet/storage-core";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { access } from "node:fs/promises";
@@ -70,7 +70,12 @@ const outputDir = path.resolve(getArg("output") || resolveSweBenchRunDir(runId))
 const predictionsPath = path.join(outputDir, "predictions.jsonl");
 
 async function resolvePython(): Promise<string> {
-  if (process.env.SWEBENCH_PYTHON) return process.env.SWEBENCH_PYTHON;
+  if (process.env.SWEBENCH_PYTHON) {
+    const configured = process.env.SWEBENCH_PYTHON.trim();
+    return path.isAbsolute(configured)
+      ? configured
+      : path.resolve(process.cwd(), configured);
+  }
 
   const candidates = [
     path.join(sweDir, ".venv", "bin", "python"),
@@ -168,10 +173,17 @@ async function main(): Promise<void> {
 
   const config: LlmConfig = { apiKey, model, baseUrl, provider: "deepseek" };
 
+  const traceDir = resolveSweBenchTraceDir(runId);
+
   console.log(`\nSWE-bench agent run`);
   console.log(`  Model:    ${model}`);
+  console.log(`  Run ID:   ${runId}`);
   console.log(`  Dataset:  ${dataset}`);
-  console.log(`  Output:   ${outputDir}\n`);
+  console.log(`  Output:   ${outputDir}`);
+  if (saveTraces) {
+    console.log(`  Traces:   ${traceDir}/instances/<instance_id>.jsonl`);
+  }
+  console.log();
 
   const report = await runSweBench({
     config,
@@ -194,9 +206,8 @@ async function main(): Promise<void> {
   console.log(`  Report:   ${reportPath}`);
   console.log(`  Predictions: ${predictionsPath}`);
   if (saveTraces) {
-    console.log(
-      `  Traces:   ${path.join(resolveForgeletTracesDir(), "swe-bench", `eval-${runId}`, "instances")}/<instance_id>.jsonl`,
-    );
+    console.log(`  Traces:   ${traceDir}/instances/`);
+    console.log(`  Analyze:  pnpm eval:swe:traces -- --run-id ${runId}`);
   }
   console.log();
 
@@ -204,7 +215,8 @@ async function main(): Promise<void> {
     await runEvaluation();
   } else {
     console.log(`Skipped harness. Run verification:`);
-    console.log(`  pnpm --filter @forgelet/harness eval:swe:verify -- ${predictionsPath}\n`);
+    console.log(`  pnpm eval:swe:verify -- ${predictionsPath}`);
+    console.log(`  pnpm eval:swe:traces -- --run-id ${runId}\n`);
   }
 }
 

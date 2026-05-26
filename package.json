@@ -18,7 +18,9 @@
     "eval": "pnpm --filter @forgelet/harness eval",
     "eval:swe": "pnpm --filter @forgelet/harness eval:swe",
     "eval:swe:verify": "pnpm --filter @forgelet/harness eval:swe:verify",
-    "eval:swe:setup": "pnpm --filter @forgelet/harness eval:swe:setup"
+    "eval:swe:setup": "pnpm --filter @forgelet/harness eval:swe:setup",
+    "eval:swe:traces": "pnpm --filter @forgelet/harness eval:swe:traces",
+    "eval:swe:analyze": "pnpm --filter @forgelet/harness eval:swe:analyze"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

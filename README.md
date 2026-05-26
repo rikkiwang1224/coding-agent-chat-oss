@@ -187,11 +187,13 @@ pnpm forgelet --help
 # Harness eval (synthetic tasks; reads DEEPSEEK_API_KEY from repo-root .env)
 pnpm eval
 
-# SWE-bench (real repos; see packages/harness/eval/swe-bench/README.md)
-pnpm eval:swe -- --dataset lite --limit 3 --skip-eval
+# SWE-bench — Mac agent → cloud Docker → analyze traces
+pnpm eval:swe -- --dataset lite --limit 3 --skip-eval --run-id my-run
+pnpm eval:swe:analyze -- my-run                    # after cloud grading JSON is local
+# Full loop: packages/harness/eval/swe-bench/WORKFLOW.md
 ```
 
-Cursor project skill for the full Mac + cloud workflow: `.cursor/skills/swe-bench-eval/`.
+Cursor skill: `.cursor/skills/swe-bench-eval/` (proxy tunnel, scp, `resolved_ids` / `unresolved_ids`, trace debug).
 
 ## Brand Assets
 

@@ -37,6 +37,7 @@ export async function runSweBench(options: SweBenchRunOptions): Promise<SweBench
 
   console.log(`\nRunning ${options.instances.length} SWE-bench instance(s)`);
   console.log(`  Model:      ${options.modelName}`);
+  console.log(`  Run ID:     ${options.traceRunId}`);
   console.log(`  Output:     ${predictionsPath}`);
   console.log(`  Max turns:  ${options.maxTurns}`);
   console.log(`  Timeout:    ${options.timeoutS}s per instance\n`);
@@ -45,8 +46,9 @@ export async function runSweBench(options: SweBenchRunOptions): Promise<SweBench
     const result = await runSingleInstance(instance, options, worktreesDir, predictionsPath);
     results.push(result);
     const status = result.success ? "OK" : "FAIL";
+    const runSuffix = options.traceRunId ? `, run ${options.traceRunId}` : "";
     console.log(
-      `  [${status}] ${instance.instance_id} (${result.durationMs}ms, ${result.turnCount} turns, patch ${result.patchLength} chars)`,
+      `  [${status}] ${instance.instance_id} (${result.durationMs}ms, ${result.turnCount} turns, patch ${result.patchLength} chars${runSuffix})`,
     );
     if (result.error) {
       console.log(`         ${result.error}`);

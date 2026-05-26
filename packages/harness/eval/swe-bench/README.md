@@ -4,6 +4,8 @@
 
 推荐分工：**Mac 跑 Agent**，**国内云（腾讯云等）跑 Docker 评测**。
 
+**端到端工作流（Agent → 云评测 → resolved/unresolved → 轨迹分析）：** 见 [WORKFLOW.md](./WORKFLOW.md)。
+
 ---
 
 ## 完整一次评测流程（端到端）

@@ -14,7 +14,9 @@
     "eval": "tsx eval/run.ts",
     "eval:swe": "tsx eval/swe-bench/run.ts",
     "eval:swe:verify": "tsx eval/swe-bench/verify.ts",
-    "eval:swe:setup": "cd eval/swe-bench && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt"
+    "eval:swe:setup": "cd eval/swe-bench && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt",
+    "eval:swe:traces": "tsx eval/swe-bench/summarize-traces.ts",
+    "eval:swe:analyze": "bash eval/swe-bench/analyze-run.sh"
   },
   "dependencies": {
     "@forgelet/sdk-core": "workspace:*",
