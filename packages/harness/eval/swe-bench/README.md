@@ -2,9 +2,11 @@
 
 用 [SWE-bench](https://github.com/SWE-bench/SWE-bench) 真实开源仓库做**最终验证**：本 harness 负责 agent 推理并生成 patch，官方 Docker harness 在隔离环境里跑测试判定是否 resolved。
 
-推荐分工：**Mac 跑 Agent**，**国内云（腾讯云等）跑 Docker 评测**。
+推荐分工：**Mac 跑 Agent**（也可在 ECS 直接 `docker-batch.sh` 跑），**国内云（腾讯云等）跑 Docker 评测**。
 
-**端到端工作流（Agent → 云评测 → resolved/unresolved → 轨迹分析）：** 见 [WORKFLOW.md](./WORKFLOW.md)。
+> 📖 **实操指南以 [WORKFLOW.md](./WORKFLOW.md) 为准** —— 本 README 里部分小节（特别是 sb-cli 相关、early evaluate.sh 配方）已过时。当前规范路径是：Mac → ECS agent batch → ECS 跑 `python -m swebench.harness.run_evaluation`（走 Mac pproxy 反向隧道）→ Mac 拉报告。
+>
+> ⚠️ **sb-cli 后端目前对 `swe-bench_lite` test/dev 都坏**——gold patch 都返回 `0/N resolved`，**不要用 `sb-cli submit`**。
 
 ---
 
