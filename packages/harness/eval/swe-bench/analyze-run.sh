@@ -4,7 +4,7 @@
 # Usage:
 #   ./analyze-run.sh <run-id> [model-name] [ecs-ip]
 #   pnpm eval:swe:analyze -- trace-rerun
-#   pnpm eval:swe:analyze -- trace-rerun deepseek-v4-pro 119.91.220.67
+#   pnpm eval:swe:analyze -- trace-rerun deepseek-v4-pro <ECS_IP>
 set -euo pipefail
 
 RUN_ID="${1:?run-id required}"

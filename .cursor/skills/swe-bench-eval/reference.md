@@ -19,7 +19,7 @@ Full doc: [packages/harness/eval/swe-bench/README.md](../../../packages/harness/
 User may keep `swe-bench.local.env` (not in repo):
 
 ```bash
-SWE_CLOUD_HOST=119.91.220.67
+SWE_CLOUD_HOST=<ECS_IP>
 SWE_CLOUD_USER=ubuntu
 SWE_PROXY_PORT=7890
 ```

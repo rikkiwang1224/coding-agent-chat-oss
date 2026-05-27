@@ -3,7 +3,7 @@
 # Usage: ./start-proxy-tunnel.sh <ecs-ip> [proxy-port]
 set -euo pipefail
 
-ECS_IP="${1:?ECS public IP required, e.g. 119.91.220.67}"
+ECS_IP="${1:?ECS public IP required, e.g. 203.0.113.10}"
 PORT="${2:-7890}"
 PID_DIR="${TMPDIR:-/tmp}/forgelet-swe-proxy"
 mkdir -p "$PID_DIR"
