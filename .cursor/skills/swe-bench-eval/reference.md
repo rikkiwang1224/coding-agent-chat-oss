@@ -1,25 +1,25 @@
 # SWE-bench eval — quick troubleshooting
 
-Full doc: [packages/harness/eval/swe-bench/README.md](../../../packages/harness/eval/swe-bench/README.md)
+Full workflow: [packages/harness/eval/swe-bench/WORKFLOW.md](../../../packages/harness/eval/swe-bench/WORKFLOW.md)
+
+Final scoring path: **Mac fetch → ECS `docker-batch.sh` (agent in instance Docker, self-verify) → `sb-cli submit`.** Mac-only `eval:swe` exists as a fallback (no self-verify, baseline < 10%).
 
 | Symptom | Fix |
 |---------|-----|
-| `princeton-nlp/SWE-bench_Lite` fails | Use `SWE-bench/SWE-bench_Lite` |
-| `.venv/bin/python ENOENT` | `pnpm --filter @forgelet/harness eval:swe:setup` or `SWEBENCH_PYTHON` |
-| `readFile(...).trim is not a function` | Fixed in `runner.ts`; pull latest |
-| Cloud HF unreachable | Mac `hf-cache.tar.gz` + `HF_*_OFFLINE=1` |
-| Cloud `raw.githubusercontent.com` unreachable | Mac `pproxy` + `ssh -R 7890:...` + Docker proxy |
-| Mac `7890` connection refused | Start `pproxy`; company network ≠ Clash port |
-| Only 3 instances ran | User passed `--limit 3` |
-| Eval stuck at `0/N` | Normal first instance; check `docker ps` |
-| `tar LIBARCHIVE.xattr` | Ignore; use `COPYFILE_DISABLE=1 tar` on Mac |
+| `LLM API error 404` from agent | `packages/sdk-runtime/src/providers/presets.ts` had `/anthropic` suffix; pull latest + `pnpm --filter @forgelet/sdk-runtime build` (also on ECS — `"main": "dist/index.js"` makes dist authoritative) |
+| `ModuleNotFoundError: No module named 'erfa'` (in container) | conda not activated; ensure `source /opt/miniconda3/etc/profile.d/conda.sh && conda activate testbed` in `bash -lc` |
+| `libnode.so.109: not found` (in container) | Don't mount host node; use prebuilt tarball at `~/node-prebuilt/node-v20/bin/node` |
+| `FAIL_PULL` row in `summary.tsv` | docker hub throttle; `grep -v <id> done.txt > done.txt.new && mv done.txt.new done.txt`, then rerun batch (resume-safe) |
+| ECS disk near full | Lower `KEEP_IMAGES` (default 15) or `docker image prune -a -f --filter "until=2h"` |
+| Single instance never completes | Check `logs/<id>/agent.log`; raise `PER_INSTANCE_TIMEOUT` if it's still doing useful work |
+| `princeton-nlp/SWE-bench_Lite` fails (Mac fetch) | Use `SWE-bench/SWE-bench_Lite` |
+| `.venv/bin/python ENOENT` (Mac fetch) | `pnpm eval:swe:setup` or `SWEBENCH_PYTHON` |
+| Mac-only path scored < 10% | Expected. Switch to ECS docker path |
 
 ## Config template (optional local file, gitignored)
 
-User may keep `swe-bench.local.env` (not in repo):
-
 ```bash
+# swe-bench.local.env
 SWE_CLOUD_HOST=<ECS_IP>
 SWE_CLOUD_USER=ubuntu
-SWE_PROXY_PORT=7890
 ```
