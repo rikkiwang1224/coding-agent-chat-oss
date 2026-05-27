@@ -56,8 +56,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: "edit_file",
       description:
-        "Perform a precise string replacement in a file. The old_string must match exactly one " +
-        "location in the file. Include enough surrounding context to ensure uniqueness.",
+        "Perform a precise string replacement in a file. By default old_string must match exactly " +
+        "one location in the file — include enough surrounding context to ensure uniqueness. " +
+        "Set replace_all=true to replace every occurrence (useful for renames).",
       parameters: {
         type: "object",
         properties: {
@@ -67,14 +68,116 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
           },
           old_string: {
             type: "string",
-            description: "The exact text to find and replace (must be unique in the file)",
+            description: "The exact text to find and replace (must be unique unless replace_all=true)",
           },
           new_string: {
             type: "string",
             description: "The text to replace it with",
           },
+          replace_all: {
+            type: "boolean",
+            description:
+              "If true, replace every occurrence of old_string. Defaults to false (require unique match).",
+          },
         },
         required: ["path", "old_string", "new_string"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "multi_edit",
+      description:
+        "Apply a batch of sequential string replacements to a single file in one atomic operation. " +
+        "Each edit is applied in order; if any edit fails (old_string not found, or non-unique " +
+        "without replace_all) the file is NOT modified and an error is returned. Use this instead " +
+        "of multiple edit_file calls to reduce round trips when making several related changes to " +
+        "the same file.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: {
+            type: "string",
+            description: "Absolute or workspace-relative path to the file",
+          },
+          edits: {
+            type: "array",
+            description: "Ordered list of edits to apply. Each edit operates on the output of the previous one.",
+            items: {
+              type: "object",
+              properties: {
+                old_string: { type: "string", description: "Text to find" },
+                new_string: { type: "string", description: "Text to replace it with" },
+                replace_all: {
+                  type: "boolean",
+                  description: "If true, replace every occurrence. Default false (require unique match).",
+                },
+              },
+              required: ["old_string", "new_string"],
+            },
+            minItems: 1,
+          },
+        },
+        required: ["path", "edits"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "apply_patch",
+      description:
+        "Apply a unified diff patch to the workspace using `git apply`. The patch must be in " +
+        "standard unified diff format (`--- a/file` / `+++ b/file` headers, `@@ -l,n +l,n @@` " +
+        "hunk headers). Use this for multi-file changes where edit_file would require many round " +
+        "trips. Returns clear errors when hunks fail to apply (line drift, conflicts, missing files).",
+      parameters: {
+        type: "object",
+        properties: {
+          patch: {
+            type: "string",
+            description: "The unified diff content. Whitespace and context must match the working tree.",
+          },
+          check_only: {
+            type: "boolean",
+            description: "If true, run `git apply --check` and report whether the patch would apply, without modifying any files.",
+          },
+        },
+        required: ["patch"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "todo_write",
+      description:
+        "Write or update the agent's working todo list for this session. Use for multi-step tasks " +
+        "(3+ distinct steps) so the user can see your plan and you can track progress. Pass the " +
+        "FULL list every call — items not present are removed. Mark one item as in_progress at a " +
+        "time. Updates replace prior state for the session.",
+      parameters: {
+        type: "object",
+        properties: {
+          todos: {
+            type: "array",
+            description: "The complete todo list (replaces any prior list).",
+            items: {
+              type: "object",
+              properties: {
+                id: { type: "string", description: "Stable identifier (used to track across updates)." },
+                content: { type: "string", description: "What this step does." },
+                status: {
+                  type: "string",
+                  enum: ["pending", "in_progress", "completed", "cancelled"],
+                },
+              },
+              required: ["id", "content", "status"],
+            },
+          },
+        },
+        required: ["todos"],
       },
     },
   },

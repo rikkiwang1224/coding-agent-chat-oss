@@ -70,6 +70,7 @@ export class HarnessEngine implements AgentEngine {
 
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
+    let totalCacheReadInputTokens = 0;
     let sessionCreatedAt = new Date().toISOString();
 
     if (!this.promptContext) {
@@ -103,6 +104,8 @@ export class HarnessEngine implements AgentEngine {
     const attachCost = (metrics: AgentRunMetrics): AgentRunMetrics => {
       const inputTokens = metrics.inputTokens ?? 0;
       const outputTokens = metrics.outputTokens ?? 0;
+      const cacheReadInputTokens = metrics.cacheReadInputTokens ?? 0;
+      const cacheCreationInputTokens = metrics.cacheCreationInputTokens ?? 0;
       const runCost =
         this.config.provider && (inputTokens > 0 || outputTokens > 0)
           ? estimateRunCostUsd({
@@ -110,8 +113,8 @@ export class HarnessEngine implements AgentEngine {
               model: this.config.model,
               inputTokens,
               outputTokens,
-              cacheReadInputTokens: metrics.cacheReadInputTokens,
-              cacheCreationInputTokens: metrics.cacheCreationInputTokens,
+              cacheReadInputTokens,
+              cacheCreationInputTokens,
             })
           : undefined;
       if (runCost === undefined) return metrics;
@@ -124,6 +127,8 @@ export class HarnessEngine implements AgentEngine {
             inputTokens,
             outputTokens,
             totalTokens: metrics.totalTokens ?? inputTokens + outputTokens,
+            cacheReadInputTokens: cacheReadInputTokens || undefined,
+            cacheCreationInputTokens: cacheCreationInputTokens || undefined,
             costUsd: runCost,
           },
         },
@@ -224,9 +229,14 @@ export class HarnessEngine implements AgentEngine {
       onTextDelta: (delta: string) => {
         emitEvent("agent.delta", { delta });
       },
-      onUsageUpdate: (usage: { inputTokens: number; outputTokens: number }) => {
+      onUsageUpdate: (usage: {
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadInputTokens?: number;
+      }) => {
         totalInputTokens = usage.inputTokens;
         totalOutputTokens = usage.outputTokens;
+        totalCacheReadInputTokens = usage.cacheReadInputTokens ?? totalCacheReadInputTokens;
       },
       onToolCall: (toolName: string, args: Record<string, unknown>, callId: string) => {
         emitEvent("tool.called", {
@@ -365,6 +375,7 @@ export class HarnessEngine implements AgentEngine {
 
       const deltaInputTokens = Math.max(0, totalInputTokens - runStartInputTokens);
       const deltaOutputTokens = Math.max(0, totalOutputTokens - runStartOutputTokens);
+      const cacheReadTokens = totalCacheReadInputTokens || result.tokenUsage.cacheReadInputTokens;
       const runMetrics = attachCost({
         durationMs,
         numTurns: result.turnCount,
@@ -374,6 +385,7 @@ export class HarnessEngine implements AgentEngine {
           deltaInputTokens || deltaOutputTokens
             ? deltaInputTokens + deltaOutputTokens
             : undefined,
+        cacheReadInputTokens: cacheReadTokens || undefined,
         primaryModel: this.config.model,
       });
       lastRunCostUsd = runMetrics.totalCostUsd;

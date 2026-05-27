@@ -50,6 +50,22 @@ describe("read_file", () => {
     expect(result.ok).toBe(true);
     expect(result.output).toContain("absolute content");
   });
+
+  it("rejects path traversal escapes", async () => {
+    const result = await executor.execute("read_file", { path: "../etc/passwd" });
+    expect(result.ok).toBe(false);
+    expect(result.output).toMatch(/outside the workspace|Error/);
+  });
+
+  it("rejects sibling directories with a prefix collision", async () => {
+    // workspace is /tmp/harness-test-XYZ; an attacker could pass
+    // /tmp/harness-test-XYZ-evil/secret which would pass a naive
+    // startsWith() check but is NOT inside the workspace.
+    const sibling = `${tmpDir}-evil/secret.txt`;
+    const result = await executor.execute("read_file", { path: sibling });
+    expect(result.ok).toBe(false);
+    expect(result.output).toMatch(/outside the workspace/);
+  });
 });
 
 describe("write_file", () => {
@@ -187,6 +203,22 @@ describe("glob_search", () => {
     expect(result.ok).toBe(true);
     expect(result.output.toLowerCase()).toContain("no files");
   });
+
+  it("treats shell metacharacters in pattern as literal — no command injection", async () => {
+    await writeFile(path.join(tmpDir, "safe.ts"), "");
+    // A malicious model output. If we ever passed `pattern` into `sh -c`,
+    // this would try to run `rm`. We expect zero files matched and the
+    // workspace to be intact.
+    const injected = '*"; touch /tmp/forgelet-pwned-$$; echo "';
+    const result = await executor.execute("glob_search", { pattern: injected });
+    expect(result.ok).toBe(true);
+    // safe.ts must still exist (no rm executed)
+    const stillThere = await readFile(path.join(tmpDir, "safe.ts"), "utf8").then(
+      () => true,
+      () => false,
+    );
+    expect(stillThere).toBe(true);
+  });
 });
 
 describe("grep_search", () => {
@@ -202,6 +234,201 @@ describe("grep_search", () => {
     const result = await executor.execute("grep_search", { pattern: "ZZZZZ_NOT_FOUND" });
     expect(result.ok).toBe(true);
     expect(result.output.toLowerCase()).toContain("no matches");
+  });
+});
+
+describe("edit_file with replace_all", () => {
+  it("replaces every occurrence when replace_all=true", async () => {
+    await writeFile(path.join(tmpDir, "rename.ts"), "old(); old(); foo(old);");
+    const result = await executor.execute("edit_file", {
+      path: "rename.ts",
+      old_string: "old",
+      new_string: "renamed",
+      replace_all: true,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("3 replacements");
+    const content = await readFile(path.join(tmpDir, "rename.ts"), "utf8");
+    expect(content).toBe("renamed(); renamed(); foo(renamed);");
+  });
+});
+
+describe("multi_edit", () => {
+  it("applies multiple edits in sequence atomically", async () => {
+    await writeFile(
+      path.join(tmpDir, "src.ts"),
+      "export const foo = 1;\nexport const bar = 2;",
+    );
+    const result = await executor.execute("multi_edit", {
+      path: "src.ts",
+      edits: [
+        { old_string: "const foo = 1", new_string: "const foo = 10" },
+        { old_string: "const bar = 2", new_string: "const bar = 20" },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("2 edits");
+    const content = await readFile(path.join(tmpDir, "src.ts"), "utf8");
+    expect(content).toBe("export const foo = 10;\nexport const bar = 20;");
+  });
+
+  it("is atomic — no partial writes on failure", async () => {
+    const original = "alpha\nbeta\ngamma";
+    await writeFile(path.join(tmpDir, "atomic.txt"), original);
+    const result = await executor.execute("multi_edit", {
+      path: "atomic.txt",
+      edits: [
+        { old_string: "alpha", new_string: "AAA" },
+        // second edit fails (string not present) — first must be rolled back.
+        { old_string: "delta", new_string: "DDD" },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.output).toContain("Edit #2");
+    expect(result.output).toContain("no changes written");
+    const content = await readFile(path.join(tmpDir, "atomic.txt"), "utf8");
+    expect(content).toBe(original);
+  });
+
+  it("supports per-edit replace_all", async () => {
+    await writeFile(path.join(tmpDir, "repeat.ts"), "x x x");
+    const result = await executor.execute("multi_edit", {
+      path: "repeat.ts",
+      edits: [{ old_string: "x", new_string: "y", replace_all: true }],
+    });
+    expect(result.ok).toBe(true);
+    expect(await readFile(path.join(tmpDir, "repeat.ts"), "utf8")).toBe("y y y");
+  });
+
+  it("rejects empty edits array", async () => {
+    await writeFile(path.join(tmpDir, "x.txt"), "");
+    const result = await executor.execute("multi_edit", { path: "x.txt", edits: [] });
+    expect(result.ok).toBe(false);
+    expect(result.output).toMatch(/non-empty/);
+  });
+});
+
+describe("apply_patch", () => {
+  async function initGitRepo(): Promise<void> {
+    const { execFile: spawn } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const run = promisify(spawn);
+    await run("git", ["init", "-q"], { cwd: tmpDir });
+    await run("git", ["config", "user.email", "test@example.com"], { cwd: tmpDir });
+    await run("git", ["config", "user.name", "Test"], { cwd: tmpDir });
+  }
+
+  it("applies a unified diff that adds a line", async () => {
+    await initGitRepo();
+    await writeFile(path.join(tmpDir, "hello.txt"), "line one\nline two\n");
+    const patch = `diff --git a/hello.txt b/hello.txt
+--- a/hello.txt
++++ b/hello.txt
+@@ -1,2 +1,3 @@
+ line one
+ line two
++line three
+`;
+    const result = await executor.execute("apply_patch", { patch });
+    expect(result.ok).toBe(true);
+    expect(await readFile(path.join(tmpDir, "hello.txt"), "utf8")).toBe(
+      "line one\nline two\nline three\n",
+    );
+  });
+
+  it("returns error on failed hunk", async () => {
+    await initGitRepo();
+    await writeFile(path.join(tmpDir, "hello.txt"), "completely different content\n");
+    const patch = `diff --git a/hello.txt b/hello.txt
+--- a/hello.txt
++++ b/hello.txt
+@@ -1,2 +1,3 @@
+ line one
+ line two
++line three
+`;
+    const result = await executor.execute("apply_patch", { patch });
+    expect(result.ok).toBe(false);
+    expect(result.output).toContain("git apply failed");
+  });
+
+  it("check_only does not modify files", async () => {
+    await initGitRepo();
+    const original = "before\n";
+    await writeFile(path.join(tmpDir, "f.txt"), original);
+    const patch = `diff --git a/f.txt b/f.txt
+--- a/f.txt
++++ b/f.txt
+@@ -1 +1 @@
+-before
++after
+`;
+    const result = await executor.execute("apply_patch", { patch, check_only: true });
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("cleanly");
+    expect(await readFile(path.join(tmpDir, "f.txt"), "utf8")).toBe(original);
+  });
+});
+
+describe("todo_write", () => {
+  it("stores a todo list and returns a formatted summary", async () => {
+    const result = await executor.execute("todo_write", {
+      todos: [
+        { id: "1", content: "Read the file", status: "completed" },
+        { id: "2", content: "Apply the fix", status: "in_progress" },
+        { id: "3", content: "Run the tests", status: "pending" },
+      ],
+    });
+    expect(result.ok).toBe(true);
+    expect(result.output).toContain("3 items");
+    expect(result.output).toContain("1 done");
+    expect(result.output).toContain("1 in progress");
+    expect(result.output).toContain("[x] Read the file");
+    expect(result.output).toContain("[>] Apply the fix");
+    expect(executor.getTodos()).toHaveLength(3);
+    expect(executor.getTodos()[1].status).toBe("in_progress");
+  });
+
+  it("rejects more than one in_progress at a time", async () => {
+    const result = await executor.execute("todo_write", {
+      todos: [
+        { id: "a", content: "x", status: "in_progress" },
+        { id: "b", content: "y", status: "in_progress" },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.output).toContain("in_progress at a time");
+  });
+
+  it("rejects duplicate ids", async () => {
+    const result = await executor.execute("todo_write", {
+      todos: [
+        { id: "x", content: "a", status: "pending" },
+        { id: "x", content: "b", status: "pending" },
+      ],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.output).toContain("duplicate id");
+  });
+
+  it("rejects invalid status", async () => {
+    const result = await executor.execute("todo_write", {
+      todos: [{ id: "x", content: "a", status: "running" }],
+    });
+    expect(result.ok).toBe(false);
+    expect(result.output).toMatch(/status must be one of/);
+  });
+
+  it("replaces prior list completely", async () => {
+    await executor.execute("todo_write", {
+      todos: [{ id: "1", content: "first", status: "pending" }],
+    });
+    await executor.execute("todo_write", {
+      todos: [{ id: "2", content: "second", status: "completed" }],
+    });
+    const todos = executor.getTodos();
+    expect(todos).toHaveLength(1);
+    expect(todos[0].id).toBe("2");
   });
 });
 

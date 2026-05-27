@@ -1,6 +1,36 @@
-import { describe, it, expect } from "vitest";
-import { findSafeCutIndex } from "../src/context-compressor.js";
-import type { ChatMessage } from "../src/types.js";
+import { describe, it, expect, vi } from "vitest";
+import { findSafeCutIndex, ContextCompressor } from "../src/context-compressor.js";
+import type { ChatMessage, LlmConfig, ChatCompletionChunk } from "../src/types.js";
+
+/**
+ * The compressor needs an LlmClient for the summarization call. Mock it so
+ * the tests run hermetically and we can assert on the prompt structure.
+ */
+let mockSummaryResponse = "MOCK SUMMARY";
+let lastSummaryPromptMessages: ChatMessage[] = [];
+
+vi.mock("../src/api-client.js", () => {
+  return {
+    LlmClient: class MockLlmClient {
+      constructor(_config: LlmConfig) {}
+      async *stream(req: { messages: ChatMessage[] }): AsyncGenerator<ChatCompletionChunk> {
+        lastSummaryPromptMessages = req.messages;
+        yield {
+          id: "x",
+          object: "chat.completion.chunk",
+          created: 0,
+          model: "mock",
+          choices: [{ index: 0, delta: { content: mockSummaryResponse }, finish_reason: null }],
+        };
+      }
+    },
+    LlmApiError: class extends Error {
+      constructor(msg: string, public statusCode: number, public responseBody: string) {
+        super(msg);
+      }
+    },
+  };
+});
 
 /**
  * `findSafeCutIndex` is the contract that guarantees the compressed messages
@@ -95,5 +125,106 @@ describe("findSafeCutIndex", () => {
         expect(suffix[0].role, `cut=${cut}`).not.toBe("tool");
       }
     }
+  });
+});
+
+describe("ContextCompressor.shouldCompress with actualInputTokens", () => {
+  const compressor = new ContextCompressor({
+    config: { apiKey: "x", model: "m" },
+    maxContextTokens: 1000,
+  });
+
+  const longMessages: ChatMessage[] = [
+    { role: "system", content: "sys" },
+    { role: "user", content: "u" },
+  ];
+
+  it("trusts the provider's prompt_tokens over the character heuristic", () => {
+    // Tiny messages, but provider says we're at 5000 tokens — should compress.
+    expect(compressor.shouldCompress(longMessages, 5000)).toBe(true);
+  });
+
+  it("uses heuristic when actualInputTokens is omitted", () => {
+    // Tiny char-count messages → heuristic returns small number → no compression.
+    expect(compressor.shouldCompress(longMessages)).toBe(false);
+  });
+
+  it("ignores zero actualInputTokens (treats as 'no signal yet')", () => {
+    expect(compressor.shouldCompress(longMessages, 0)).toBe(false);
+  });
+});
+
+describe("ContextCompressor.compress incremental summarization", () => {
+  it("extends a prior summary instead of re-deriving it from scratch", async () => {
+    mockSummaryResponse = "EXTENDED SUMMARY";
+
+    const compressor = new ContextCompressor({
+      config: { apiKey: "x", model: "m" },
+      maxContextTokens: 100, // force compression
+      preserveRecentCount: 4,
+    });
+
+    // Conversation already includes a prior summary at the head of the middle.
+    // Need >= 5 messages between system and the preserved tail so middle has 4+.
+    const messages: ChatMessage[] = [
+      { role: "system", content: "sys" },
+      {
+        role: "user",
+        content:
+          "[Previous conversation summary]\nWe explored the repo and fixed bug A.\n[End of summary — continue from here]",
+      },
+      { role: "user", content: "now please fix bug B" },
+      { role: "assistant", content: "looking into it" },
+      { role: "user", content: "any progress?" },
+      { role: "assistant", content: "yes — fixed the off-by-one" },
+      { role: "user", content: "ok next" },
+      { role: "assistant", content: "doing it" },
+      { role: "user", content: "great, what's next?" },
+      { role: "assistant", content: "ship it" },
+    ];
+
+    const result = await compressor.compress(messages, undefined, 999_999);
+
+    // System + new summary + recent N (>= 4)
+    expect(result[0].role).toBe("system");
+    expect(result[1].role).toBe("user");
+    expect(result[1].content).toContain("EXTENDED SUMMARY");
+
+    // The summarizer was called with both the prior summary AND the new activity.
+    const summarizerInput = lastSummaryPromptMessages[1].content as string;
+    expect(summarizerInput).toContain("Prior summary");
+    expect(summarizerInput).toContain("fixed bug A");
+    expect(summarizerInput).toContain("New activity since the prior summary");
+    expect(summarizerInput).toContain("off-by-one");
+
+    // System prompt of the summarizer reflects "extension" mode.
+    expect(lastSummaryPromptMessages[0].content).toContain("extending a running summary");
+  });
+
+  it("falls back to single-shot summary when there's no prior summary", async () => {
+    mockSummaryResponse = "FRESH SUMMARY";
+
+    const compressor = new ContextCompressor({
+      config: { apiKey: "x", model: "m" },
+      maxContextTokens: 100,
+      preserveRecentCount: 4,
+    });
+
+    const messages: ChatMessage[] = [
+      { role: "system", content: "sys" },
+      { role: "user", content: "initial ask" },
+      { role: "assistant", content: "starting" },
+      { role: "user", content: "step 1" },
+      { role: "assistant", content: "done" },
+      { role: "user", content: "step 2" },
+      { role: "assistant", content: "done" },
+      { role: "user", content: "step 3" },
+      { role: "assistant", content: "done" },
+      { role: "user", content: "step 4" },
+    ];
+
+    await compressor.compress(messages, undefined, 999_999);
+    expect(lastSummaryPromptMessages[0].content).not.toContain("extending a running summary");
+    expect(lastSummaryPromptMessages[1].content).not.toContain("Prior summary");
   });
 });

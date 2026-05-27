@@ -28,6 +28,17 @@ export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  /**
+   * Sum of `prompt_cache_hit_tokens` across all turns (DeepSeek-style
+   * automatic prefix caching). These tokens are still counted in
+   * `inputTokens` (server-reported `prompt_tokens` is the full prompt size)
+   * but are billed at the cache-read rate by the provider, so the cost
+   * estimator subtracts the discount when populating `totalCostUsd`.
+   *
+   * For Anthropic-style explicit cache_control caching, see the cache-
+   * creation / cache-read split surfaced via the same field.
+   */
+  cacheReadInputTokens?: number;
 }
 
 /** Why the agent loop returned to its caller. */
@@ -82,6 +93,10 @@ export class AgentLoop {
   private turnCount = 0;
   private totalInputTokens = 0;
   private totalOutputTokens = 0;
+  private totalCacheReadInputTokens = 0;
+  /** Provider's reported `prompt_tokens` from the most recent turn — used to
+   * size context compression off the real tokenizer rather than our heuristic. */
+  private lastPromptTokens = 0;
 
   constructor(options: AgentLoopOptions) {
     this.client = new LlmClient(options.config);
@@ -174,15 +189,22 @@ export class AgentLoop {
         inputTokens: this.totalInputTokens,
         outputTokens: this.totalOutputTokens,
         totalTokens: this.totalInputTokens + this.totalOutputTokens,
+        cacheReadInputTokens: this.totalCacheReadInputTokens || undefined,
       },
       stopReason,
     };
   }
 
   private async executeTurn(): Promise<ChatMessage> {
-    // Compress context if it's getting too long
-    if (this.compressor.shouldCompress(this.messages)) {
-      this.messages = await this.compressor.compress(this.messages, this.signal);
+    // Compress context if it's getting too long. Use the provider's reported
+    // `prompt_tokens` from the previous turn (if any) as the source of truth
+    // for token size; falls back to the character heuristic on the first turn.
+    if (this.compressor.shouldCompress(this.messages, this.lastPromptTokens)) {
+      this.messages = await this.compressor.compress(
+        this.messages,
+        this.signal,
+        this.lastPromptTokens,
+      );
     }
 
     const stream = this.client.stream({
@@ -235,10 +257,13 @@ export class AgentLoop {
     if (lastUsage) {
       this.totalInputTokens += lastUsage.prompt_tokens || 0;
       this.totalOutputTokens += lastUsage.completion_tokens || 0;
+      this.totalCacheReadInputTokens += lastUsage.prompt_cache_hit_tokens || 0;
+      this.lastPromptTokens = lastUsage.prompt_tokens || this.lastPromptTokens;
       this.callbacks.onUsageUpdate?.({
         inputTokens: this.totalInputTokens,
         outputTokens: this.totalOutputTokens,
         totalTokens: this.totalInputTokens + this.totalOutputTokens,
+        cacheReadInputTokens: this.totalCacheReadInputTokens || undefined,
       });
 
       // Check budget
@@ -308,8 +333,20 @@ export class AgentLoop {
       throw new Error("Agent run cancelled");
     }
 
-    // Separate tool calls into parallelizable and sequential groups
-    const SEQUENTIAL_TOOLS = new Set(["bash", "run_command", "write_file", "edit_file"]);
+    // Separate tool calls into parallelizable and sequential groups.
+    // Any tool that mutates the workspace or shared state must run in the order
+    // the model produced it; only read-only tools are eligible for parallel
+    // execution. `todo_write` is in-memory state and naturally serializable —
+    // we keep it sequential for predictable per-call output ordering.
+    const SEQUENTIAL_TOOLS = new Set([
+      "bash",
+      "run_command",
+      "write_file",
+      "edit_file",
+      "multi_edit",
+      "apply_patch",
+      "todo_write",
+    ]);
 
     // Strategy: run all read-only tools in parallel, then sequential tools in order
     const parallel: { index: number; toolCall: ToolCallMessage }[] = [];

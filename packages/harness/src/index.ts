@@ -31,6 +31,12 @@ export {
   type TraceSink,
 } from "./trace-sink.js";
 export type { HarnessHooks, PreToolUseContext, PreToolUseResult, PostToolUseContext } from "./hooks.js";
-export { TOOL_DEFINITIONS, ToolExecutor, ShellSession } from "./tools/index.js";
+export {
+  TOOL_DEFINITIONS,
+  ToolExecutor,
+  ShellSession,
+  applyEdit,
+  type TodoItem,
+} from "./tools/index.js";
 export { buildSystemPrompt, detectWorkspaceContext, type PromptContext } from "./prompt.js";
 export type * from "./types.js";
