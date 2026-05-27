@@ -6,3 +6,10 @@ release/
 .DS_Store
 .env
 .forgelet/
+packages/harness/eval/reports/
+packages/harness/eval/swe-bench/repos/
+packages/harness/eval/swe-bench/runs/
+packages/harness/eval/swe-bench/.venv/
+packages/harness/eval/swe-bench/.venv-mac/
+packages/harness/eval/swe-bench/logs/
+packages/harness/eval/swe-bench/evaluation_results/

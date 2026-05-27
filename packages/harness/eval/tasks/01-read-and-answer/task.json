@@ -1,0 +1,8 @@
+{
+  "id": "01-read-and-answer",
+  "name": "Read file and answer question",
+  "prompt": "What is the value of the `version` field in package.json?",
+  "timeout_s": 30,
+  "judge": "script",
+  "judge_args": {}
+}

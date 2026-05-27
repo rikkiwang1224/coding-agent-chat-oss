@@ -256,8 +256,8 @@ export function Composer() {
     if (textareaRef.current) textareaRef.current.value = "";
     setPasteDebug("");
 
-    if (sessionId && threadId) {
-      await resumePrompt(prompt, currentWorkspace.path);
+    if (threadId) {
+      await resumePrompt(prompt, currentWorkspace.path, threadId);
     } else {
       await sendPrompt(prompt, currentWorkspace.path);
     }

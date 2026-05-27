@@ -1,0 +1,8 @@
+{
+  "id": "04-edit-function",
+  "name": "Edit an existing function to add a parameter",
+  "prompt": "Modify the `greet` function in src/hello.ts to accept an optional `uppercase` boolean parameter. When `uppercase` is true, return the greeting in uppercase.",
+  "timeout_s": 45,
+  "judge": "contains",
+  "judge_args": { "file": "src/hello.ts", "expected": "uppercase" }
+}

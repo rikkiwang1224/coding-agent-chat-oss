@@ -1,0 +1,8 @@
+{
+  "id": "13-fix-type-error",
+  "name": "Fix TypeScript type errors with generics and interfaces",
+  "prompt": "Running `npx tsc --noEmit` reports type errors in src/app.ts. The types defined in event-bus.ts and repository.ts are correct — the bugs are all in app.ts. Fix all type errors so that `npx tsc --noEmit` passes with zero errors. Do not modify event-bus.ts or repository.ts.",
+  "timeout_s": 120,
+  "judge": "script",
+  "judge_args": {}
+}

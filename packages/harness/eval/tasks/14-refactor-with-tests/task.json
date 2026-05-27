@@ -1,0 +1,8 @@
+{
+  "id": "14-refactor-with-tests",
+  "name": "Refactor module while keeping all tests passing",
+  "prompt": "The TaskManager class in src/task_manager.py works but uses a flat list with linear search for everything. Refactor it to:\n1. Use a dictionary (keyed by task id) for O(1) lookups instead of linear search\n2. Use a dataclass or named tuple for Task instead of raw dicts\n3. Keep the same public API — all methods must have the same signatures and return the same data structures (dicts with id/title/priority/done keys)\n\nThe tests in tests/test_task_manager.py must pass after your refactoring. Do NOT modify the test file.",
+  "timeout_s": 120,
+  "judge": "script",
+  "judge_args": {}
+}

@@ -1,0 +1,8 @@
+{
+  "id": "10-implement-feature",
+  "name": "Implement a complete small feature",
+  "prompt": "Implement a simple key-value store in src/store.ts. It should export a class `KVStore` with methods: `set(key: string, value: string): void`, `get(key: string): string | undefined`, `delete(key: string): boolean`, `has(key: string): boolean`, and `size(): number`. Use a Map internally.",
+  "timeout_s": 120,
+  "judge": "script",
+  "judge_args": {}
+}

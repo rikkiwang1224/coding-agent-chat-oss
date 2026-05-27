@@ -7,6 +7,8 @@ export type AgentEventType =
   | "tool.called"
   | "tool.output"
   | "tool.error"
+  | "tool.permission_request"
+  | "tool.permission_resolved"
   | "agent.done"
   | "agent.error";
 
@@ -92,6 +94,22 @@ export interface ToolErrorPayload {
   decision?: PermissionDecision;
 }
 
+export type PermissionRequestOutcome = "allow_once" | "allow_always" | "deny";
+
+export interface ToolPermissionRequestPayload {
+  requestId: string;
+  toolCallId?: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  reason: string;
+  decision: Extract<PermissionDecision, "ask">;
+}
+
+export interface ToolPermissionResolvedPayload {
+  requestId: string;
+  outcome: PermissionRequestOutcome;
+}
+
 export interface AgentToolCalledEvent {
   type: "tool.called";
   timestamp?: string;
@@ -157,7 +175,14 @@ export interface AgentRunMetrics {
   durationMs?: number;
   durationApiMs?: number;
   numTurns?: number;
+  /** Estimated cost for this run only (USD) */
   totalCostUsd?: number;
+  /** Token usage for this run only */
+  runInputTokens?: number;
+  runOutputTokens?: number;
+  /** Session cumulative cost after this run (USD) */
+  sessionTotalCostUsd?: number;
+  /** Session cumulative token usage */
   inputTokens?: number;
   outputTokens?: number;
   totalTokens?: number;

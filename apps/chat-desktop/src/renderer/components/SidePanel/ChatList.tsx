@@ -4,6 +4,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatListItem } from "./ChatListItem";
 import { useApp } from "@/context/AppContext";
 import { getDesktopConfig } from "@/hooks/useDesktopConfig";
+import { attachRunCostsToMessages } from "@/lib/run-cost";
+import { dedupeAssistantTextsInAllTurns } from "@/lib/message-dedupe";
 import type { ImageAttachment, Message, SerializedMessage } from "@/types";
 
 function restoreAttachments(
@@ -17,13 +19,16 @@ function restoreAttachments(
 }
 
 function toRestoredMessages(messages: SerializedMessage[]): Message[] {
-  return messages.map((m, i) => ({
-    id: `restored-${i}`,
-    role: m.role,
-    body: m.body,
-    attachments: restoreAttachments(m.attachments, i),
-    toolCalls: m.toolCalls,
-  }));
+  return dedupeAssistantTextsInAllTurns(
+    messages.map((m, i) => ({
+      id: `restored-${i}`,
+      role: m.role,
+      body: m.body,
+      attachments: restoreAttachments(m.attachments, i),
+      toolCalls: m.toolCalls,
+      turnCost: m.turnCost,
+    })),
+  );
 }
 
 function restoreSnapshotMessages(
@@ -39,26 +44,29 @@ function restoreSnapshotMessages(
     localByBody.set(key, bucket);
   }
 
-  return sessionMessages.map((m, i) => {
-    const sameSlot = localMessages?.[i];
-    let attachments =
-      sameSlot?.role === m.role && sameSlot.body === m.body
-        ? sameSlot.attachments
-        : undefined;
+  return dedupeAssistantTextsInAllTurns(
+    sessionMessages.map((m, i) => {
+      const sameSlot = localMessages?.[i];
+      let attachments =
+        sameSlot?.role === m.role && sameSlot.body === m.body
+          ? sameSlot.attachments
+          : undefined;
 
-    if (!attachments || attachments.length === 0) {
-      const bucket = localByBody.get(`${m.role}\n${m.body}`);
-      attachments = bucket?.shift()?.attachments;
-    }
+      if (!attachments || attachments.length === 0) {
+        const bucket = localByBody.get(`${m.role}\n${m.body}`);
+        attachments = bucket?.shift()?.attachments;
+      }
 
-    return {
-      id: `restored-${i}`,
-      role: m.role,
-      body: m.body,
-      attachments: restoreAttachments(attachments, i),
-      toolCalls: m.toolCalls,
-    };
-  });
+      return {
+        id: `restored-${i}`,
+        role: m.role,
+        body: m.body,
+        attachments: restoreAttachments(attachments, i),
+        toolCalls: m.toolCalls,
+        turnCost: sameSlot?.turnCost ?? m.turnCost,
+      };
+    }),
+  );
 }
 
 export function ChatList() {
@@ -78,53 +86,42 @@ export function ChatList() {
 
     const local = findLocalThread(currentWorkspace.path, id);
     const hasLocalMessages = local && local.messages.length > 0;
-    const hasToolCalls = hasLocalMessages && local.messages.some(
-      (m) => m.toolCalls && m.toolCalls.length > 0,
-    );
+    setSessionId(id);
 
-    if (hasLocalMessages && hasToolCalls) {
+    if (hasLocalMessages) {
       setMessages(toRestoredMessages(local.messages));
-      setSessionId(local.runSessionIds[0] ?? id);
       return;
     }
 
-    const sessionThreadId = local?.runSessionIds[0] ?? id;
     const canLoadSnapshot = !!config.loadSessionThread;
-
     if (canLoadSnapshot) {
       try {
-        const session = await config.loadSessionThread!(currentWorkspace.path, sessionThreadId);
+        const session = await config.loadSessionThread!(currentWorkspace.path, id);
         if (session && session.messages.length > 0) {
-          const restoredMessages = restoreSnapshotMessages(session.messages, local?.messages);
+          const restoredMessages = attachRunCostsToMessages(
+            restoreSnapshotMessages(session.messages, local?.messages),
+            session.runs,
+          );
           setMessages(restoredMessages);
-          setSessionId(sessionThreadId);
 
           const thread = {
-            id: local?.id ?? session.id,
+            id,
             title: local?.title ?? session.title,
             summary: local?.summary ?? session.summary,
             updatedAt: local?.updatedAt ?? session.updatedAt,
-            runSessionIds: local?.runSessionIds ?? [session.id],
             messages: restoredMessages.map(({ id: _id, ...message }) => ({
               ...message,
               attachments: message.attachments.length > 0 ? message.attachments : undefined,
+              turnCost: message.turnCost,
             })),
-            sdkSessionId: session.sdkSessionId,
           };
           upsertLocalThread(currentWorkspace.path, thread);
           void saveThreadSnapshot(currentWorkspace.path, thread);
           return;
         }
       } catch {
-        /* fall through to local fallback */
+        /* ignore */
       }
-    }
-
-    if (hasLocalMessages) {
-      setMessages(toRestoredMessages(local.messages));
-      setSessionId(local.runSessionIds[0] ?? id);
-    } else if (local) {
-      setSessionId(local.runSessionIds[0] ?? id);
     }
   };
 

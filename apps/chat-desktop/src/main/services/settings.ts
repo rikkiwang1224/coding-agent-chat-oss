@@ -11,7 +11,7 @@ export interface AppSettings {
     provider: LlmProvider;
     /** Primary model used for chat turns. Vendor-neutral field name. */
     primaryModel: string;
-    /** Optional light model used by Claude Code for lightweight internal tasks. */
+    /** Optional light/auxiliary model (reserved for future use). */
     lightModel: string;
     apiKey: string;
     baseUrl: string;

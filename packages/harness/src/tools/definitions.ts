@@ -81,20 +81,17 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "run_command",
+      name: "bash",
       description:
-        "Execute a shell command in the workspace. Use for git operations, running tests, " +
-        "installing packages, build commands, etc. Commands run in the workspace root by default.",
+        "Execute a command in a persistent bash shell. State (cwd, environment variables) " +
+        "persists between calls — use `cd` to change directories and it will stick. " +
+        "Use for running tests, git, package managers, build tools, etc.",
       parameters: {
         type: "object",
         properties: {
           command: {
             type: "string",
-            description: "The shell command to execute",
-          },
-          cwd: {
-            type: "string",
-            description: "Working directory for the command. Defaults to workspace root.",
+            description: "The bash command to execute",
           },
           timeout_ms: {
             type: "integer",

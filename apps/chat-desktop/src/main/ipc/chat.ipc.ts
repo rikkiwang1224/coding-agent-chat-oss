@@ -20,6 +20,7 @@ import {
 } from "../services/clipboard.js";
 import {
   startAgentRun,
+  handleRespondPermission,
   type StartAgentRunInput,
 } from "../services/agent-runner.js";
 
@@ -45,6 +46,15 @@ export function registerChatIpc(): void {
   );
   ipcMain.handle("chat-desktop:resume-run", (event, input: StartAgentRunInput | undefined) =>
     startAgentRun(event, { ...input, runMode: "resume" }),
+  );
+  ipcMain.handle(
+    "chat-desktop:respond-permission",
+    (_event, requestId: unknown, outcome: unknown) => {
+      if (typeof requestId !== "string" || !requestId.trim()) return false;
+      const valid = outcome === "allow_once" || outcome === "allow_always" || outcome === "deny";
+      if (!valid) return false;
+      return handleRespondPermission(requestId, outcome);
+    },
   );
   ipcMain.handle("chat-desktop:get-stored-threads", (_event, workspacePath: unknown) => {
     if (typeof workspacePath !== "string" || workspacePath.trim().length === 0) return [];

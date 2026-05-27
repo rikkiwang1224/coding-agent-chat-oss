@@ -1,23 +1,66 @@
 import type { AgentEngine, RunTaskInput, EventSink } from "@forgelet/sdk-core";
 import type { AgentEvent, AgentRunMetrics } from "@forgelet/shared-types";
-import type { LlmConfig } from "./types.js";
+import type { ChatMessage, LlmConfig } from "./types.js";
 import { AgentLoop } from "./agent-loop.js";
+import { PlanExecutor } from "./plan-execute.js";
+import { detectWorkspaceContext, type PromptContext } from "./prompt.js";
+import { SessionStore, sumSessionRunCosts, type SessionData, type SessionRunRecord } from "./session-store.js";
+import {
+  PermissionGuard,
+  type PermissionCallback,
+  type PermissionPolicy,
+} from "./permissions.js";
+import type { HarnessHooks } from "./hooks.js";
+import { createTraceSink, type TraceConfig, type TraceSink } from "./trace-sink.js";
+import { estimateRunCostUsd } from "@forgelet/sdk-runtime";
 
 export interface HarnessEngineOptions {
   workspaceRoot: string;
   config: LlmConfig;
   maxTurns?: number;
+  promptContext?: PromptContext;
+  usePlanExecute?: boolean;
+  sessionStore?: SessionStore;
+  /** Persist messages to sessionStore (default: true when sessionStore is set) */
+  persistSession?: boolean;
+  onPermissionConfirm?: PermissionCallback;
+  permissionPolicy?: PermissionPolicy;
+  hooks?: HarnessHooks;
+  /** Append AgentEvent JSONL under FORGELET_HOME/traces (default on when set) */
+  trace?: TraceConfig;
 }
 
 export class HarnessEngine implements AgentEngine {
   private readonly workspaceRoot: string;
   private readonly config: LlmConfig;
   private readonly maxTurns?: number;
+  private readonly usePlanExecute: boolean;
+  private readonly sessionStore?: SessionStore;
+  private readonly persistSession: boolean;
+  private readonly permissionGuard: PermissionGuard;
+  private readonly hooks?: HarnessHooks;
+  private readonly traceConfig?: TraceConfig;
+  private promptContext?: PromptContext;
 
   constructor(options: HarnessEngineOptions) {
     this.workspaceRoot = options.workspaceRoot;
     this.config = options.config;
     this.maxTurns = options.maxTurns;
+    this.usePlanExecute = options.usePlanExecute ?? false;
+    this.sessionStore =
+      options.sessionStore ?? SessionStore.forWorkspace(options.workspaceRoot);
+    this.traceConfig = options.trace;
+    this.persistSession = options.persistSession ?? true;
+    this.permissionGuard = new PermissionGuard(
+      options.permissionPolicy,
+      options.onPermissionConfirm,
+    );
+    this.hooks = options.hooks;
+    this.promptContext = options.promptContext;
+  }
+
+  getPermissionGuard(): PermissionGuard {
+    return this.permissionGuard;
   }
 
   async runTask(input: RunTaskInput, emit: EventSink): Promise<void> {
@@ -27,15 +70,147 @@ export class HarnessEngine implements AgentEngine {
 
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
+    let sessionCreatedAt = new Date().toISOString();
+
+    if (!this.promptContext) {
+      this.promptContext = await detectWorkspaceContext(this.workspaceRoot);
+    }
+
+    let initialMessages: ChatMessage[] | undefined;
+    let sessionTotalCostUsd = 0;
+    let lastRunCostUsd: number | undefined;
+    let sessionRuns: SessionRunRecord[] = [];
+    let runStartInputTokens = 0;
+    let runStartOutputTokens = 0;
+
+    if (this.sessionStore) {
+      const existing = await this.sessionStore.load(sessionId);
+      if (existing) {
+        sessionRuns = existing.metadata.runs ?? [];
+        sessionTotalCostUsd = existing.metadata.totalCostUsd ?? sumSessionRunCosts(sessionRuns);
+        if (input.runMode === "resume" && existing.messages?.length) {
+          initialMessages = existing.messages;
+          sessionCreatedAt = existing.createdAt;
+          totalInputTokens = existing.metadata.totalInputTokens ?? 0;
+          totalOutputTokens = existing.metadata.totalOutputTokens ?? 0;
+        }
+      }
+    }
+
+    runStartInputTokens = totalInputTokens;
+    runStartOutputTokens = totalOutputTokens;
+
+    const attachCost = (metrics: AgentRunMetrics): AgentRunMetrics => {
+      const inputTokens = metrics.inputTokens ?? 0;
+      const outputTokens = metrics.outputTokens ?? 0;
+      const runCost =
+        this.config.provider && (inputTokens > 0 || outputTokens > 0)
+          ? estimateRunCostUsd({
+              provider: this.config.provider,
+              model: this.config.model,
+              inputTokens,
+              outputTokens,
+              cacheReadInputTokens: metrics.cacheReadInputTokens,
+              cacheCreationInputTokens: metrics.cacheCreationInputTokens,
+            })
+          : undefined;
+      if (runCost === undefined) return metrics;
+      const modelKey = this.config.model ?? "unknown";
+      return {
+        ...metrics,
+        totalCostUsd: runCost,
+        modelUsage: {
+          [modelKey]: {
+            inputTokens,
+            outputTokens,
+            totalTokens: metrics.totalTokens ?? inputTokens + outputTokens,
+            costUsd: runCost,
+          },
+        },
+      };
+    };
+
+    const traceSink: TraceSink | undefined = createTraceSink(
+      this.traceConfig
+        ? {
+            enabled: this.traceConfig.enabled ?? true,
+            ...this.traceConfig,
+            runId: this.traceConfig.runId || sessionId,
+          }
+        : undefined,
+    );
 
     const emitEvent = (type: AgentEvent["type"], payload: unknown): void => {
-      emit({
+      const event: AgentEvent = {
         type,
         sessionId,
         taskId,
         timestamp: new Date().toISOString(),
         payload,
-      });
+      };
+      emit(event);
+      void Promise.resolve(traceSink?.append(event)).catch(() => {});
+    };
+
+    let saveTimer: ReturnType<typeof setTimeout> | undefined;
+    const countUserTurns = (messages: ChatMessage[]): number =>
+      messages.filter((m) => m.role === "user").length;
+
+    const flushSession = async (messages: ChatMessage[], turnCount?: number): Promise<void> => {
+      if (!this.persistSession || !this.sessionStore) return;
+      const data: SessionData = {
+        id: sessionId,
+        createdAt: sessionCreatedAt,
+        updatedAt: new Date().toISOString(),
+        messages,
+        metadata: {
+          model: this.config.model,
+          workspaceRoot: this.workspaceRoot,
+          turnCount: turnCount ?? countUserTurns(messages),
+          totalInputTokens,
+          totalOutputTokens,
+          totalCostUsd: sessionTotalCostUsd,
+          lastRunCostUsd,
+          runs: sessionRuns.length > 0 ? sessionRuns : undefined,
+        },
+      };
+      await this.sessionStore.save(data);
+    };
+
+    const recordCompletedRun = (
+      messages: ChatMessage[],
+      durationMs: number,
+      deltaInputTokens: number,
+      deltaOutputTokens: number,
+      runCostUsd: number | undefined,
+    ): void => {
+      const turnIndex = countUserTurns(messages);
+      if (turnIndex <= 0) return;
+
+      const completedAt = new Date().toISOString();
+      sessionRuns = [
+        ...sessionRuns,
+        {
+          taskId,
+          turnIndex,
+          startedAt: new Date(startTime).toISOString(),
+          completedAt,
+          durationMs,
+          inputTokens: deltaInputTokens,
+          outputTokens: deltaOutputTokens,
+          costUsd: runCostUsd,
+          model: this.config.model,
+        },
+      ];
+      lastRunCostUsd = runCostUsd;
+      sessionTotalCostUsd = sumSessionRunCosts(sessionRuns);
+    };
+
+    const scheduleSave = (messages: ChatMessage[], turnCount: number): void => {
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => {
+        void flushSession(messages, turnCount).catch(() => {});
+      }, 500);
     };
 
     emitEvent("agent.started", {
@@ -45,81 +220,180 @@ export class HarnessEngine implements AgentEngine {
       runMode: input.runMode ?? "run",
     });
 
-    emitEvent("agent.progress", {
-      stage: "execute",
-      message: `Starting agent loop with ${this.config.model || "unknown model"}`,
-      status: "running",
-    });
-
-    const loop = new AgentLoop({
-      config: this.config,
-      workspaceRoot: this.workspaceRoot,
-      maxTurns: this.maxTurns,
-      signal,
-      callbacks: {
-        onTextDelta: (delta) => {
-          emitEvent("agent.delta", { delta });
-        },
-
-        onToolCall: (toolName, args, callId) => {
-          emitEvent("tool.called", {
+    const loopCallbacks = {
+      onTextDelta: (delta: string) => {
+        emitEvent("agent.delta", { delta });
+      },
+      onUsageUpdate: (usage: { inputTokens: number; outputTokens: number }) => {
+        totalInputTokens = usage.inputTokens;
+        totalOutputTokens = usage.outputTokens;
+      },
+      onToolCall: (toolName: string, args: Record<string, unknown>, callId: string) => {
+        emitEvent("tool.called", {
+          toolCallId: callId,
+          toolName,
+          args,
+          metadata: {
+            name: toolName,
+            displayName: toolName,
+          },
+        });
+      },
+      onToolResult: (toolName: string, output: string, ok: boolean, callId: string) => {
+        if (ok) {
+          emitEvent("tool.output", {
             toolCallId: callId,
             toolName,
-            args,
-            metadata: {
-              name: toolName,
-              displayName: toolName,
-            },
+            output: truncateForEvent(output),
           });
-        },
-
-        onToolResult: (toolName, output, ok, callId) => {
-          if (ok) {
-            emitEvent("tool.output", {
-              toolCallId: callId,
-              toolName,
-              output: truncateForEvent(output),
-            });
-          } else {
-            emitEvent("tool.error", {
-              toolCallId: callId,
-              toolName,
-              error: truncateForEvent(output),
-            });
-          }
-        },
-
-        onError: (error) => {
-          emitEvent("agent.error", {
-            error: error.message,
-            status: "failed",
-            recoverable: false,
-            terminalReason: "failed_terminal",
+        } else {
+          const isDenied = output.includes("Permission denied") || output.includes("User denied");
+          emitEvent("tool.error", {
+            toolCallId: callId,
+            toolName,
+            error: truncateForEvent(output),
+            decision: isDenied ? "deny" : undefined,
           });
-        },
+        }
       },
-    });
+      onError: (error: Error) => {
+        emitEvent("agent.error", {
+          error: error.message,
+          status: "failed",
+          recoverable: false,
+          terminalReason: "failed_terminal",
+        });
+      },
+    };
 
     try {
-      const result = await loop.run(prompt);
-      const durationMs = Date.now() - startTime;
+      if (this.usePlanExecute) {
+        emitEvent("agent.progress", {
+          stage: "plan",
+          message: `Planning with ${this.config.model || "unknown model"}`,
+          status: "running",
+        });
 
+        const planner = new PlanExecutor({
+          config: this.config,
+          workspaceRoot: this.workspaceRoot,
+          promptContext: this.promptContext,
+          maxTotalTurns: this.maxTurns,
+          signal,
+          callbacks: {
+            ...loopCallbacks,
+            onPlanCreated: (plan) => {
+              emitEvent("agent.progress", {
+                stage: "plan",
+                message: `Plan: ${plan.goal} (${plan.steps.length} steps)`,
+                status: "running",
+              });
+            },
+            onStepStarted: (step) => {
+              emitEvent("agent.progress", {
+                stage: "execute",
+                message: `Step ${step.id}: ${step.description}`,
+                status: "running",
+              });
+            },
+          },
+        });
+
+        const { plan, tokenUsage } = await planner.run(prompt);
+        const durationMs = Date.now() - startTime;
+        const completed = plan.steps.filter((s) => s.status === "completed").length;
+        const summary = `Plan completed: ${completed}/${plan.steps.length} steps. Goal: ${plan.goal}`;
+
+        const planMetrics = attachCost({
+          durationMs,
+          numTurns: plan.steps.length,
+          inputTokens: tokenUsage.inputTokens || undefined,
+          outputTokens: tokenUsage.outputTokens || undefined,
+          totalTokens: tokenUsage.totalTokens || undefined,
+          primaryModel: this.config.model,
+        });
+        lastRunCostUsd = planMetrics.totalCostUsd;
+        sessionTotalCostUsd += lastRunCostUsd ?? 0;
+
+        emitEvent("agent.done", {
+          summary: truncateForEvent(summary),
+          metrics: planMetrics,
+          status: "completed",
+          recoverable: false,
+          terminalReason: "completed",
+        });
+        await traceSink?.close();
+        return;
+      }
+
+      emitEvent("agent.progress", {
+        stage: "execute",
+        message: `Starting agent loop with ${this.config.model || "unknown model"}`,
+        status: "running",
+      });
+
+      const loop = new AgentLoop({
+        config: this.config,
+        workspaceRoot: this.workspaceRoot,
+        promptContext: this.promptContext,
+        maxTurns: this.maxTurns,
+        signal,
+        callbacks: loopCallbacks,
+        initialMessages,
+        sessionId,
+        permissionGuard: this.permissionGuard,
+        hooks: this.hooks,
+        onMessagesChanged: (messages) => {
+          scheduleSave(messages, countUserTurns(messages));
+        },
+      });
+
+      const result = await loop.run(prompt);
+      if (saveTimer) clearTimeout(saveTimer);
+      loop.destroy();
+
+      const durationMs = Date.now() - startTime;
       const finalMessage = result.messages[result.messages.length - 1];
       const summary =
         finalMessage?.role === "assistant" && finalMessage.content
           ? finalMessage.content
           : "Agent task completed.";
 
-      const metrics: AgentRunMetrics = {
+      const deltaInputTokens = Math.max(0, totalInputTokens - runStartInputTokens);
+      const deltaOutputTokens = Math.max(0, totalOutputTokens - runStartOutputTokens);
+      const runMetrics = attachCost({
         durationMs,
         numTurns: result.turnCount,
-        inputTokens: totalInputTokens || undefined,
-        outputTokens: totalOutputTokens || undefined,
+        inputTokens: deltaInputTokens || undefined,
+        outputTokens: deltaOutputTokens || undefined,
+        totalTokens:
+          deltaInputTokens || deltaOutputTokens
+            ? deltaInputTokens + deltaOutputTokens
+            : undefined,
+        primaryModel: this.config.model,
+      });
+      lastRunCostUsd = runMetrics.totalCostUsd;
+      recordCompletedRun(
+        result.messages,
+        durationMs,
+        deltaInputTokens,
+        deltaOutputTokens,
+        lastRunCostUsd,
+      );
+
+      await flushSession(result.messages);
+
+      const metrics = {
+        ...runMetrics,
+        runInputTokens: deltaInputTokens || undefined,
+        runOutputTokens: deltaOutputTokens || undefined,
+        sessionTotalCostUsd,
+        inputTokens: totalInputTokens || result.tokenUsage.inputTokens || undefined,
+        outputTokens: totalOutputTokens || result.tokenUsage.outputTokens || undefined,
         totalTokens:
           totalInputTokens || totalOutputTokens
             ? totalInputTokens + totalOutputTokens
-            : undefined,
-        primaryModel: this.config.model,
+            : result.tokenUsage.totalTokens || undefined,
       };
 
       emitEvent("agent.done", {
@@ -129,12 +403,12 @@ export class HarnessEngine implements AgentEngine {
         recoverable: false,
         terminalReason: "completed",
       });
+      await traceSink?.close();
     } catch (error) {
+      if (saveTimer) clearTimeout(saveTimer);
       const durationMs = Date.now() - startTime;
       const message = error instanceof Error ? error.message : String(error);
-
-      const isCancelled =
-        message.includes("cancelled") || message.includes("aborted");
+      const isCancelled = message.includes("cancelled") || message.includes("aborted");
 
       emitEvent("agent.error", {
         error: message,
@@ -147,6 +421,7 @@ export class HarnessEngine implements AgentEngine {
           primaryModel: this.config.model,
         },
       });
+      await traceSink?.close();
     }
   }
 }

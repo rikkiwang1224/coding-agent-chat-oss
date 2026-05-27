@@ -1,0 +1,8 @@
+{
+  "id": "05-multi-file-read",
+  "name": "Read multiple files and synthesize information",
+  "prompt": "List all the exported function names across all .ts files in the src/ directory.",
+  "timeout_s": 45,
+  "judge": "script",
+  "judge_args": {}
+}

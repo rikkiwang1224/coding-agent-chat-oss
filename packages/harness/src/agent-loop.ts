@@ -7,7 +7,10 @@ import type {
 } from "./types.js";
 import { LlmClient } from "./api-client.js";
 import { TOOL_DEFINITIONS, ToolExecutor } from "./tools/index.js";
-import { buildSystemPrompt } from "./prompt.js";
+import { buildSystemPrompt, type PromptContext } from "./prompt.js";
+import { ContextCompressor, estimateTokens } from "./context-compressor.js";
+import type { HarnessHooks } from "./hooks.js";
+import type { PermissionGuard, PermissionCallback } from "./permissions.js";
 
 export interface AgentLoopCallbacks {
   onTextDelta?: (delta: string) => void;
@@ -16,17 +19,35 @@ export interface AgentLoopCallbacks {
   onToolResult?: (toolName: string, result: string, ok: boolean, callId: string) => void;
   onTurnStart?: (turnIndex: number) => void;
   onTurnEnd?: (turnIndex: number) => void;
+  onUsageUpdate?: (usage: TokenUsage) => void;
   onComplete?: (summary: string) => void;
   onError?: (error: Error) => void;
+}
+
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
 }
 
 export interface AgentLoopOptions {
   config: LlmConfig;
   workspaceRoot: string;
+  promptContext?: PromptContext;
   maxTurns?: number;
+  maxTokens?: number;
+  maxContextTokens?: number;
   signal?: AbortSignal;
   callbacks: AgentLoopCallbacks;
+  /** @deprecated Prefer initialMessages for resume */
   threadContext?: ChatMessage[];
+  /** Restored conversation (e.g. from SessionStore on resume) */
+  initialMessages?: ChatMessage[];
+  onMessagesChanged?: (messages: ChatMessage[]) => void;
+  sessionId?: string;
+  permissionGuard?: PermissionGuard;
+  onPermissionConfirm?: PermissionCallback;
+  hooks?: HarnessHooks;
 }
 
 const DEFAULT_MAX_TURNS = 50;
@@ -36,28 +57,62 @@ export class AgentLoop {
   private readonly executor: ToolExecutor;
   private readonly workspaceRoot: string;
   private readonly maxTurns: number;
+  private readonly maxTotalTokens: number;
+  private readonly compressor: ContextCompressor;
   private readonly signal?: AbortSignal;
   private readonly callbacks: AgentLoopCallbacks;
-  private readonly messages: ChatMessage[];
+  private readonly onMessagesChanged?: (messages: ChatMessage[]) => void;
+  private messages: ChatMessage[];
 
   private turnCount = 0;
+  private totalInputTokens = 0;
+  private totalOutputTokens = 0;
 
   constructor(options: AgentLoopOptions) {
     this.client = new LlmClient(options.config);
-    this.executor = new ToolExecutor({ workspaceRoot: options.workspaceRoot });
+    this.executor = new ToolExecutor({
+      workspaceRoot: options.workspaceRoot,
+      permissionGuard: options.permissionGuard,
+      onPermissionConfirm: options.onPermissionConfirm,
+      hooks: options.hooks,
+      sessionId: options.sessionId,
+    });
     this.workspaceRoot = options.workspaceRoot;
     this.maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
+    this.maxTotalTokens = options.maxTokens ?? Infinity;
+    this.compressor = new ContextCompressor({
+      config: options.config,
+      maxContextTokens: options.maxContextTokens,
+    });
     this.signal = options.signal;
     this.callbacks = options.callbacks;
+    this.onMessagesChanged = options.onMessagesChanged;
 
-    this.messages = [
-      { role: "system", content: buildSystemPrompt(options.workspaceRoot) },
-      ...(options.threadContext || []),
-    ];
+    if (options.initialMessages && options.initialMessages.length > 0) {
+      this.messages = [...options.initialMessages];
+    } else {
+      this.messages = [
+        { role: "system", content: buildSystemPrompt(options.promptContext ?? options.workspaceRoot) },
+        ...(options.threadContext || []),
+      ];
+    }
   }
 
-  async run(userPrompt: string): Promise<{ messages: ChatMessage[]; turnCount: number }> {
+  getMessages(): ChatMessage[] {
+    return this.messages;
+  }
+
+  destroy(): void {
+    this.executor.destroy();
+  }
+
+  private notifyMessagesChanged(): void {
+    this.onMessagesChanged?.(this.messages);
+  }
+
+  async run(userPrompt: string): Promise<{ messages: ChatMessage[]; turnCount: number; tokenUsage: TokenUsage }> {
     this.messages.push({ role: "user", content: userPrompt });
+    this.notifyMessagesChanged();
 
     while (this.turnCount < this.maxTurns) {
       if (this.signal?.aborted) {
@@ -69,13 +124,23 @@ export class AgentLoop {
 
       const assistantMessage = await this.executeTurn();
       this.messages.push(assistantMessage);
+      this.notifyMessagesChanged();
 
       if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
         // No tool calls — the model is done
         this.callbacks.onTurnEnd?.(this.turnCount);
         const finalText = assistantMessage.content || "";
         this.callbacks.onComplete?.(finalText);
-        return { messages: this.messages, turnCount: this.turnCount };
+        this.notifyMessagesChanged();
+        return {
+          messages: this.messages,
+          turnCount: this.turnCount,
+          tokenUsage: {
+            inputTokens: this.totalInputTokens,
+            outputTokens: this.totalOutputTokens,
+            totalTokens: this.totalInputTokens + this.totalOutputTokens,
+          },
+        };
       }
 
       // Execute all tool calls and add results
@@ -83,6 +148,7 @@ export class AgentLoop {
       for (const result of toolResults) {
         this.messages.push(result);
       }
+      this.notifyMessagesChanged();
 
       this.callbacks.onTurnEnd?.(this.turnCount);
     }
@@ -91,6 +157,11 @@ export class AgentLoop {
   }
 
   private async executeTurn(): Promise<ChatMessage> {
+    // Compress context if it's getting too long
+    if (this.compressor.shouldCompress(this.messages)) {
+      this.messages = await this.compressor.compress(this.messages, this.signal);
+    }
+
     const stream = this.client.stream({
       messages: this.messages,
       tools: TOOL_DEFINITIONS,
@@ -98,6 +169,7 @@ export class AgentLoop {
     });
 
     let fullContent = "";
+    let fullReasoning = "";
     const toolCalls = new Map<number, { id: string; name: string; arguments: string }>();
     let lastUsage: ChatCompletionChunk["usage"] | undefined;
 
@@ -120,8 +192,9 @@ export class AgentLoop {
         this.callbacks.onTextDelta?.(delta.content);
       }
 
-      // Reasoning content (thinking mode)
+      // Reasoning content (thinking mode) — must be preserved and passed back
       if (delta.reasoning_content) {
+        fullReasoning += delta.reasoning_content;
         this.callbacks.onReasoningDelta?.(delta.reasoning_content);
       }
 
@@ -135,10 +208,29 @@ export class AgentLoop {
       if (chunk.usage) lastUsage = chunk.usage;
     }
 
+    // Track token usage
+    if (lastUsage) {
+      this.totalInputTokens += lastUsage.prompt_tokens || 0;
+      this.totalOutputTokens += lastUsage.completion_tokens || 0;
+      this.callbacks.onUsageUpdate?.({
+        inputTokens: this.totalInputTokens,
+        outputTokens: this.totalOutputTokens,
+        totalTokens: this.totalInputTokens + this.totalOutputTokens,
+      });
+
+      // Check budget
+      if (this.totalInputTokens + this.totalOutputTokens > this.maxTotalTokens) {
+        throw new Error(
+          `Token budget exceeded: ${this.totalInputTokens + this.totalOutputTokens} > ${this.maxTotalTokens}`,
+        );
+      }
+    }
+
     // Build the complete assistant message
     const message: ChatMessage = {
       role: "assistant",
       content: fullContent || null,
+      reasoning_content: fullReasoning || undefined,
     };
 
     if (toolCalls.size > 0) {
@@ -189,44 +281,72 @@ export class AgentLoop {
   }
 
   private async executeToolCalls(toolCalls: ToolCallMessage[]): Promise<ChatMessage[]> {
-    const results: ChatMessage[] = [];
-
-    for (const toolCall of toolCalls) {
-      if (this.signal?.aborted) {
-        throw new Error("Agent run cancelled");
-      }
-
-      let args: Record<string, unknown> = {};
-      try {
-        args = JSON.parse(toolCall.function.arguments);
-      } catch {
-        const errorResult: ChatMessage = {
-          role: "tool",
-          content: `Error: Failed to parse tool arguments as JSON: ${toolCall.function.arguments}`,
-          tool_call_id: toolCall.id,
-        };
-        results.push(errorResult);
-        this.callbacks.onToolResult?.(toolCall.function.name, errorResult.content!, false, toolCall.id);
-        continue;
-      }
-
-      const executionResult = await this.executor.execute(toolCall.function.name, args);
-
-      const resultMessage: ChatMessage = {
-        role: "tool",
-        content: executionResult.output,
-        tool_call_id: toolCall.id,
-      };
-      results.push(resultMessage);
-
-      this.callbacks.onToolResult?.(
-        toolCall.function.name,
-        executionResult.output,
-        executionResult.ok,
-        toolCall.id,
-      );
+    if (this.signal?.aborted) {
+      throw new Error("Agent run cancelled");
     }
 
-    return results;
+    // Separate tool calls into parallelizable and sequential groups
+    const SEQUENTIAL_TOOLS = new Set(["bash", "run_command", "write_file", "edit_file"]);
+
+    // Strategy: run all read-only tools in parallel, then sequential tools in order
+    const parallel: { index: number; toolCall: ToolCallMessage }[] = [];
+    const sequential: { index: number; toolCall: ToolCallMessage }[] = [];
+
+    for (let i = 0; i < toolCalls.length; i++) {
+      const tc = toolCalls[i];
+      if (SEQUENTIAL_TOOLS.has(tc.function.name)) {
+        sequential.push({ index: i, toolCall: tc });
+      } else {
+        parallel.push({ index: i, toolCall: tc });
+      }
+    }
+
+    const results: (ChatMessage | null)[] = new Array(toolCalls.length).fill(null);
+
+    // Execute parallelizable tools concurrently
+    if (parallel.length > 0) {
+      const parallelResults = await Promise.all(
+        parallel.map(({ index, toolCall }) =>
+          this.executeSingleTool(toolCall).then((msg) => ({ index, msg })),
+        ),
+      );
+      for (const { index, msg } of parallelResults) {
+        results[index] = msg;
+      }
+    }
+
+    // Execute sequential tools in order
+    for (const { index, toolCall } of sequential) {
+      if (this.signal?.aborted) throw new Error("Agent run cancelled");
+      results[index] = await this.executeSingleTool(toolCall);
+    }
+
+    return results.filter((r): r is ChatMessage => r !== null);
+  }
+
+  private async executeSingleTool(toolCall: ToolCallMessage): Promise<ChatMessage> {
+    let args: Record<string, unknown> = {};
+    try {
+      args = JSON.parse(toolCall.function.arguments);
+    } catch {
+      const content = `Error: Failed to parse tool arguments as JSON: ${toolCall.function.arguments}`;
+      this.callbacks.onToolResult?.(toolCall.function.name, content, false, toolCall.id);
+      return { role: "tool", content, tool_call_id: toolCall.id };
+    }
+
+    const executionResult = await this.executor.execute(toolCall.function.name, args);
+
+    this.callbacks.onToolResult?.(
+      toolCall.function.name,
+      executionResult.output,
+      executionResult.ok,
+      toolCall.id,
+    );
+
+    return {
+      role: "tool",
+      content: executionResult.output,
+      tool_call_id: toolCall.id,
+    };
   }
 }

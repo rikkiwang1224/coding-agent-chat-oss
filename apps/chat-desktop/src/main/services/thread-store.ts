@@ -1,7 +1,8 @@
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import type { SessionData } from "@forgelet/harness";
 import {
-  resolveSessionSnapshotPath,
+  resolveHarnessSessionPath,
   resolveWorkspaceSessionIndexPath,
   resolveWorkspaceThreadPath,
   resolveWorkspaceThreadsDir,
@@ -26,6 +27,11 @@ export interface ChatDesktopStoredMessage {
   body: string;
   attachments?: ChatDesktopImageAttachment[];
   toolCalls?: ChatDesktopStoredToolCall[];
+  turnCost?: {
+    costUsd: number;
+    inputTokens?: number;
+    outputTokens?: number;
+  };
 }
 
 export interface ChatDesktopStoredThread {
@@ -92,6 +98,22 @@ function normalizeStoredThread(input: unknown): ChatDesktopStoredThread | null {
           body: m.body,
           attachments: readImageAttachments(m.attachments),
           toolCalls: Array.isArray(m.toolCalls) ? m.toolCalls : undefined,
+          turnCost:
+            m.turnCost &&
+            typeof m.turnCost === "object" &&
+            typeof (m.turnCost as { costUsd?: unknown }).costUsd === "number"
+              ? {
+                  costUsd: (m.turnCost as { costUsd: number }).costUsd,
+                  inputTokens:
+                    typeof (m.turnCost as { inputTokens?: unknown }).inputTokens === "number"
+                      ? (m.turnCost as { inputTokens: number }).inputTokens
+                      : undefined,
+                  outputTokens:
+                    typeof (m.turnCost as { outputTokens?: unknown }).outputTokens === "number"
+                      ? (m.turnCost as { outputTokens: number }).outputTokens
+                      : undefined,
+                }
+              : undefined,
         }))
       : [],
   };
@@ -188,16 +210,14 @@ export interface LoadedSessionThread {
   title: string;
   summary: string;
   updatedAt: string;
-  sdkSessionId?: string;
   messages: LoadedSessionMessage[];
-}
-
-const TRANSCRIPT_ROLE_PATTERN = /^\[([\dT:.Z-]+)\]\s+(User|Assistant|System):\n?/;
-
-interface TimestampedMessage {
-  timestamp: string;
-  role: "user" | "assistant" | "system";
-  body: string;
+  runs?: Array<{
+    turnIndex: number;
+    inputTokens: number;
+    outputTokens: number;
+    costUsd?: number;
+  }>;
+  totalCostUsd?: number;
 }
 
 function extractUserRequest(rawPrompt: unknown): string {
@@ -209,148 +229,33 @@ function extractUserRequest(rawPrompt: unknown): string {
   return idx < 0 ? prompt : prompt.slice(idx + marker.length).trim();
 }
 
-function parseTranscriptWithTimestamps(entries: unknown[]): TimestampedMessage[] {
-  const messages: TimestampedMessage[] = [];
-  for (const entry of entries) {
-    if (typeof entry !== "string" || !entry.trim()) continue;
-    const match = entry.match(TRANSCRIPT_ROLE_PATTERN);
-    if (!match) continue;
-    const timestamp = match[1];
-    const label = match[2].toLowerCase() as "user" | "assistant" | "system";
-    let body = entry.slice(match[0].length).trim();
-    if (!body) continue;
-    if (label === "user") body = extractUserRequest(body);
-    if (!body) continue;
-    messages.push({ timestamp, role: label, body });
-  }
-  return messages;
-}
-
-interface ParsedToolCall {
-  timestamp: string;
-  toolName: string;
-  input?: Record<string, unknown>;
-  output?: string;
-  error?: string;
-}
-
-function parseToolEvents(toolEvents: unknown[]): ParsedToolCall[] {
-  const calls: { timestamp: string; toolName: string; input?: Record<string, unknown> }[] = [];
-  const results: ParsedToolCall[] = [];
-
-  for (const event of toolEvents) {
-    if (!event || typeof event !== "object") continue;
-    const ev = event as Record<string, unknown>;
-    const type = ev.type as string;
-    const timestamp = (ev.timestamp as string) || "";
-
-    if (type === "tool.called") {
-      calls.push({ timestamp, toolName: (ev.toolName as string) || "unknown", input: (ev.args as Record<string, unknown>) ?? undefined });
-    } else if (type === "tool.output") {
-      const pending = calls.shift();
-      if (pending) results.push({ ...pending, output: typeof ev.output === "string" ? ev.output : undefined });
-    } else if (type === "tool.error") {
-      const pending = calls.shift();
-      if (pending) results.push({ ...pending, error: typeof ev.error === "string" ? ev.error : undefined });
-    }
-  }
-
-  for (const remaining of calls) {
-    results.push(remaining);
-  }
-
-  return results;
-}
-
-function mergeTranscriptAndToolEvents(transcriptEntries: unknown[], toolEvents: unknown[]): LoadedSessionMessage[] {
-  const tsMessages = parseTranscriptWithTimestamps(transcriptEntries);
-  const toolCalls = parseToolEvents(toolEvents);
-
-  if (toolCalls.length === 0) return tsMessages.map((m) => ({ role: m.role, body: m.body }));
-
+function harnessMessagesToLoaded(messages: SessionData["messages"]): LoadedSessionMessage[] {
   const result: LoadedSessionMessage[] = [];
-  let toolIdx = 0;
-
-  for (let i = 0; i < tsMessages.length; i++) {
-    const msg = tsMessages[i];
-    result.push({ role: msg.role, body: msg.body });
-
-    const nextTs = i + 1 < tsMessages.length ? tsMessages[i + 1].timestamp : "\uffff";
-    const grouped: ChatDesktopStoredToolCall[] = [];
-
-    while (toolIdx < toolCalls.length && toolCalls[toolIdx].timestamp <= nextTs) {
-      const tc = toolCalls[toolIdx];
-      grouped.push({
-        id: `tc-${toolIdx}`,
-        toolName: tc.toolName,
-        status: tc.error ? "error" : "success",
-        input: tc.input,
-        output: tc.output,
-        error: tc.error,
-      });
-      toolIdx++;
-    }
-
-    if (grouped.length > 0) {
-      result.push({ role: "system", body: `Used ${grouped.length} tool(s)`, toolCalls: grouped });
-    }
+  for (const message of messages) {
+    const body = collapseText(message.content);
+    if (!body) continue;
+    const role =
+      message.role === "tool"
+        ? "system"
+        : message.role === "user" || message.role === "assistant" || message.role === "system"
+          ? message.role
+          : "system";
+    result.push({ role, body: message.role === "user" ? extractUserRequest(body) || body : body });
   }
-
-  while (toolIdx < toolCalls.length) {
-    const tc = toolCalls[toolIdx];
-    const last = result.find((m) => m.role === "system" && m.toolCalls);
-    const entry: ChatDesktopStoredToolCall = {
-      id: `tc-${toolIdx}`,
-      toolName: tc.toolName,
-      status: tc.error ? "error" : "success",
-      input: tc.input,
-      output: tc.output,
-      error: tc.error,
-    };
-    if (last?.toolCalls) {
-      last.toolCalls.push(entry);
-    } else {
-      result.push({ role: "system", body: `Used tool: ${tc.toolName}`, toolCalls: [entry] });
-    }
-    toolIdx++;
-  }
-
   return result;
 }
 
-// ── Thread helpers ──
-
-function deriveThreadTitle(snapshot: Record<string, unknown>, fileName: string): string {
-  const prompt = collapseText(extractUserRequest(snapshot.originalPrompt));
-  const sessionId = collapseText(snapshot.sessionId) || path.basename(fileName, ".json");
-  return truncateText(prompt || sessionId || "Untitled thread", 64);
+function deriveHarnessThreadTitle(session: SessionData): string {
+  const firstUser = session.messages.find((m) => m.role === "user");
+  const prompt = extractUserRequest(firstUser?.content ?? "") || collapseText(firstUser?.content);
+  return truncateText(prompt || session.id, 64);
 }
 
-function deriveThreadSummary(snapshot: Record<string, unknown>): string {
-  const summary = collapseText(snapshot.lastSummary);
+function deriveHarnessThreadSummary(session: SessionData): string {
+  const lastAssistant = [...session.messages].reverse().find((m) => m.role === "assistant");
+  const summary = collapseText(lastAssistant?.content);
   if (summary) return truncateText(summary, 120);
-  const lastError = collapseText(snapshot.lastError);
-  if (lastError) return truncateText(lastError, 120);
-  const status = collapseText(snapshot.taskStatus);
-  if (status) return `Session status: ${status}`;
-  return "Saved session in this workspace.";
-}
-
-function deriveThreadState(snapshot: Record<string, unknown>): string {
-  const status = collapseText(snapshot.taskStatus);
-  const recoverable = snapshot.recoverable === true;
-  switch (status) {
-    case "running": return "Running";
-    case "cancelled": return recoverable ? "Resume available" : "Cancelled";
-    case "failed": return recoverable ? "Retry available" : "Failed";
-    case "completed": return "Completed";
-    default: return recoverable ? "Resume available" : "Saved session";
-  }
-}
-
-function buildThreadPlaceholder(workspaceName: string, snapshot: Record<string, unknown>): string {
-  const prompt = collapseText(extractUserRequest(snapshot.originalPrompt));
-  return prompt ? `Continue in ${workspaceName}: ${truncateText(prompt, 140)}` : `Ask ${workspaceName} to inspect the codebase, explain a file, or plan a change.`;
+  return `Harness session (${session.metadata.turnCount} turns)`;
 }
 
 export { extractUserRequest };
@@ -393,152 +298,58 @@ export function groupThreads(threads: ChatDesktopThreadSummary[]): ChatDesktopTh
     .filter((g) => g.threads.length > 0);
 }
 
-// ── Workspace thread listing (snapshot-based) ──
-
-async function loadWorkspaceSessionIndex(workspacePath: string): Promise<WorkspaceSessionIndex | null> {
-  try {
-    const raw = await readFile(resolveWorkspaceSessionIndexPath(workspacePath), "utf8");
-    return JSON.parse(raw) as WorkspaceSessionIndex;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Returns true if the session snapshot was created by the Chat agent (AgentSdkEngine).
- * Internal agent runs may write snapshots with a custom sessionLabel
- * (for example "codegen"), producing historyEvents with non-session titles.
- * Chat sessions always have "session.start", "session.resume", or "session.retry".
- * Snapshots with no historyEvents are treated as chat sessions for backward compatibility.
- */
-function isChatSessionSnapshot(snapshot: Record<string, unknown>): boolean {
-  const events = Array.isArray(snapshot.historyEvents) ? snapshot.historyEvents : [];
-  if (events.length === 0) return true;
-  const firstTitle = typeof (events[0] as Record<string, unknown>)?.title === "string"
-    ? (events[0] as Record<string, unknown>).title as string
-    : "";
-  return !firstTitle || firstTitle.startsWith("session.");
-}
-
-async function addThreadFromSnapshotPath(
-  threadsById: Map<string, ChatDesktopThreadSummary>,
-  snapshotPath: string,
+function storedThreadToSummary(
+  thread: ChatDesktopStoredThread,
   workspacePath: string,
-  fileName: string,
-): Promise<void> {
-  try {
-    const raw = await readFile(snapshotPath, "utf8");
-    const snapshot = JSON.parse(raw) as Record<string, unknown>;
-
-    // Skip non-chat agent sessions.
-    if (!isChatSessionSnapshot(snapshot)) return;
-
-    const updatedAt = collapseText(snapshot.updatedAt) || new Date().toISOString();
-
-    const thread: ChatDesktopThreadSummary = {
-      id: collapseText(snapshot.sessionId) || path.basename(fileName, ".json"),
-      title: deriveThreadTitle(snapshot, fileName),
-      summary: deriveThreadSummary(snapshot),
-      time: formatRelativeTime(updatedAt),
-      placeholder: buildThreadPlaceholder(path.basename(workspacePath), snapshot),
-      sessionState: deriveThreadState(snapshot),
-      scope: "Workspace root",
-      updatedAt,
-    };
-
-    const existing = threadsById.get(thread.id);
-    if (!existing || new Date(thread.updatedAt).getTime() >= new Date(existing.updatedAt).getTime()) {
-      threadsById.set(thread.id, thread);
-    }
-  } catch {
-    // Ignore malformed or missing session snapshots during discovery.
-  }
+): ChatDesktopThreadSummary {
+  const workspaceName = path.basename(workspacePath);
+  const firstUser = thread.messages.find((m) => m.role === "user");
+  const prompt = collapseText(firstUser?.body);
+  return {
+    id: thread.id,
+    title: thread.title,
+    summary: thread.summary,
+    time: formatRelativeTime(thread.updatedAt),
+    placeholder:
+      thread.placeholder ||
+      (prompt
+        ? `Continue in ${workspaceName}: ${truncateText(prompt, 140)}`
+        : `Ask ${workspaceName} to inspect the codebase, explain a file, or plan a change.`),
+    sessionState: thread.sessionState || "Ready for follow-up",
+    scope: thread.scope || "Workspace root",
+    updatedAt: thread.updatedAt,
+  };
 }
 
+/** Sidebar list source: only FORGELET_HOME/workspaces/{hash}/threads/*.json */
 export async function listWorkspaceThreads(workspacePath: string): Promise<ChatDesktopThreadSummary[]> {
-  const threadsById = new Map<string, ChatDesktopThreadSummary>();
-  const directories = [
-    path.join(workspacePath, ".forgelet", "query-loop-sessions"),
-    path.join(workspacePath, ".forgelet", "sessions"),
-  ];
-
-  for (const sessionsDirectory of directories) {
-    let entries;
-    try {
-      entries = await readdir(sessionsDirectory, { withFileTypes: true });
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-      await addThreadFromSnapshotPath(threadsById, path.join(sessionsDirectory, entry.name), workspacePath, entry.name);
-    }
-  }
-
-  const workspaceSessionIndex = await loadWorkspaceSessionIndex(workspacePath);
-  for (const session of workspaceSessionIndex?.sessions ?? []) {
-    await addThreadFromSnapshotPath(
-      threadsById,
-      typeof session.snapshotPath === "string" && session.snapshotPath.trim().length > 0
-        ? session.snapshotPath
-        : resolveSessionSnapshotPath(session.sessionId),
-      workspacePath,
-      `${session.sessionId}.json`,
-    );
-  }
-
-  const threads = [...threadsById.values()];
-  threads.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
-  return threads;
+  const stored = await listStoredThreads(workspacePath);
+  return stored.map((thread) => storedThreadToSummary(thread, workspacePath));
 }
 
 export async function loadSessionThread(workspacePath: string, sessionId: string): Promise<LoadedSessionThread | null> {
-  const candidatePaths = [
-    path.join(workspacePath, ".forgelet", "query-loop-sessions", `${sessionId}.json`),
-    path.join(workspacePath, ".forgelet", "sessions", `${sessionId}.json`),
-    resolveSessionSnapshotPath(sessionId),
-  ];
+  const filePath = resolveHarnessSessionPath(workspacePath, sessionId);
+  try {
+    const raw = await readFile(filePath, "utf8");
+    const session = JSON.parse(raw) as SessionData;
+    const messages = harnessMessagesToLoaded(session.messages);
+    if (messages.length === 0) return null;
 
-  const workspaceIndex = await loadWorkspaceSessionIndex(workspacePath);
-  for (const session of workspaceIndex?.sessions ?? []) {
-    if (session.sessionId === sessionId && typeof session.snapshotPath === "string" && session.snapshotPath.trim()) {
-      candidatePaths.unshift(session.snapshotPath);
-    }
+    return {
+      id: session.id,
+      title: deriveHarnessThreadTitle(session),
+      summary: deriveHarnessThreadSummary(session),
+      updatedAt: session.updatedAt || session.createdAt || new Date().toISOString(),
+      messages,
+      runs: session.metadata.runs?.map((run) => ({
+        turnIndex: run.turnIndex,
+        inputTokens: run.inputTokens,
+        outputTokens: run.outputTokens,
+        costUsd: run.costUsd,
+      })),
+      totalCostUsd: session.metadata.totalCostUsd,
+    };
+  } catch {
+    return null;
   }
-
-  for (const candidatePath of candidatePaths) {
-    let raw: string;
-    try {
-      raw = await readFile(candidatePath, "utf8");
-    } catch {
-      continue;
-    }
-
-    try {
-      const snapshot = JSON.parse(raw) as Record<string, unknown>;
-      const transcriptEntries = Array.isArray(snapshot.transcriptEntries) ? snapshot.transcriptEntries : [];
-      const toolEvents = Array.isArray(snapshot.toolEvents) ? snapshot.toolEvents : [];
-      const messages = mergeTranscriptAndToolEvents(transcriptEntries, toolEvents);
-      if (messages.length === 0) {
-        const prompt = extractUserRequest(snapshot.originalPrompt);
-        if (prompt) messages.push({ role: "user", body: prompt });
-        const summary = collapseText(snapshot.lastSummary);
-        if (summary) messages.push({ role: "assistant", body: summary });
-      }
-      if (messages.length === 0) continue;
-
-      return {
-        id: collapseText(snapshot.sessionId) || sessionId,
-        title: deriveThreadTitle(snapshot, `${sessionId}.json`),
-        summary: deriveThreadSummary(snapshot),
-        updatedAt: collapseText(snapshot.updatedAt) || new Date().toISOString(),
-        sdkSessionId: typeof snapshot.sdkSessionId === "string" ? snapshot.sdkSessionId : undefined,
-        messages,
-      };
-    } catch {
-      continue;
-    }
-  }
-
-  return null;
 }

@@ -79,31 +79,30 @@ export const PROVIDER_PRESETS: Record<
     defaultPrimaryModel: "claude-sonnet-4-5-20250929",
     defaultLightModel: "claude-haiku-4-5",
     pricing: ANTHROPIC_PRICING,
-    trustsSdkCost: true,
   },
   deepseek: {
     label: "DeepSeek",
-    baseUrl: "https://api.deepseek.com/anthropic",
+    // OpenAI-compatible endpoint; api-client.ts appends /chat/completions.
+    baseUrl: "https://api.deepseek.com",
     defaultPrimaryModel: "deepseek-v4-pro",
     defaultLightModel: "deepseek-v4-flash",
     pricing: DEEPSEEK_PRICING,
     pricingByModelPrefix: DEEPSEEK_PRICING_BY_MODEL_PREFIX,
-    trustsSdkCost: false,
   },
   kimi: {
     label: "Kimi K2 (Moonshot)",
-    baseUrl: "https://api.moonshot.cn/anthropic",
+    // Moonshot's OpenAI-compatible endpoint requires the /v1 prefix.
+    baseUrl: "https://api.moonshot.cn/v1",
     defaultPrimaryModel: "kimi-k2-0905-preview",
     defaultLightModel: "kimi-k2-0905-preview",
     pricing: KIMI_PRICING,
-    trustsSdkCost: false,
   },
   glm: {
     label: "智谱 GLM",
-    baseUrl: "https://open.bigmodel.cn/api/anthropic",
+    // Zhipu's OpenAI-compatible endpoint sits under /api/paas/v4.
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
     defaultPrimaryModel: "glm-4.5",
     defaultLightModel: "glm-4.5-air",
     pricing: GLM_PRICING,
-    trustsSdkCost: false,
   },
 };

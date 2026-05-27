@@ -5,6 +5,8 @@ export type AgentEventType =
   | "tool.called"
   | "tool.output"
   | "tool.error"
+  | "tool.permission_request"
+  | "tool.permission_resolved"
   | "agent.done"
   | "agent.error";
 
@@ -77,9 +79,9 @@ export interface LocalThread {
   sessionState?: string;
   scope?: string;
   updatedAt: string;
-  runSessionIds: string[];
+  /** @deprecated threadId === agentSessionId; do not write */
+  runSessionIds?: string[];
   messages: SerializedMessage[];
-  sdkSessionId?: string;
 }
 
 export interface SerializedMessage {
@@ -87,9 +89,16 @@ export interface SerializedMessage {
   body: string;
   attachments?: ImageAttachment[];
   toolCalls?: ToolCallInfo[];
+  turnCost?: MessageTurnCost;
 }
 
 export type MessageRole = "user" | "assistant" | "system" | "error";
+
+export interface MessageTurnCost {
+  costUsd: number;
+  inputTokens?: number;
+  outputTokens?: number;
+}
 
 export interface Message {
   id: string;
@@ -97,6 +106,7 @@ export interface Message {
   body: string;
   attachments: ImageAttachment[];
   toolCalls?: ToolCallInfo[];
+  turnCost?: MessageTurnCost;
 }
 
 export interface ToolCallInfo {
@@ -144,8 +154,14 @@ export interface DesktopConfig {
     title: string;
     summary: string;
     updatedAt: string;
-    sdkSessionId?: string;
     messages: SerializedMessage[];
+    runs?: Array<{
+      turnIndex: number;
+      inputTokens: number;
+      outputTokens: number;
+      costUsd?: number;
+    }>;
+    totalCostUsd?: number;
   } | null>;
   saveStoredThread: (workspacePath: string, thread: LocalThread) => Promise<LocalThread>;
   deleteStoredThread: (workspacePath: string, threadId: string) => Promise<void>;
@@ -158,6 +174,10 @@ export interface DesktopConfig {
     runMode?: "run" | "resume";
   }) => Promise<{ sessionId?: string }>;
   resumeRun: DesktopConfig["startRun"];
+  respondPermission: (
+    requestId: string,
+    outcome: "allow_once" | "allow_always" | "deny",
+  ) => Promise<boolean>;
   onAgentEvent: (listener: (event: AgentEvent) => void) => void;
   debugPing: () => Promise<{
     ok: boolean;

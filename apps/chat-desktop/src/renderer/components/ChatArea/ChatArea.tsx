@@ -1,6 +1,7 @@
 import { ChatTopBar } from "./ChatTopBar";
 import { MessageList } from "./MessageList";
 import { Composer } from "./Composer";
+import { PermissionDialog } from "./PermissionDialog";
 import { useApp } from "@/context/AppContext";
 import { Settings } from "@/components/Settings/Settings";
 
@@ -27,6 +28,7 @@ function HeroView() {
 
 export function ChatArea() {
   const { mode, agentRun } = useApp();
+  const { pendingPermission, respondToPermission } = agentRun;
   const hasConversation =
     agentRun.messages.filter((m) => m.role !== "system" || (m.toolCalls && m.toolCalls.length > 0)).length > 0;
 
@@ -48,6 +50,7 @@ export function ChatArea() {
           <Composer />
         </div>
       </div>
+      <PermissionDialog request={pendingPermission} onRespond={respondToPermission} />
     </div>
   );
 }

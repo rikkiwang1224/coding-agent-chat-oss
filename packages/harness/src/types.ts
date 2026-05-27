@@ -1,16 +1,22 @@
+import type { LlmProvider } from "@forgelet/sdk-runtime";
+
 export interface LlmConfig {
   apiKey: string;
   baseUrl?: string;
   model?: string;
+  /** Used for USD cost estimation from token usage */
+  provider?: LlmProvider;
   maxTokens?: number;
   temperature?: number;
   thinking?: boolean;
   reasoningEffort?: "low" | "medium" | "high" | "max";
+  maxRetries?: number;
 }
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant" | "tool";
   content: string | null;
+  reasoning_content?: string | null;
   tool_calls?: ToolCallMessage[];
   tool_call_id?: string;
 }

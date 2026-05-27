@@ -1,0 +1,8 @@
+{
+  "id": "06-run-test",
+  "name": "Fix code to make test pass",
+  "prompt": "The test in test.sh is failing. Read it, understand what it expects, then fix src/index.ts to make the test pass.",
+  "timeout_s": 120,
+  "judge": "script",
+  "judge_args": {}
+}

@@ -2,10 +2,14 @@ import { readFile, writeFile, readdir, stat, mkdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
+import { ShellSession } from "./shell-session.js";
+import { PermissionGuard, type PermissionPolicy, type PermissionCallback } from "../permissions.js";
+import type { HarnessHooks } from "../hooks.js";
 
 const execFileAsync = promisify(execFile);
 
-const MAX_OUTPUT_SIZE = 64 * 1024; // 64KB limit for tool output
+const MAX_OUTPUT_SIZE = 32 * 1024; // 32KB limit for tool output
+const MAX_OUTPUT_LINES = 500;
 
 export interface ToolExecutionResult {
   ok: boolean;
@@ -14,49 +18,140 @@ export interface ToolExecutionResult {
 
 export interface ToolExecutorOptions {
   workspaceRoot: string;
+  permissionPolicy?: PermissionPolicy;
+  onPermissionConfirm?: PermissionCallback;
+  permissionGuard?: PermissionGuard;
+  hooks?: HarnessHooks;
+  sessionId?: string;
 }
 
 export class ToolExecutor {
   private readonly workspaceRoot: string;
+  private readonly guard: PermissionGuard;
+  private readonly hooks?: HarnessHooks;
+  private readonly sessionId?: string;
+  private shell: ShellSession | null = null;
 
   constructor(options: ToolExecutorOptions) {
     this.workspaceRoot = path.resolve(options.workspaceRoot);
+    this.guard =
+      options.permissionGuard ??
+      new PermissionGuard(options.permissionPolicy, options.onPermissionConfirm);
+    this.hooks = options.hooks;
+    this.sessionId = options.sessionId;
+  }
+
+  getPermissionGuard(): PermissionGuard {
+    return this.guard;
+  }
+
+  private getShell(): ShellSession {
+    if (!this.shell) {
+      this.shell = new ShellSession(this.workspaceRoot);
+    }
+    return this.shell;
+  }
+
+  destroy(): void {
+    this.shell?.destroy();
+    this.shell = null;
   }
 
   async execute(toolName: string, args: Record<string, unknown>): Promise<ToolExecutionResult> {
+    if (this.hooks?.preToolUse) {
+      const pre = await this.hooks.preToolUse({
+        toolName,
+        args,
+        sessionId: this.sessionId,
+      });
+      if (pre) {
+        if (!pre.allow) {
+          return {
+            ok: false,
+            output: `Blocked by preToolUse hook: ${pre.reason || "not allowed"}`,
+          };
+        }
+        if (pre.args) args = pre.args;
+      }
+    }
+
+    // Permission check
+    const permission = await this.guard.check(toolName, args);
+    if (!permission.allowed) {
+      return { ok: false, output: `Permission denied: ${permission.reason}` };
+    }
+
+    let result: ToolExecutionResult;
     try {
       switch (toolName) {
         case "read_file":
-          return await this.readFile(args);
+          result = await this.readFile(args);
+          break;
         case "write_file":
-          return await this.writeFile(args);
+          result = await this.writeFile(args);
+          break;
         case "edit_file":
-          return await this.editFile(args);
+          result = await this.editFile(args);
+          break;
+        case "bash":
+          result = await this.bash(args);
+          break;
         case "run_command":
-          return await this.runCommand(args);
+          result = await this.bash(args);
+          break;
         case "glob_search":
-          return await this.globSearch(args);
+          result = await this.globSearch(args);
+          break;
         case "grep_search":
-          return await this.grepSearch(args);
+          result = await this.grepSearch(args);
+          break;
         case "list_directory":
-          return await this.listDirectory(args);
+          result = await this.listDirectory(args);
+          break;
         default:
-          return { ok: false, output: `Unknown tool: ${toolName}` };
+          result = { ok: false, output: `Unknown tool: ${toolName}` };
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      return { ok: false, output: `Error executing ${toolName}: ${message}` };
+      result = { ok: false, output: `Error executing ${toolName}: ${message}` };
     }
+
+    if (this.hooks?.postToolUse) {
+      await this.hooks.postToolUse({ toolName, args, result, sessionId: this.sessionId });
+    }
+
+    return result;
   }
 
   private resolvePath(filePath: string): string {
-    if (path.isAbsolute(filePath)) return filePath;
-    return path.resolve(this.workspaceRoot, filePath);
+    if (path.isAbsolute(filePath)) {
+      // Check that absolute paths are still within workspace
+      const resolved = path.resolve(filePath);
+      if (!resolved.startsWith(this.workspaceRoot)) {
+        throw new Error(`Path "${filePath}" is outside the workspace`);
+      }
+      return resolved;
+    }
+    const resolved = path.resolve(this.workspaceRoot, filePath);
+    if (!resolved.startsWith(this.workspaceRoot)) {
+      throw new Error(`Path "${filePath}" resolves outside the workspace`);
+    }
+    return resolved;
   }
 
   private truncate(content: string): string {
-    if (content.length <= MAX_OUTPUT_SIZE) return content;
-    return content.slice(0, MAX_OUTPUT_SIZE) + "\n... [output truncated]";
+    // First truncate by line count
+    const lines = content.split("\n");
+    let result = content;
+    if (lines.length > MAX_OUTPUT_LINES) {
+      const kept = lines.slice(0, MAX_OUTPUT_LINES);
+      result = kept.join("\n") + `\n... [${lines.length - MAX_OUTPUT_LINES} more lines truncated]`;
+    }
+    // Then truncate by byte size
+    if (result.length > MAX_OUTPUT_SIZE) {
+      result = result.slice(0, MAX_OUTPUT_SIZE) + "\n... [output truncated at 32KB]";
+    }
+    return result;
   }
 
   private async readFile(args: Record<string, unknown>): Promise<ToolExecutionResult> {
@@ -117,44 +212,21 @@ export class ToolExecutor {
     return { ok: true, output: `Successfully edited ${filePath}` };
   }
 
-  private async runCommand(args: Record<string, unknown>): Promise<ToolExecutionResult> {
+  private async bash(args: Record<string, unknown>): Promise<ToolExecutionResult> {
     const command = String(args.command || "");
-    const cwd = args.cwd ? this.resolvePath(String(args.cwd)) : this.workspaceRoot;
     const timeoutMs = typeof args.timeout_ms === "number" ? args.timeout_ms : 60_000;
 
     if (!command) {
       return { ok: false, output: "command is required" };
     }
 
-    try {
-      const { stdout, stderr } = await execFileAsync("sh", ["-c", command], {
-        cwd,
-        timeout: timeoutMs,
-        maxBuffer: 2 * 1024 * 1024,
-        env: { ...process.env, TERM: "dumb" },
-      });
+    const shell = this.getShell();
+    const { exitCode, output } = await shell.execute(command, timeoutMs);
 
-      const output = [stdout, stderr].filter(Boolean).join("\n");
-      return { ok: true, output: this.truncate(output || "(no output)") };
-    } catch (error: unknown) {
-      const execError = error as {
-        stdout?: string;
-        stderr?: string;
-        code?: number;
-        killed?: boolean;
-        message?: string;
-      };
-
-      if (execError.killed) {
-        return { ok: false, output: `Command timed out after ${timeoutMs}ms` };
-      }
-
-      const output = [execError.stdout, execError.stderr].filter(Boolean).join("\n");
-      return {
-        ok: false,
-        output: this.truncate(output || execError.message || "Command failed"),
-      };
-    }
+    return {
+      ok: exitCode === 0,
+      output: this.truncate(output || "(no output)"),
+    };
   }
 
   private async globSearch(args: Record<string, unknown>): Promise<ToolExecutionResult> {
@@ -166,38 +238,40 @@ export class ToolExecutor {
     }
 
     try {
-      const { stdout } = await execFileAsync(
-        "find",
-        [cwd, "-type", "f", "-name", pattern.replace(/\*\*\//g, "")],
-        { timeout: 15_000, maxBuffer: 1024 * 1024 },
-      );
+      // Use the glob module from Node.js (20+) or fall back to find
+      const { glob } = await import("node:fs/promises");
+      const matches: string[] = [];
 
-      // Use fd if available, fallback to a glob via bash
-      const { stdout: fdResult } = await execFileAsync(
-        "sh",
-        ["-c", `cd "${cwd}" && find . -path './${pattern}' -type f 2>/dev/null | head -100 || find . -name '${pattern.replace(/\*\*\//g, "")}' -type f 2>/dev/null | head -100`],
-        { timeout: 15_000, maxBuffer: 1024 * 1024 },
-      ).catch(() => ({ stdout }));
+      for await (const entry of glob(pattern, { cwd })) {
+        matches.push(entry);
+        if (matches.length >= 200) break;
+      }
 
-      const files = fdResult
-        .split("\n")
-        .map((f) => f.trim().replace(/^\.\//, ""))
-        .filter(Boolean);
-
-      if (files.length === 0) {
+      if (matches.length === 0) {
         return { ok: true, output: "No files found matching the pattern." };
       }
 
-      return { ok: true, output: this.truncate(files.join("\n")) };
+      const sorted = matches.sort();
+      return { ok: true, output: this.truncate(sorted.join("\n")) };
     } catch {
-      // fallback using sh glob expansion
+      // Fallback for older Node or unsupported glob syntax
       try {
-        const { stdout: shResult } = await execFileAsync(
+        const { stdout } = await execFileAsync(
           "sh",
-          ["-c", `cd "${cwd}" && ls ${pattern} 2>/dev/null | head -100`],
-          { timeout: 10_000, maxBuffer: 512 * 1024 },
+          ["-c", `cd "${cwd}" && find . -path './${pattern}' -type f 2>/dev/null | sort | head -200`],
+          { timeout: 15_000, maxBuffer: 1024 * 1024 },
         );
-        return { ok: true, output: this.truncate(shResult || "No files found.") };
+
+        const files = stdout
+          .split("\n")
+          .map((f) => f.trim().replace(/^\.\//, ""))
+          .filter(Boolean);
+
+        if (files.length === 0) {
+          return { ok: true, output: "No files found matching the pattern." };
+        }
+
+        return { ok: true, output: this.truncate(files.join("\n")) };
       } catch {
         return { ok: true, output: "No files found matching the pattern." };
       }

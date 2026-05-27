@@ -1,0 +1,8 @@
+{
+  "id": "09-add-dependency",
+  "name": "Add an export and use it in another file",
+  "prompt": "Add a new exported function `isEmpty(value: unknown): boolean` to src/validators.ts that returns true if value is null, undefined, empty string, or empty array. Then import and use it in src/handler.ts to guard the `process` function — if `items` is empty, return early with an empty array.",
+  "timeout_s": 60,
+  "judge": "script",
+  "judge_args": {}
+}
