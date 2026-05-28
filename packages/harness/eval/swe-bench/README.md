@@ -582,3 +582,71 @@ bash evaluate.sh gold SWE-bench/SWE-bench_Lite validate-gold 1
 ```
 
 `predictions_path` 为字面量 `gold` 时使用数据集标准答案 patch。
+
+---
+
+## Hooks 在 SWE-bench 上的边界（重要）
+
+Harness 里两个完成路径 hook（`reason` / `verify`）在通用项目里都有清晰用途，但在 SWE-bench 这个**特定基准**上有结构性盲点，跑实验前务必清楚边界，避免错误归因。
+
+### Reason hook（独立 LLM 评审）
+
+`FORGELET_REASON=1` 启用。会在 agent 自认 "done" 时再起一次独立 LLM 调用，输入 `(issue, facts_board, current_diff, recent_activity_digest)`，让它判 `approve / revise`。
+
+- **本意**：当 facts board 之外还有遗漏（边界条件、未覆盖分支）时给一次"刹车 + 反馈"。
+- **lite-50 A/B 实测**：与 baseline 几乎无差异 —— Reason 几乎总是 `approve`，零次 `revise`。事后看是缺 ground truth 反馈，单纯的 LLM 自审在没有事实约束的情况下倾向于"看起来合理就放行"。
+- **建议**：在 SWE-bench 上**不推荐**单独开 Reason，作用近似 no-op；在真实项目可结合 lint / 类型检查等廉价信号同时使用。
+
+### Verify hook（跑现有测试套件）
+
+`FORGELET_VERIFY=1` 启用。完成路径上先于 Reason 运行，会：
+
+1. `git diff --name-only HEAD` 拿到修改文件；
+2. 用 `verify-adapters/changed-files.ts` 的启发式推断"相关测试文件"（兄弟 `test_*.py`、`tests/` 目录、Django 内 `tests/<app>/`）；
+3. 用 `verify-adapters/test-runners.ts` 里的 per-repo runner（Django `runtests.py` / 通用 pytest）执行；
+4. 失败时把 stderr 摘要注入下一轮，最多 `maxRounds`（默认 2）。
+
+#### SWE-bench 上的结构性盲点
+
+**SWE-bench instance 由三部分组成：**
+
+| 字段 | 何时存在 | agent 是否能看见 |
+|---|---|---|
+| `base_commit` 代码 | 仓库 checkout 出来就有 | ✅ |
+| 原测试套件 | 同上 | ✅ |
+| `patch`（黄金修复 diff） | 仅评测脚本可见 | ❌ |
+| `test_patch`（**新增的回归测试**） | **评测脚本在跑测前才注入**到容器 | ❌ |
+
+`FAIL_TO_PASS` 里那条触发 bug 的测试（例如 `test_rst_with_header_rows`）属于 `test_patch`：它是**修复者写的回归测试**，跟修复在同一个 PR 里。`base_commit` 这个时间点它**物理上不在仓库**，agent 也好、verify 也好，都没法跑它。
+
+这是 SWE-bench 的**有意设计**：
+1. **真实性** —— 工程师拿到 issue 时桌上没有"按 Enter 就修对了"的现成测试；
+2. **防作弊** —— 否则 agent 直接 `grep` 测试断言反推 patch 就行；
+3. **公平基准** —— 测的是从 issue 自然语言能否**推断出**预期行为。
+
+#### Verify 在 SWE-bench 上能做什么、不能做什么
+
+- ✅ **能**：拦截"打破了原测试"的退化 patch、捕捉语法/导入错误、Django 应用迁移破坏等。
+- ❌ **不能**：判断 patch 是否真的修了那个 issue（因为回归测试不在）。Verify pass 不等价于 official `resolved`。
+
+**Smoke 实测 (`verify-smoke3-v2`, 3 instances)**：
+
+| Instance | Verify 判定 | Official resolved | 说明 |
+|---|---|---|---|
+| `astropy__astropy-14182` | `1r → pass` | ❌ | 兄弟 `test_rst.py` 全过，但 FAIL_TO_PASS 是评测期才注入的 `test_rst_with_header_rows`，verify 看不见 |
+| `django__django-10924` | `1r → pass` | ✅ | 现有测试全过 + agent patch 巧合满足注入的回归测试 |
+| `django__django-11019` | (未触发) | ❌ | max-turns 命中，verify 只在 "done" 路径运行 |
+
+→ Verify **不会**在 SWE-bench 评分上带来与 official resolved 强相关的提升；在 lite-50 这种小样本上预期信号会被 LLM 抖动淹没。
+
+#### 真实业务项目里反而能用
+
+上面这条盲点是 SWE-bench 这种 "reverse-engineered benchmark" 独有的。在真实场景里：
+
+- 改完代码跑测试 = 跑**已经存在**的测试套件 → verify 的"不打破现有"语义就有价值；
+- 工程师在改之前先写了重现测试 → 那个测试**在**仓库里 → verify 直接跑得到。
+
+#### 想在 SWE-bench 上获得真实信号的可选方向
+
+- **让 agent 自己写回归测试**，verify 同时跑 agent 写的 + 现有测试。把"路径 C → 路径 A"的闭环建起来，但需要不小的设计与代码改动；
+- **换一个把测试样例随 issue 提供的基准**（TDD-style），verify 才能体现"接住 ground truth"的威力。
