@@ -102,6 +102,8 @@ export interface AgentRunHook {
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   setSessionId: React.Dispatch<React.SetStateAction<string | null>>;
   isRunBusy: boolean;
+  /** Abort the in-flight agent run; safe no-op when idle. */
+  cancelRun: () => Promise<void>;
   pendingPermission: PendingPermissionRequest | null;
   respondToPermission: (outcome: PermissionRequestOutcome) => void;
   runMetrics: AgentRunMetrics | null;
@@ -415,6 +417,21 @@ export function useAgentRun(): AgentRunHook {
     [config, pendingPermission],
   );
 
+  const cancelRun = useCallback(async () => {
+    if (!isRunBusy || !config.cancelRun) return;
+    // Optimistic UI: flip to "cancelled" right away. The harness will still
+    // emit `agent.error` with status="cancelled" shortly afterward, which
+    // re-confirms (idempotent) and appends the cancellation system message.
+    setPendingPermission(null);
+    setRunState("cancelled");
+    try {
+      await config.cancelRun();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to cancel run";
+      setRunError(msg);
+    }
+  }, [config, isRunBusy]);
+
   const resetConversation = useCallback(() => {
     setMessages([]);
     setRunState("idle");
@@ -439,6 +456,7 @@ export function useAgentRun(): AgentRunHook {
     setMessages,
     setSessionId,
     isRunBusy,
+    cancelRun,
     pendingPermission,
     respondToPermission,
     runMetrics,

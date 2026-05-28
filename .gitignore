@@ -13,3 +13,4 @@ packages/harness/eval/swe-bench/.venv/
 packages/harness/eval/swe-bench/.venv-mac/
 packages/harness/eval/swe-bench/logs/
 packages/harness/eval/swe-bench/evaluation_results/
+.playwright-mcp/

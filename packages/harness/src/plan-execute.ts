@@ -111,7 +111,11 @@ export class PlanExecutor {
       try {
         const result = await loop.run(stepPrompt);
         const lastMsg = result.messages[result.messages.length - 1];
-        step.result = lastMsg?.content || "Step completed";
+        const baseResult = lastMsg?.content || "Step completed";
+        step.result =
+          result.stopReason === "max_turns"
+            ? `[Step stopped at max turns (${result.turnCount}) — partial work preserved]\n${baseResult}`
+            : baseResult;
         step.status = "completed";
         totalTurns += result.turnCount;
         totalInputTokens += result.tokenUsage.inputTokens;

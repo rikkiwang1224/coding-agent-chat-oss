@@ -26,7 +26,7 @@ export type RunState =
   | "failed"
   | "cancelled";
 
-export type AppMode = "chat" | "settings";
+export type AppMode = "chat" | "dashboard" | "settings";
 
 export type LlmProvider =
   | "anthropic"
@@ -130,6 +130,42 @@ export interface WorkspaceState {
   workspaces: WorkspaceInfo[];
 }
 
+export interface TraceSummary {
+  sessionId: string;
+  workspaceRoot: string;
+  workspaceName: string;
+  title?: string;
+  startedAt?: string;
+  eventCount: number;
+  runCount: number;
+  totalCostUsd?: number;
+  lastEventAt?: string;
+  fileSizeBytes: number;
+}
+
+export interface TraceManifest {
+  schemaVersion: number;
+  runKind: string;
+  runId: string;
+  workspaceRoot: string;
+  traceFile?: string;
+  startedAt: string;
+}
+
+export interface StoredTraceRecord {
+  schemaVersion: number;
+  runKind: string;
+  runId: string;
+  workspaceRoot: string;
+  instanceId?: string;
+  event: AgentEvent;
+}
+
+export interface DesktopTraceDetail {
+  manifest: TraceManifest | null;
+  records: StoredTraceRecord[];
+}
+
 export interface DesktopConfig {
   appName: string;
   getWorkspaceState: () => Promise<WorkspaceState>;
@@ -174,6 +210,8 @@ export interface DesktopConfig {
     runMode?: "run" | "resume";
   }) => Promise<{ sessionId?: string }>;
   resumeRun: DesktopConfig["startRun"];
+  /** Abort the currently-running agent for this window. No-op when idle. */
+  cancelRun: () => Promise<{ ok: boolean }>;
   respondPermission: (
     requestId: string,
     outcome: "allow_once" | "allow_always" | "deny",
@@ -186,6 +224,12 @@ export interface DesktopConfig {
   }>;
   getSettings: () => Promise<AppSettings>;
   updateSettings: (settings: AppSettings) => Promise<{ ok: boolean }>;
+  listTraces: (workspacePath?: string) => Promise<TraceSummary[]>;
+  listAllTraces: () => Promise<TraceSummary[]>;
+  loadTrace: (
+    workspacePath: string,
+    sessionId: string,
+  ) => Promise<DesktopTraceDetail | null>;
 }
 
 declare global {

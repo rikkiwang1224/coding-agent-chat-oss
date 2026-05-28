@@ -32,21 +32,28 @@ export class ShellSession {
 
     this.buffer = "";
 
-    this.process = spawn("bash", ["--norc", "--noprofile"], {
+    const proc = spawn("bash", ["--norc", "--noprofile"], {
       cwd: this.workspaceRoot,
       env: this.env,
       stdio: ["pipe", "pipe", "pipe"],
     });
 
-    this.process.stdout!.on("data", (chunk: Buffer) => {
+    proc.stdout!.on("data", (chunk: Buffer) => {
+      if (this.process !== proc) return; // stale data from a torn-down shell
       this.appendBuffer(chunk.toString());
     });
 
-    this.process.stderr!.on("data", (chunk: Buffer) => {
+    proc.stderr!.on("data", (chunk: Buffer) => {
+      if (this.process !== proc) return;
       this.appendBuffer(chunk.toString());
     });
 
-    this.process.on("exit", (code) => {
+    proc.on("exit", (code) => {
+      // If we've already swapped to a different process (e.g. user aborted
+      // mid-command and a new shell was spawned for the next call), this
+      // listener belongs to the dead one — must not touch the new shell's
+      // pendingExecute.
+      if (this.process !== proc) return;
       if (this.pendingExecute) {
         const { startIdx, marker, finish } = this.pendingExecute;
         this.pendingExecute = null;
@@ -56,9 +63,10 @@ export class ShellSession {
       this.process = null;
     });
 
+    this.process = proc;
     this.writeRaw("set +o history 2>/dev/null; export PS1=''; export PS2=''\n");
 
-    return this.process;
+    return proc;
   }
 
   private appendBuffer(chunk: string): void {
@@ -72,23 +80,48 @@ export class ShellSession {
     this.process?.stdin?.write(data);
   }
 
-  async execute(command: string, timeoutMs = 60_000): Promise<{ exitCode: number; output: string }> {
+  async execute(
+    command: string,
+    timeoutMs = 60_000,
+    signal?: AbortSignal,
+  ): Promise<{ exitCode: number; output: string }> {
     this.ensureStarted();
 
     const marker = `__FORGELET_BOUNDARY_${Date.now()}_${Math.random().toString(36).slice(2)}__`;
     const markerPattern = new RegExp(`(?:^|\\n)${escapeRegExp(marker)}:(\\d+)(?:\\r)?(?:\\n|$)`);
 
-    return new Promise<{ exitCode: number; output: string }>((resolve) => {
+    if (signal?.aborted) {
+      throw new Error("Shell command aborted");
+    }
+
+    return new Promise<{ exitCode: number; output: string }>((resolve, reject) => {
       const startIdx = this.buffer.length;
       let settled = false;
+      let abortHandler: (() => void) | undefined;
+
+      const cleanup = (): void => {
+        clearInterval(check);
+        clearTimeout(timer);
+        if (abortHandler) {
+          signal?.removeEventListener("abort", abortHandler);
+          abortHandler = undefined;
+        }
+      };
 
       const finish = (result: { exitCode: number; output: string }): void => {
         if (settled) return;
         settled = true;
         this.pendingExecute = null;
-        clearInterval(check);
-        clearTimeout(timer);
+        cleanup();
         resolve(result);
+      };
+
+      const failWith = (error: Error): void => {
+        if (settled) return;
+        settled = true;
+        this.pendingExecute = null;
+        cleanup();
+        reject(error);
       };
 
       this.pendingExecute = { startIdx, marker, finish };
@@ -115,6 +148,22 @@ export class ShellSession {
       const check = setInterval(() => {
         tryResolveFromBuffer();
       }, 25);
+
+      if (signal) {
+        abortHandler = (): void => {
+          // Non-interactive bash (no TTY, no job control) ignores `\x03` from
+          // stdin, so we must signal the process directly. Killing the shell
+          // is the right semantics for "user aborted the agent run": the next
+          // tool call (if any) will spawn a fresh shell via ensureStarted().
+          if (this.process && this.process.exitCode === null) {
+            this.process.kill("SIGTERM");
+          }
+          this.process = null;
+          this.buffer = "";
+          failWith(new Error("Shell command aborted"));
+        };
+        signal.addEventListener("abort", abortHandler, { once: true });
+      }
 
       const wrappedCommand = `${command}
 __ec=$?

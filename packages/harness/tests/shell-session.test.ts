@@ -55,4 +55,39 @@ describe("ShellSession", () => {
     expect(result.exitCode).toBe(124);
     expect(result.output).toContain("timed out");
   });
+
+  it("rejects when AbortSignal fires mid-command", async () => {
+    const shell = await createSession();
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 100);
+    const start = Date.now();
+    await expect(
+      shell.execute("sleep 30", 30_000, controller.signal),
+    ).rejects.toThrow(/abort/i);
+    expect(Date.now() - start).toBeLessThan(2000);
+  });
+
+  it("rejects immediately if signal already aborted", async () => {
+    const shell = await createSession();
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      shell.execute("echo hi", 5000, controller.signal),
+    ).rejects.toThrow(/abort/i);
+  });
+
+  it("respawns the shell after an abort so subsequent commands work", async () => {
+    const shell = await createSession();
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 100);
+    await expect(
+      shell.execute("sleep 30", 30_000, controller.signal),
+    ).rejects.toThrow(/abort/i);
+    // The aborted shell is torn down (non-interactive bash ignores Ctrl-C),
+    // but the session transparently spawns a fresh one for the next call —
+    // any cwd / env state from before the abort is intentionally lost.
+    const result = await shell.execute("echo recovered");
+    expect(result.exitCode).toBe(0);
+    expect(result.output).toContain("recovered");
+  });
 });

@@ -90,6 +90,7 @@ export function Composer() {
   const { threadId } = workspace;
   const {
     isRunBusy,
+    cancelRun,
     composerAttachments,
     setComposerAttachments,
     sendPrompt,
@@ -358,14 +359,21 @@ export function Composer() {
 
           <div className="flex items-center gap-2.5">
             {isRunBusy ? (
-              <Button
-                variant="destructive"
-                size="sm"
-                className="rounded-full gap-1.5 min-w-[84px]"
-              >
-                <Square className="h-3.5 w-3.5" />
-                Running...
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    onClick={() => void cancelRun()}
+                    aria-label="Stop the running agent"
+                    className="rounded-full gap-1.5 min-w-[84px]"
+                  >
+                    <Square className="h-3.5 w-3.5" />
+                    Stop
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Stop the running agent</TooltipContent>
+              </Tooltip>
             ) : (
               <Button
                 onClick={() => void handleSend()}

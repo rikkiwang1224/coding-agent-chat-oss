@@ -3,6 +3,7 @@ import type {
   AgentDeltaPayload,
   AgentDonePayload,
   AgentErrorPayload,
+  AgentProgressPayload,
   ToolCalledPayload,
   ToolErrorPayload,
   ToolOutputPayload,
@@ -33,6 +34,9 @@ export class TerminalWriter {
         break;
       case "agent.delta":
         this.writeDelta((event.payload as AgentDeltaPayload).delta);
+        break;
+      case "agent.progress":
+        this.writeProgress(event.payload as AgentProgressPayload);
         break;
       case "tool.called":
         this.writeToolCalled(event.payload as ToolCalledPayload);
@@ -84,6 +88,19 @@ export class TerminalWriter {
     process.stderr.write(`${DIM}  └ ${payload.toolName}:${RESET}\n${out}\n`);
   }
 
+  /**
+   * Render verify / reason hook progress events. We surface these so the
+   * agent.log captures the gate's diagnostic info (what test ran, pass/fail,
+   * round count) without forcing on the trace sink. Plain agent progress
+   * messages (planner stage transitions etc.) are skipped to keep output focused.
+   */
+  private writeProgress(payload: AgentProgressPayload): void {
+    const msg = payload.message ?? "";
+    if (!msg.startsWith("[verify ") && !msg.startsWith("[reason ")) return;
+    this.finishAssistant();
+    process.stderr.write(`${DIM}↳ ${msg}${RESET}\n`);
+  }
+
   private writeToolError(payload: ToolErrorPayload): void {
     this.finishAssistant();
     process.stderr.write(`${RED}✗ ${payload.toolName}: ${payload.error}${RESET}\n`);
@@ -95,6 +112,14 @@ export class TerminalWriter {
     if (metrics?.numTurns != null) parts.push(`${metrics.numTurns} turns`);
     if (metrics?.durationMs != null) parts.push(`${(metrics.durationMs / 1000).toFixed(1)}s`);
     if (metrics?.totalCostUsd != null) parts.push(`~$${metrics.totalCostUsd.toFixed(4)}`);
+    if (metrics?.verifyRoundsUsed != null && metrics.verifyRoundsUsed > 0) {
+      const v = metrics.verifyFinalVerdict ?? "?";
+      parts.push(`verify: ${metrics.verifyRoundsUsed}r→${v}`);
+    }
+    if (metrics?.reasonRoundsUsed != null && metrics.reasonRoundsUsed > 0) {
+      const v = metrics.reasonFinalVerdict ?? "?";
+      parts.push(`reason: ${metrics.reasonRoundsUsed}r→${v}`);
+    }
     if (parts.length) {
       process.stderr.write(`${DIM}${parts.join(" · ")}${RESET}\n`);
     }

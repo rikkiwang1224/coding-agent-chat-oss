@@ -1,7 +1,9 @@
 import type { AgentEngine, RunTaskInput, EventSink } from "@forgelet/sdk-core";
 import type { AgentEvent, AgentRunMetrics } from "@forgelet/shared-types";
 import type { ChatMessage, LlmConfig } from "./types.js";
-import { AgentLoop } from "./agent-loop.js";
+import { AgentLoop, type ReasonHookConfig } from "./agent-loop.js";
+import type { ReasonResult } from "./reason.js";
+import type { VerifyConfig, VerifyResult } from "./verify.js";
 import { PlanExecutor } from "./plan-execute.js";
 import { detectWorkspaceContext, type PromptContext } from "./prompt.js";
 import { SessionStore, sumSessionRunCosts, type SessionData, type SessionRunRecord } from "./session-store.js";
@@ -28,6 +30,19 @@ export interface HarnessEngineOptions {
   hooks?: HarnessHooks;
   /** Append AgentEvent JSONL under FORGELET_HOME/traces (default on when set) */
   trace?: TraceConfig;
+  /**
+   * Reason-as-Sensor hook — independent LLM reviewer that runs before the
+   * agent's "completed" state is accepted. See `agent-loop.ts` for details.
+   * Disabled by default; SWE-bench runner enables it via `FORGELET_REASON=1`.
+   */
+  reason?: ReasonHookConfig;
+  /**
+   * Verify hook — runs an external command (typically the project's test
+   * suite) before the agent's "completed" state is accepted. If it fails, the
+   * output is injected back as a user message so the agent can fix it. This
+   * is the ground-truth complement to the LLM-based Reason sensor.
+   */
+  verify?: VerifyConfig;
 }
 
 export class HarnessEngine implements AgentEngine {
@@ -40,6 +55,8 @@ export class HarnessEngine implements AgentEngine {
   private readonly permissionGuard: PermissionGuard;
   private readonly hooks?: HarnessHooks;
   private readonly traceConfig?: TraceConfig;
+  private readonly reason?: ReasonHookConfig;
+  private readonly verify?: VerifyConfig;
   private promptContext?: PromptContext;
 
   constructor(options: HarnessEngineOptions) {
@@ -57,6 +74,8 @@ export class HarnessEngine implements AgentEngine {
     );
     this.hooks = options.hooks;
     this.promptContext = options.promptContext;
+    this.reason = options.reason;
+    this.verify = options.verify;
   }
 
   getPermissionGuard(): PermissionGuard {
@@ -70,6 +89,7 @@ export class HarnessEngine implements AgentEngine {
 
     let totalInputTokens = 0;
     let totalOutputTokens = 0;
+    let totalCacheReadInputTokens = 0;
     let sessionCreatedAt = new Date().toISOString();
 
     if (!this.promptContext) {
@@ -103,6 +123,8 @@ export class HarnessEngine implements AgentEngine {
     const attachCost = (metrics: AgentRunMetrics): AgentRunMetrics => {
       const inputTokens = metrics.inputTokens ?? 0;
       const outputTokens = metrics.outputTokens ?? 0;
+      const cacheReadInputTokens = metrics.cacheReadInputTokens ?? 0;
+      const cacheCreationInputTokens = metrics.cacheCreationInputTokens ?? 0;
       const runCost =
         this.config.provider && (inputTokens > 0 || outputTokens > 0)
           ? estimateRunCostUsd({
@@ -110,8 +132,8 @@ export class HarnessEngine implements AgentEngine {
               model: this.config.model,
               inputTokens,
               outputTokens,
-              cacheReadInputTokens: metrics.cacheReadInputTokens,
-              cacheCreationInputTokens: metrics.cacheCreationInputTokens,
+              cacheReadInputTokens,
+              cacheCreationInputTokens,
             })
           : undefined;
       if (runCost === undefined) return metrics;
@@ -124,6 +146,8 @@ export class HarnessEngine implements AgentEngine {
             inputTokens,
             outputTokens,
             totalTokens: metrics.totalTokens ?? inputTokens + outputTokens,
+            cacheReadInputTokens: cacheReadInputTokens || undefined,
+            cacheCreationInputTokens: cacheCreationInputTokens || undefined,
             costUsd: runCost,
           },
         },
@@ -224,9 +248,14 @@ export class HarnessEngine implements AgentEngine {
       onTextDelta: (delta: string) => {
         emitEvent("agent.delta", { delta });
       },
-      onUsageUpdate: (usage: { inputTokens: number; outputTokens: number }) => {
+      onUsageUpdate: (usage: {
+        inputTokens: number;
+        outputTokens: number;
+        cacheReadInputTokens?: number;
+      }) => {
         totalInputTokens = usage.inputTokens;
         totalOutputTokens = usage.outputTokens;
+        totalCacheReadInputTokens = usage.cacheReadInputTokens ?? totalCacheReadInputTokens;
       },
       onToolCall: (toolName: string, args: Record<string, unknown>, callId: string) => {
         emitEvent("tool.called", {
@@ -262,6 +291,37 @@ export class HarnessEngine implements AgentEngine {
           status: "failed",
           recoverable: false,
           terminalReason: "failed_terminal",
+        });
+      },
+      onReasonVerdict: (round: number, result: ReasonResult) => {
+        emitEvent("agent.progress", {
+          stage: "execute",
+          message: `[reason r${round}] ${result.verdict.toUpperCase()}${result.confidence ? ` (${result.confidence})` : ""}${result.rationale ? `: ${result.rationale}` : ""}`,
+          status: "running",
+          metadata: {
+            reasonRound: round,
+            verdict: result.verdict,
+            confidence: result.confidence,
+            rationale: result.rationale,
+            missedCases: result.missed_cases,
+            suggestions: result.suggestions,
+            inputTokens: result.tokenUsage?.inputTokens,
+            outputTokens: result.tokenUsage?.outputTokens,
+          },
+        });
+      },
+      onVerifyVerdict: (round: number, result: VerifyResult) => {
+        emitEvent("agent.progress", {
+          stage: "execute",
+          message: `[verify r${round}] ${result.verdict.toUpperCase()}`,
+          status: "running",
+          metadata: {
+            verifyRound: round,
+            verdict: result.verdict,
+            // Trim feedback to keep events small; full text is in the message log.
+            feedbackPreview: result.feedback.slice(0, 500),
+            checks: result.checks,
+          },
         });
       },
     };
@@ -343,6 +403,8 @@ export class HarnessEngine implements AgentEngine {
         sessionId,
         permissionGuard: this.permissionGuard,
         hooks: this.hooks,
+        reason: this.reason,
+        verify: this.verify,
         onMessagesChanged: (messages) => {
           scheduleSave(messages, countUserTurns(messages));
         },
@@ -354,13 +416,18 @@ export class HarnessEngine implements AgentEngine {
 
       const durationMs = Date.now() - startTime;
       const finalMessage = result.messages[result.messages.length - 1];
-      const summary =
+      const stoppedAtMaxTurns = result.stopReason === "max_turns";
+      const baseSummary =
         finalMessage?.role === "assistant" && finalMessage.content
           ? finalMessage.content
           : "Agent task completed.";
+      const summary = stoppedAtMaxTurns
+        ? `[Stopped at max turns (${result.turnCount}) — partial work preserved]\n\n${baseSummary}`
+        : baseSummary;
 
       const deltaInputTokens = Math.max(0, totalInputTokens - runStartInputTokens);
       const deltaOutputTokens = Math.max(0, totalOutputTokens - runStartOutputTokens);
+      const cacheReadTokens = totalCacheReadInputTokens || result.tokenUsage.cacheReadInputTokens;
       const runMetrics = attachCost({
         durationMs,
         numTurns: result.turnCount,
@@ -370,6 +437,7 @@ export class HarnessEngine implements AgentEngine {
           deltaInputTokens || deltaOutputTokens
             ? deltaInputTokens + deltaOutputTokens
             : undefined,
+        cacheReadInputTokens: cacheReadTokens || undefined,
         primaryModel: this.config.model,
       });
       lastRunCostUsd = runMetrics.totalCostUsd;
@@ -383,6 +451,8 @@ export class HarnessEngine implements AgentEngine {
 
       await flushSession(result.messages);
 
+      const lastReasonVerdict = result.reasonVerdicts?.[result.reasonVerdicts.length - 1]?.verdict;
+      const lastVerifyVerdict = result.verifyVerdicts?.[result.verifyVerdicts.length - 1]?.verdict;
       const metrics = {
         ...runMetrics,
         runInputTokens: deltaInputTokens || undefined,
@@ -394,6 +464,10 @@ export class HarnessEngine implements AgentEngine {
           totalInputTokens || totalOutputTokens
             ? totalInputTokens + totalOutputTokens
             : result.tokenUsage.totalTokens || undefined,
+        reasonRoundsUsed: result.reasonRoundsUsed,
+        reasonFinalVerdict: lastReasonVerdict,
+        verifyRoundsUsed: result.verifyRoundsUsed,
+        verifyFinalVerdict: lastVerifyVerdict,
       };
 
       emitEvent("agent.done", {
@@ -401,7 +475,7 @@ export class HarnessEngine implements AgentEngine {
         metrics,
         status: "completed",
         recoverable: false,
-        terminalReason: "completed",
+        terminalReason: stoppedAtMaxTurns ? "max_turns" : "completed",
       });
       await traceSink?.close();
     } catch (error) {

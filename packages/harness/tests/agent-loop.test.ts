@@ -167,7 +167,7 @@ describe("AgentLoop - multiple tool calls in one turn", () => {
 });
 
 describe("AgentLoop - max turns exceeded", () => {
-  it("throws when exceeding max turns", async () => {
+  it("returns stopReason=max_turns with partial messages instead of throwing", async () => {
     // Always return a tool call so the loop never terminates
     mockTurnQueue = Array.from({ length: 5 }, () => ({
       toolCalls: [{ id: "call_x", name: "list_directory", arguments: "{}" }],
@@ -182,7 +182,11 @@ describe("AgentLoop - max turns exceeded", () => {
       callbacks,
     });
 
-    await expect(loop.run("infinite loop")).rejects.toThrow("max turns");
+    const result = await loop.run("infinite loop");
+    expect(result.stopReason).toBe("max_turns");
+    expect(result.turnCount).toBe(3);
+    // System + user + 3x (assistant + tool) = 8
+    expect(result.messages.length).toBeGreaterThanOrEqual(3);
   });
 });
 
@@ -230,5 +234,398 @@ describe("AgentLoop - tool call with malformed JSON args", () => {
     expect(toolResults.length).toBe(1);
     expect(toolResults[0].ok).toBe(false);
     expect(toolResults[0].output).toContain("Failed to parse");
+  });
+});
+
+describe("AgentLoop - reason sensor hook", () => {
+  it("ships on first Reason verdict and records the verdict", async () => {
+    mockTurnQueue = [
+      { content: "Done — fixed it." },
+      // Reason sensor turn
+      { content: JSON.stringify({ verdict: "ship", confidence: "high", rationale: "looks fine" }) },
+    ];
+
+    const { callbacks } = collectCallbacks();
+    const reasonVerdicts: Array<{ round: number; verdict: string }> = [];
+
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp",
+      callbacks: {
+        ...callbacks,
+        onReasonVerdict: (round, r) => reasonVerdicts.push({ round, verdict: r.verdict }),
+      },
+      reason: {
+        enabled: true,
+        issueText: "fix the bug",
+        getCurrentDiff: async () => "diff --git a b\n@@ -1 +1 @@\n-old\n+new\n",
+        maxRounds: 2,
+      },
+    });
+
+    const result = await loop.run("fix the bug");
+    expect(result.stopReason).toBe("completed");
+    expect(result.reasonRoundsUsed).toBe(1);
+    expect(result.reasonVerdicts).toHaveLength(1);
+    expect(result.reasonVerdicts?.[0].verdict).toBe("ship");
+    expect(reasonVerdicts).toEqual([{ round: 1, verdict: "ship" }]);
+  });
+
+  it("re-loops on revise then ships, injecting feedback as user msg", async () => {
+    mockTurnQueue = [
+      // Turn 1: agent claims done
+      { content: "All done!" },
+      // Reason round 1: revise
+      {
+        content: JSON.stringify({
+          verdict: "revise",
+          rationale: "missed empty list",
+          missed_cases: [{ what: "empty list", where: "utils.py" }],
+        }),
+      },
+      // Turn 2: agent says done again (after seeing feedback as user message)
+      { content: "OK fixed the empty list case." },
+      // Reason round 2: ship
+      { content: JSON.stringify({ verdict: "ship", rationale: "good now" }) },
+    ];
+
+    const { callbacks } = collectCallbacks();
+
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp",
+      callbacks,
+      reason: {
+        enabled: true,
+        issueText: "fix the bug",
+        getCurrentDiff: async () => "diff text",
+        maxRounds: 2,
+      },
+    });
+
+    const result = await loop.run("fix the bug");
+    expect(result.stopReason).toBe("completed");
+    expect(result.reasonRoundsUsed).toBe(2);
+    expect(result.reasonVerdicts?.[0].verdict).toBe("revise");
+    expect(result.reasonVerdicts?.[1].verdict).toBe("ship");
+    // Reviewer feedback should have been pushed as a user message between the
+    // two agent turns: system, user, asst("All done!"), user(feedback),
+    // asst("OK fixed..."). Plus the reason call doesn't add to messages.
+    const userMessages = result.messages.filter((m) => m.role === "user");
+    expect(userMessages.length).toBe(2);
+    expect(userMessages[1].content).toMatch(/Independent reviewer feedback/);
+  });
+
+  it("stops at maxRounds even if sensor keeps saying revise", async () => {
+    mockTurnQueue = [
+      { content: "done v1" },
+      { content: JSON.stringify({ verdict: "revise", rationale: "no" }) },
+      { content: "done v2" },
+      { content: JSON.stringify({ verdict: "revise", rationale: "still no" }) },
+      // No third agent turn — we hit maxRounds=2 and bail
+    ];
+
+    const { callbacks } = collectCallbacks();
+
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp",
+      callbacks,
+      reason: {
+        enabled: true,
+        issueText: "fix",
+        getCurrentDiff: async () => "",
+        maxRounds: 2,
+      },
+    });
+
+    const result = await loop.run("fix");
+    expect(result.stopReason).toBe("completed");
+    expect(result.reasonRoundsUsed).toBe(2);
+    expect(result.reasonVerdicts).toHaveLength(2);
+    expect(result.reasonVerdicts?.every((v) => v.verdict === "revise")).toBe(true);
+  });
+
+  it("does not invoke Reason when hook is undefined (legacy path)", async () => {
+    mockTurnQueue = [{ content: "All done!" }];
+    const { callbacks } = collectCallbacks();
+
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp",
+      callbacks,
+    });
+
+    const result = await loop.run("fix");
+    expect(result.stopReason).toBe("completed");
+    expect(result.reasonRoundsUsed).toBeUndefined();
+    expect(result.reasonVerdicts).toBeUndefined();
+  });
+
+  it("does not invoke Reason when hook is enabled=false", async () => {
+    mockTurnQueue = [{ content: "All done!" }];
+    const { callbacks } = collectCallbacks();
+
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp",
+      callbacks,
+      reason: {
+        enabled: false,
+        issueText: "fix",
+        getCurrentDiff: async () => "",
+      },
+    });
+
+    const result = await loop.run("fix");
+    expect(result.reasonRoundsUsed).toBeUndefined();
+  });
+
+  it("supports a function-form issueText (resolved per round)", async () => {
+    mockTurnQueue = [
+      { content: "done" },
+      { content: JSON.stringify({ verdict: "ship", rationale: "ok" }) },
+    ];
+    const { callbacks } = collectCallbacks();
+    let issueCalls = 0;
+
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp",
+      callbacks,
+      reason: {
+        enabled: true,
+        issueText: () => {
+          issueCalls++;
+          return "dynamic issue";
+        },
+        getCurrentDiff: async () => "",
+      },
+    });
+
+    await loop.run("dynamic issue");
+    expect(issueCalls).toBe(1);
+  });
+});
+
+describe("AgentLoop - verify hook", () => {
+  it("completes normally when verify passes on first round", async () => {
+    mockTurnQueue = [{ content: "All done." }];
+    const { callbacks } = collectCallbacks();
+    let parseCalls = 0;
+
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp",
+      callbacks,
+      verify: {
+        enabled: true,
+        buildCommand: async () => ({ argv: ["/bin/sh", "-c", "exit 0"], cwd: "/tmp" }),
+        parseOutput: (r) => {
+          parseCalls++;
+          return {
+            verdict: r.exitCode === 0 ? "pass" : "fail",
+            feedback: r.exitCode === 0 ? "all green" : "exit nonzero",
+          };
+        },
+      },
+    });
+
+    const result = await loop.run("do it");
+    expect(result.stopReason).toBe("completed");
+    expect(result.verifyRoundsUsed).toBe(1);
+    expect(result.verifyVerdicts?.[0].verdict).toBe("pass");
+    expect(parseCalls).toBe(1);
+  });
+
+  it("loops on verify fail, injects feedback, then passes on next round", async () => {
+    mockTurnQueue = [
+      { content: "first attempt" },
+      { content: "fixed it" },
+    ];
+    const { callbacks } = collectCallbacks();
+    const verifyVerdicts: Array<{ round: number; verdict: string }> = [];
+    let round = 0;
+
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp",
+      callbacks: {
+        ...callbacks,
+        onVerifyVerdict: (r, v) => verifyVerdicts.push({ round: r, verdict: v.verdict }),
+      },
+      verify: {
+        enabled: true,
+        label: "tests",
+        buildCommand: async () => {
+          round++;
+          return {
+            argv: ["/bin/sh", "-c", round === 1 ? "exit 1" : "exit 0"],
+            cwd: "/tmp",
+          };
+        },
+        parseOutput: (r) => ({
+          verdict: r.exitCode === 0 ? "pass" : "fail",
+          feedback: r.exitCode === 0 ? "ok" : "test_thing FAILED on line 42",
+        }),
+      },
+    });
+
+    const result = await loop.run("ship feature X");
+    expect(result.stopReason).toBe("completed");
+    expect(result.verifyRoundsUsed).toBe(2);
+    expect(verifyVerdicts).toEqual([
+      { round: 1, verdict: "fail" },
+      { round: 2, verdict: "pass" },
+    ]);
+    // Feedback from round 1 must appear as a user message between the two
+    // agent turns. Order: system, user, asst("first attempt"), user(feedback),
+    // asst("fixed it").
+    const userMessages = result.messages.filter((m) => m.role === "user");
+    expect(userMessages).toHaveLength(2);
+    expect(userMessages[1].content).toMatch(/tests gate — round 1/);
+    expect(userMessages[1].content).toMatch(/test_thing FAILED/);
+  });
+
+  it("stops at verifyMaxRounds even on persistent failure", async () => {
+    mockTurnQueue = [
+      { content: "v1" },
+      { content: "v2" },
+      // No third agent turn — at round 2 we hit maxRounds and ship anyway
+    ];
+    const { callbacks } = collectCallbacks();
+
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp",
+      callbacks,
+      verify: {
+        enabled: true,
+        maxRounds: 2,
+        buildCommand: async () => ({ argv: ["/bin/sh", "-c", "exit 1"], cwd: "/tmp" }),
+        parseOutput: () => ({ verdict: "fail", feedback: "still broken" }),
+      },
+    });
+
+    const result = await loop.run("fix");
+    expect(result.stopReason).toBe("completed");
+    expect(result.verifyRoundsUsed).toBe(2);
+    expect(result.verifyVerdicts).toHaveLength(2);
+    expect(result.verifyVerdicts?.every((v) => v.verdict === "fail")).toBe(true);
+  });
+
+  it("does not consume budget when buildCommand returns undefined (skipped)", async () => {
+    mockTurnQueue = [{ content: "done" }];
+    const { callbacks } = collectCallbacks();
+    let buildCalls = 0;
+
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp",
+      callbacks,
+      verify: {
+        enabled: true,
+        maxRounds: 3,
+        buildCommand: async () => {
+          buildCalls++;
+          return undefined; // nothing to verify
+        },
+        parseOutput: () => ({ verdict: "pass", feedback: "" }),
+      },
+    });
+
+    const result = await loop.run("noop work");
+    expect(result.stopReason).toBe("completed");
+    // We invoked buildCommand exactly once and shipped without recording a verdict.
+    expect(buildCalls).toBe(1);
+    expect(result.verifyRoundsUsed).toBe(0);
+    expect(result.verifyVerdicts).toBeUndefined();
+  });
+
+  it("runs verify BEFORE reason; reason is skipped when verify fails", async () => {
+    // Agent says done → verify fails → feedback injected → agent says done v2 →
+    // verify passes → reason runs → ship.
+    mockTurnQueue = [
+      { content: "v1" },
+      { content: "v2" },
+      // Reason turn (only fires after verify passes on round 2)
+      { content: JSON.stringify({ verdict: "ship", rationale: "tests green + looks fine" }) },
+    ];
+    const { callbacks } = collectCallbacks();
+    const reasonRounds: number[] = [];
+    const verifyRounds: number[] = [];
+    let verifyRound = 0;
+
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp",
+      callbacks: {
+        ...callbacks,
+        onReasonVerdict: (r) => reasonRounds.push(r),
+        onVerifyVerdict: (r) => verifyRounds.push(r),
+      },
+      verify: {
+        enabled: true,
+        buildCommand: async () => {
+          verifyRound++;
+          return {
+            argv: ["/bin/sh", "-c", verifyRound === 1 ? "exit 1" : "exit 0"],
+            cwd: "/tmp",
+          };
+        },
+        parseOutput: (r) => ({
+          verdict: r.exitCode === 0 ? "pass" : "fail",
+          feedback: r.exitCode === 0 ? "green" : "RED: thing broke",
+        }),
+      },
+      reason: {
+        enabled: true,
+        issueText: "fix it",
+        getCurrentDiff: async () => "diff body",
+      },
+    });
+
+    const result = await loop.run("fix it");
+    expect(result.stopReason).toBe("completed");
+    expect(verifyRounds).toEqual([1, 2]);
+    // Reason fires only ONCE — after verify passes on round 2.
+    expect(reasonRounds).toEqual([1]);
+    expect(result.verifyVerdicts?.map((v) => v.verdict)).toEqual(["fail", "pass"]);
+    expect(result.reasonVerdicts?.[0].verdict).toBe("ship");
+  });
+
+  it("captures non-zero exit + stderr correctly via real exec", async () => {
+    // Sanity: the agent actually sees concrete failure text from a real process.
+    mockTurnQueue = [{ content: "v1" }, { content: "v2" }];
+    const { callbacks } = collectCallbacks();
+
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp",
+      callbacks,
+      verify: {
+        enabled: true,
+        maxRounds: 2,
+        buildCommand: async () => ({
+          argv: ["/bin/sh", "-c", "echo 'FAIL: widget_test' 1>&2; exit 2"],
+          cwd: "/tmp",
+        }),
+        parseOutput: (r) => ({
+          verdict: r.exitCode === 0 ? "pass" : "fail",
+          feedback: r.stderr.trim(),
+        }),
+      },
+    });
+
+    const result = await loop.run("do thing");
+    // Round 1 verify fails → feedback injected → agent turn 2 → round 2 verify
+    // fails again but we're at maxRounds=2 so we ship anyway with both verdicts
+    // recorded for the caller's report.
+    expect(result.verifyVerdicts).toHaveLength(2);
+    expect(result.verifyVerdicts?.[0].feedback).toContain("FAIL: widget_test");
+    const injectedUserMsg = result.messages.find(
+      (m, i) => m.role === "user" && i > 1 && typeof m.content === "string" && m.content.includes("FAIL: widget_test"),
+    );
+    expect(injectedUserMsg).toBeDefined();
   });
 });

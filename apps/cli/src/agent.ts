@@ -1,9 +1,113 @@
 import { randomUUID } from "node:crypto";
 import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import path from "node:path";
-import { HarnessEngine, SessionStore } from "@forgelet/harness";
+import {
+  HarnessEngine,
+  SessionStore,
+  buildChangedFilesVerifyConfig,
+  detectRepoFromGitRemote,
+  type ReasonHookConfig,
+  type VerifyConfig,
+} from "@forgelet/harness";
 import type { AgentEvent } from "@forgelet/shared-types";
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Build the Reason-as-Sensor hook from env config.
+ *
+ *   FORGELET_REASON=1      → enabled, 2 rounds (default cap)
+ *   FORGELET_REASON=3      → enabled, 3 rounds
+ *   FORGELET_REASON=0      → disabled (or any falsy)
+ *   FORGELET_REASON unset  → disabled
+ *
+ * The sensor uses `git diff HEAD` of the workspace as "current diff" and
+ * the user's raw prompt as "issue text". For non-git workspaces, the diff
+ * comes back empty — the sensor's prompt is tuned to revise empty-diff
+ * cases for non-trivial issues.
+ */
+function buildCliReasonHook(
+  workspaceRoot: string,
+  getIssueText: () => string,
+): ReasonHookConfig | undefined {
+  const raw = (process.env.FORGELET_REASON || "").trim().toLowerCase();
+  if (!raw || raw === "0" || raw === "off" || raw === "false") return undefined;
+
+  let maxRounds = 2;
+  if (raw !== "1" && raw !== "on" && raw !== "true") {
+    const n = Number.parseInt(raw, 10);
+    if (Number.isFinite(n) && n >= 1 && n <= 5) maxRounds = n;
+  }
+
+  return {
+    enabled: true,
+    issueText: getIssueText,
+    maxRounds,
+    getCurrentDiff: async () => {
+      try {
+        const { stdout } = await execFileAsync(
+          "git",
+          ["diff", "HEAD", "--no-color", "--", "."],
+          { cwd: workspaceRoot, maxBuffer: 16 * 1024 * 1024 },
+        );
+        const trimmed = stdout.trimEnd();
+        return trimmed ? `${trimmed}\n` : "";
+      } catch {
+        return "";
+      }
+    },
+  };
+}
+
+/**
+ * Build the changed-files Verify hook from env config.
+ *
+ *   FORGELET_VERIFY=1            → enabled, default 3 rounds
+ *   FORGELET_VERIFY=N            → enabled, N rounds (1..5)
+ *   FORGELET_VERIFY=0 / unset    → disabled
+ *   FORGELET_VERIFY_REPO=owner/r → override the auto-detected repo identifier
+ *   FORGELET_VERIFY_TIMEOUT=300  → per-round timeout in seconds (default 300)
+ *
+ * On startup the hook detects the repo from `git remote get-url origin` so
+ * it can pick the right test runner (Django runtests vs pytest). Detection
+ * is best-effort; pass FORGELET_VERIFY_REPO to override for monorepos /
+ * forks / unusual layouts.
+ */
+async function buildCliVerifyHook(workspaceRoot: string): Promise<VerifyConfig | undefined> {
+  const raw = (process.env.FORGELET_VERIFY || "").trim().toLowerCase();
+  if (!raw || raw === "0" || raw === "off" || raw === "false") return undefined;
+
+  let maxRounds = 3;
+  if (raw !== "1" && raw !== "on" && raw !== "true") {
+    const n = Number.parseInt(raw, 10);
+    if (Number.isFinite(n) && n >= 1 && n <= 5) maxRounds = n;
+  }
+
+  const repoOverride = process.env.FORGELET_VERIFY_REPO?.trim();
+  const repo = repoOverride || (await detectRepoFromGitRemote(workspaceRoot));
+  if (!repo) {
+    // We could fall back to "" + pytest by default, but the test-runner
+    // picker keys off `repo` and we'd silently lose Django-specific handling
+    // for any repo whose remote is missing. Better to surface this loudly
+    // so the user knows to set FORGELET_VERIFY_REPO.
+    process.stderr.write(
+      "warn: FORGELET_VERIFY is on but no origin remote was found and FORGELET_VERIFY_REPO is unset; verify hook disabled.\n",
+    );
+    return undefined;
+  }
+
+  const timeoutSec = Number.parseInt(process.env.FORGELET_VERIFY_TIMEOUT || "", 10);
+  return buildChangedFilesVerifyConfig({
+    enabled: true,
+    workspaceRoot,
+    repo,
+    maxRounds,
+    timeoutMs: Number.isFinite(timeoutSec) && timeoutSec > 0 ? timeoutSec * 1000 : undefined,
+  });
+}
 import type { CliArgs } from "./argv.js";
 import { resolveLlmConfig } from "./config.js";
 import {
@@ -78,6 +182,11 @@ export async function runCliAgent(options: RunCliOptions): Promise<number> {
         engine?.getPermissionGuard().addAlwaysAllow(key || toolName);
       });
 
+  // Mutable issue text — updated per runOnce so interactive mode gives the
+  // reviewer a fresh task on each user turn instead of stale first-prompt context.
+  let currentIssueText = args.prompt?.trim() ?? "";
+  const reasonHook = buildCliReasonHook(workspaceRoot, () => currentIssueText);
+  const verifyHook = await buildCliVerifyHook(workspaceRoot);
   engine = new HarnessEngine({
     workspaceRoot,
     sessionStore,
@@ -97,6 +206,8 @@ export async function runCliAgent(options: RunCliOptions): Promise<number> {
       provider: llm.provider,
     },
     onPermissionConfirm,
+    reason: reasonHook,
+    verify: verifyHook,
   });
 
   const emit = (event: AgentEvent) => {
@@ -104,6 +215,7 @@ export async function runCliAgent(options: RunCliOptions): Promise<number> {
   };
 
   const runOnce = async (userPrompt: string, resume: boolean): Promise<boolean> => {
+    currentIssueText = userPrompt;
     let harnessResume = false;
     if (resume) {
       const existing = await sessionStore.load(sessionId);

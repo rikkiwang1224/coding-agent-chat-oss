@@ -1,4 +1,4 @@
-import { MessageSquare, Settings } from "lucide-react";
+import { MessageSquare, ScrollText, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useApp } from "@/context/AppContext";
 import { cn } from "@/lib/utils";
@@ -6,6 +6,7 @@ import type { AppMode } from "@/types";
 
 const modes: { id: AppMode; icon: typeof MessageSquare; label: string }[] = [
   { id: "chat", icon: MessageSquare, label: "Chat" },
+  { id: "dashboard", icon: ScrollText, label: "Traces" },
 ];
 
 function NavButton({

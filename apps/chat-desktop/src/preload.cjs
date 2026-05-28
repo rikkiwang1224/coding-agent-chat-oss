@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld("desktopConfig", {
   importLegacyThreads: (payload) => ipcRenderer.invoke("chat-desktop:import-legacy-threads", payload),
   startRun: (input) => ipcRenderer.invoke("chat-desktop:start-run", input),
   resumeRun: (input) => ipcRenderer.invoke("chat-desktop:resume-run", input),
+  cancelRun: () => ipcRenderer.invoke("chat-desktop:cancel-run"),
   respondPermission: (requestId, outcome) =>
     ipcRenderer.invoke("chat-desktop:respond-permission", requestId, outcome),
   onAgentEvent: (listener) => {
@@ -39,4 +40,9 @@ contextBridge.exposeInMainWorld("desktopConfig", {
   debugPing: () => ipcRenderer.invoke("chat-desktop:debug-ping"),
   getSettings: () => ipcRenderer.invoke("chat-desktop:get-settings"),
   updateSettings: (settings) => ipcRenderer.invoke("chat-desktop:update-settings", settings),
+  listTraces: (workspacePath) =>
+    ipcRenderer.invoke("chat-desktop:list-traces", workspacePath ?? ""),
+  listAllTraces: () => ipcRenderer.invoke("chat-desktop:list-traces", ""),
+  loadTrace: (workspacePath, sessionId) =>
+    ipcRenderer.invoke("chat-desktop:load-trace", workspacePath, sessionId),
 });

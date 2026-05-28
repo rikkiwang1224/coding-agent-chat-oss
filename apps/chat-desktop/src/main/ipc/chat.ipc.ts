@@ -21,8 +21,10 @@ import {
 import {
   startAgentRun,
   handleRespondPermission,
+  disconnectActiveAgent,
   type StartAgentRunInput,
 } from "../services/agent-runner.js";
+import { listAllDesktopTraces, listDesktopTraces, loadDesktopTrace } from "../services/trace-store.js";
 
 export function registerChatIpc(): void {
   ipcMain.on("chat-desktop:get-runtime-env", (event) => {
@@ -47,6 +49,10 @@ export function registerChatIpc(): void {
   ipcMain.handle("chat-desktop:resume-run", (event, input: StartAgentRunInput | undefined) =>
     startAgentRun(event, { ...input, runMode: "resume" }),
   );
+  ipcMain.handle("chat-desktop:cancel-run", (event) => {
+    disconnectActiveAgent(event.sender.id);
+    return { ok: true };
+  });
   ipcMain.handle(
     "chat-desktop:respond-permission",
     (_event, requestId: unknown, outcome: unknown) => {
@@ -80,4 +86,18 @@ export function registerChatIpc(): void {
     timestamp: new Date().toISOString(),
     capabilities: { storedThreads: true, legacyThreadImport: true },
   }));
+  ipcMain.handle("chat-desktop:list-traces", (_event, workspacePath: unknown) => {
+    if (typeof workspacePath === "string" && workspacePath.trim()) {
+      return listDesktopTraces(workspacePath);
+    }
+    return listAllDesktopTraces();
+  });
+  ipcMain.handle(
+    "chat-desktop:load-trace",
+    (_event, workspacePath: unknown, sessionId: unknown) => {
+      if (typeof workspacePath !== "string" || !workspacePath.trim()) return null;
+      if (typeof sessionId !== "string" || !sessionId.trim()) return null;
+      return loadDesktopTrace(workspacePath, sessionId);
+    },
+  );
 }

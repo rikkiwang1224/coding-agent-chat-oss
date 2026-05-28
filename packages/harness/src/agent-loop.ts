@@ -11,6 +11,14 @@ import { buildSystemPrompt, type PromptContext } from "./prompt.js";
 import { ContextCompressor, estimateTokens } from "./context-compressor.js";
 import type { HarnessHooks } from "./hooks.js";
 import type { PermissionGuard, PermissionCallback } from "./permissions.js";
+import { buildActivityDigest } from "./activity-digest.js";
+import { runReason, formatReasonFeedback, type ReasonResult } from "./reason.js";
+import {
+  runVerify,
+  formatVerifyFeedback,
+  type VerifyConfig,
+  type VerifyResult,
+} from "./verify.js";
 
 export interface AgentLoopCallbacks {
   onTextDelta?: (delta: string) => void;
@@ -22,12 +30,73 @@ export interface AgentLoopCallbacks {
   onUsageUpdate?: (usage: TokenUsage) => void;
   onComplete?: (summary: string) => void;
   onError?: (error: Error) => void;
+  /** Fired when the Reason sensor returns a verdict (only when reason hook enabled). */
+  onReasonVerdict?: (round: number, result: ReasonResult) => void;
+  /** Fired when the Verify hook returns a verdict (only when verify hook enabled). */
+  onVerifyVerdict?: (round: number, result: VerifyResult) => void;
+}
+
+/**
+ * Reason sensor configuration. When enabled, the agent loop invokes an
+ * independent LLM "code reviewer" before declaring a run completed. If the
+ * reviewer says "revise", its feedback is injected as a user message and
+ * the agent loop continues. See `reason.ts` for the rationale.
+ */
+export interface ReasonHookConfig {
+  enabled: boolean;
+  /**
+   * Original task / issue text the agent is trying to solve. Can be a
+   * static string or a function for callers that mutate the issue across
+   * runs (e.g. interactive CLI: each user prompt becomes a fresh issue).
+   */
+  issueText: string | (() => string);
+  /**
+   * Returns the current diff (e.g. `git diff HEAD`) so the sensor can see
+   * what the agent actually changed. Should return "" if no diff.
+   */
+  getCurrentDiff: () => Promise<string>;
+  /** Max number of revise→retry cycles before forcing completion. Default 2. */
+  maxRounds?: number;
 }
 
 export interface TokenUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  /**
+   * Sum of `prompt_cache_hit_tokens` across all turns (DeepSeek-style
+   * automatic prefix caching). These tokens are still counted in
+   * `inputTokens` (server-reported `prompt_tokens` is the full prompt size)
+   * but are billed at the cache-read rate by the provider, so the cost
+   * estimator subtracts the discount when populating `totalCostUsd`.
+   *
+   * For Anthropic-style explicit cache_control caching, see the cache-
+   * creation / cache-read split surfaced via the same field.
+   */
+  cacheReadInputTokens?: number;
+}
+
+/** Why the agent loop returned to its caller. */
+export type AgentLoopStopReason = "completed" | "max_turns";
+
+export interface AgentLoopResult {
+  messages: ChatMessage[];
+  turnCount: number;
+  tokenUsage: TokenUsage;
+  /**
+   * Why the loop stopped. `completed` means the model produced an assistant
+   * message with no tool_calls (natural finish). `max_turns` means the loop
+   * exhausted its turn budget — partial work is still in `messages`.
+   */
+  stopReason: AgentLoopStopReason;
+  /** Number of Reason sensor rounds invoked (0 if hook disabled). */
+  reasonRoundsUsed?: number;
+  /** Verdicts produced by the Reason sensor, in order. */
+  reasonVerdicts?: ReasonResult[];
+  /** Number of Verify hook rounds invoked (0 if hook disabled). */
+  verifyRoundsUsed?: number;
+  /** Verdicts produced by the Verify hook, in order. */
+  verifyVerdicts?: VerifyResult[];
 }
 
 export interface AgentLoopOptions {
@@ -48,9 +117,20 @@ export interface AgentLoopOptions {
   permissionGuard?: PermissionGuard;
   onPermissionConfirm?: PermissionCallback;
   hooks?: HarnessHooks;
+  /** Reason-as-Sensor configuration (independent reviewer before completion). */
+  reason?: ReasonHookConfig;
+  /**
+   * Verify hook (ground-truth gate before completion). Runs an external
+   * command — typically the project's tests or typechecker — and injects
+   * any failure output back into the loop as a user message. Unlike Reason,
+   * this is deterministic and not LLM-based.
+   */
+  verify?: VerifyConfig;
 }
 
 const DEFAULT_MAX_TURNS = 50;
+const DEFAULT_REASON_ROUNDS = 2;
+const DEFAULT_VERIFY_ROUNDS = 3;
 
 export class AgentLoop {
   private readonly client: LlmClient;
@@ -62,13 +142,28 @@ export class AgentLoop {
   private readonly signal?: AbortSignal;
   private readonly callbacks: AgentLoopCallbacks;
   private readonly onMessagesChanged?: (messages: ChatMessage[]) => void;
+  /** LLM config stored so the Reason sensor can reuse the same provider/model. */
+  private readonly llmConfig: LlmConfig;
+  private readonly reason?: ReasonHookConfig;
+  private readonly reasonMaxRounds: number;
+  private readonly verify?: VerifyConfig;
+  private readonly verifyMaxRounds: number;
   private messages: ChatMessage[];
 
   private turnCount = 0;
   private totalInputTokens = 0;
   private totalOutputTokens = 0;
+  private totalCacheReadInputTokens = 0;
+  private reasonRoundsUsed = 0;
+  private readonly reasonVerdicts: ReasonResult[] = [];
+  private verifyRoundsUsed = 0;
+  private readonly verifyVerdicts: VerifyResult[] = [];
+  /** Provider's reported `prompt_tokens` from the most recent turn — used to
+   * size context compression off the real tokenizer rather than our heuristic. */
+  private lastPromptTokens = 0;
 
   constructor(options: AgentLoopOptions) {
+    this.llmConfig = options.config;
     this.client = new LlmClient(options.config);
     this.executor = new ToolExecutor({
       workspaceRoot: options.workspaceRoot,
@@ -87,6 +182,10 @@ export class AgentLoop {
     this.signal = options.signal;
     this.callbacks = options.callbacks;
     this.onMessagesChanged = options.onMessagesChanged;
+    this.reason = options.reason?.enabled ? options.reason : undefined;
+    this.reasonMaxRounds = options.reason?.maxRounds ?? DEFAULT_REASON_ROUNDS;
+    this.verify = options.verify?.enabled ? options.verify : undefined;
+    this.verifyMaxRounds = options.verify?.maxRounds ?? DEFAULT_VERIFY_ROUNDS;
 
     if (options.initialMessages && options.initialMessages.length > 0) {
       this.messages = [...options.initialMessages];
@@ -110,7 +209,7 @@ export class AgentLoop {
     this.onMessagesChanged?.(this.messages);
   }
 
-  async run(userPrompt: string): Promise<{ messages: ChatMessage[]; turnCount: number; tokenUsage: TokenUsage }> {
+  async run(userPrompt: string): Promise<AgentLoopResult> {
     this.messages.push({ role: "user", content: userPrompt });
     this.notifyMessagesChanged();
 
@@ -127,20 +226,32 @@ export class AgentLoop {
       this.notifyMessagesChanged();
 
       if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
-        // No tool calls — the model is done
+        // No tool calls — the model thinks it's done. Before we accept that:
+        //   1. Verify (ground-truth, deterministic) — if it fails, surface the
+        //      failure output so the agent can fix it.
+        //   2. Reason (LLM sensor) — only consulted when Verify passes (or is
+        //      disabled), because there's no point asking an LLM to opine when
+        //      we already have a deterministic failure to act on.
         this.callbacks.onTurnEnd?.(this.turnCount);
+
+        const verifyFeedback = await this.maybeRunVerify();
+        if (verifyFeedback) {
+          this.messages.push({ role: "user", content: verifyFeedback });
+          this.notifyMessagesChanged();
+          continue;
+        }
+
+        const reviseFeedback = await this.maybeRunReason();
+        if (reviseFeedback) {
+          this.messages.push({ role: "user", content: reviseFeedback });
+          this.notifyMessagesChanged();
+          continue;
+        }
+
         const finalText = assistantMessage.content || "";
         this.callbacks.onComplete?.(finalText);
         this.notifyMessagesChanged();
-        return {
-          messages: this.messages,
-          turnCount: this.turnCount,
-          tokenUsage: {
-            inputTokens: this.totalInputTokens,
-            outputTokens: this.totalOutputTokens,
-            totalTokens: this.totalInputTokens + this.totalOutputTokens,
-          },
-        };
+        return this.buildResult("completed");
       }
 
       // Execute all tool calls and add results
@@ -153,13 +264,133 @@ export class AgentLoop {
       this.callbacks.onTurnEnd?.(this.turnCount);
     }
 
-    throw new Error(`Agent exceeded max turns (${this.maxTurns})`);
+    // Max turns reached — return whatever the agent produced so far instead of
+    // throwing. Callers should treat this as a "budget exceeded" terminal state,
+    // not a hard error: the partial work (patches, file edits) is still useful.
+    return this.buildResult("max_turns");
+  }
+
+  private buildResult(stopReason: AgentLoopStopReason): AgentLoopResult {
+    return {
+      messages: this.messages,
+      turnCount: this.turnCount,
+      tokenUsage: {
+        inputTokens: this.totalInputTokens,
+        outputTokens: this.totalOutputTokens,
+        totalTokens: this.totalInputTokens + this.totalOutputTokens,
+        cacheReadInputTokens: this.totalCacheReadInputTokens || undefined,
+      },
+      stopReason,
+      reasonRoundsUsed: this.reason ? this.reasonRoundsUsed : undefined,
+      reasonVerdicts: this.reason && this.reasonVerdicts.length > 0 ? this.reasonVerdicts : undefined,
+      verifyRoundsUsed: this.verify ? this.verifyRoundsUsed : undefined,
+      verifyVerdicts: this.verify && this.verifyVerdicts.length > 0 ? this.verifyVerdicts : undefined,
+    };
+  }
+
+  /**
+   * Run the Verify hook (if enabled and budget remains).
+   * Returns the failure-feedback string to inject as a user message, or null
+   * if the gate passed, was skipped, or is out of budget.
+   *
+   * Verify is ground truth — runs an external command (typically tests) and
+   * reports its verdict. Unlike Reason, this is NOT an LLM call, so it costs
+   * no tokens but may cost wall-clock time (per-round timeoutMs).
+   */
+  private async maybeRunVerify(): Promise<string | null> {
+    if (!this.verify) return null;
+    if (this.verifyRoundsUsed >= this.verifyMaxRounds) return null;
+    if (this.signal?.aborted) return null;
+
+    this.verifyRoundsUsed++;
+    const round = this.verifyRoundsUsed;
+
+    const result = await runVerify(this.verify);
+    if (result === "skipped") {
+      // Nothing to verify this round (e.g. no changed files yet). Don't burn
+      // the budget on a no-op: roll back the counter so a later round still
+      // has a chance to actually run the gate.
+      this.verifyRoundsUsed--;
+      return null;
+    }
+
+    this.verifyVerdicts.push(result);
+    this.callbacks.onVerifyVerdict?.(round, result);
+
+    if (result.verdict === "pass") return null;
+    // At the budget cap, even a failing verdict ships: we'd inject feedback
+    // we have no budget left to re-verify, wasting LLM time. The verdict is
+    // still recorded so the caller can decide what to do (e.g. mark the run
+    // as "verify-failed" rather than "completed").
+    if (this.verifyRoundsUsed >= this.verifyMaxRounds) return null;
+    return formatVerifyFeedback(result, round, this.verify.label);
+  }
+
+  /**
+   * Run the Reason sensor (if enabled and budget remains).
+   * Returns the revise-feedback string to inject as a user message, or null
+   * if the sensor said ship (or is disabled / out of budget).
+   *
+   * Token usage from the sensor call is accumulated into the agent's totals
+   * so cost reports stay accurate.
+   */
+  private async maybeRunReason(): Promise<string | null> {
+    if (!this.reason) return null;
+    if (this.reasonRoundsUsed >= this.reasonMaxRounds) return null;
+    if (this.signal?.aborted) return null;
+
+    this.reasonRoundsUsed++;
+    const round = this.reasonRoundsUsed;
+
+    let currentDiff = "";
+    try {
+      currentDiff = await this.reason.getCurrentDiff();
+    } catch {
+      // diff unavailable — sensor still runs with an empty diff. The prompt
+      // tells it to always REVISE if diff is empty + issue non-trivial.
+    }
+
+    const digest = buildActivityDigest(this.messages);
+    const issueText =
+      typeof this.reason.issueText === "function" ? this.reason.issueText() : this.reason.issueText;
+    const result = await runReason(
+      { issueText, currentDiff, digest },
+      { config: this.llmConfig, signal: this.signal },
+    );
+
+    this.reasonVerdicts.push(result);
+    this.callbacks.onReasonVerdict?.(round, result);
+
+    if (result.tokenUsage) {
+      this.totalInputTokens += result.tokenUsage.inputTokens;
+      this.totalOutputTokens += result.tokenUsage.outputTokens;
+      this.totalCacheReadInputTokens += result.tokenUsage.cacheReadInputTokens ?? 0;
+      this.callbacks.onUsageUpdate?.({
+        inputTokens: this.totalInputTokens,
+        outputTokens: this.totalOutputTokens,
+        totalTokens: this.totalInputTokens + this.totalOutputTokens,
+        cacheReadInputTokens: this.totalCacheReadInputTokens || undefined,
+      });
+    }
+
+    if (result.verdict === "ship") return null;
+    // At the budget cap, even a "revise" verdict ships: injecting feedback
+    // now would produce work we have no budget left to re-review. The verdict
+    // is still recorded in `reasonVerdicts` for trace analysis.
+    if (this.reasonRoundsUsed >= this.reasonMaxRounds) return null;
+    return formatReasonFeedback(result, round);
   }
 
   private async executeTurn(): Promise<ChatMessage> {
-    // Compress context if it's getting too long
-    if (this.compressor.shouldCompress(this.messages)) {
-      this.messages = await this.compressor.compress(this.messages, this.signal);
+    // Compress context if it's getting too long. Use the provider's reported
+    // `prompt_tokens` from the previous turn (if any) as the source of truth
+    // for token size; falls back to the character heuristic on the first turn.
+    if (this.compressor.shouldCompress(this.messages, this.lastPromptTokens)) {
+      this.messages = await this.compressor.compress(
+        this.messages,
+        this.signal,
+        this.lastPromptTokens,
+      );
     }
 
     const stream = this.client.stream({
@@ -212,10 +443,13 @@ export class AgentLoop {
     if (lastUsage) {
       this.totalInputTokens += lastUsage.prompt_tokens || 0;
       this.totalOutputTokens += lastUsage.completion_tokens || 0;
+      this.totalCacheReadInputTokens += lastUsage.prompt_cache_hit_tokens || 0;
+      this.lastPromptTokens = lastUsage.prompt_tokens || this.lastPromptTokens;
       this.callbacks.onUsageUpdate?.({
         inputTokens: this.totalInputTokens,
         outputTokens: this.totalOutputTokens,
         totalTokens: this.totalInputTokens + this.totalOutputTokens,
+        cacheReadInputTokens: this.totalCacheReadInputTokens || undefined,
       });
 
       // Check budget
@@ -285,8 +519,20 @@ export class AgentLoop {
       throw new Error("Agent run cancelled");
     }
 
-    // Separate tool calls into parallelizable and sequential groups
-    const SEQUENTIAL_TOOLS = new Set(["bash", "run_command", "write_file", "edit_file"]);
+    // Separate tool calls into parallelizable and sequential groups.
+    // Any tool that mutates the workspace or shared state must run in the order
+    // the model produced it; only read-only tools are eligible for parallel
+    // execution. `todo_write` is in-memory state and naturally serializable —
+    // we keep it sequential for predictable per-call output ordering.
+    const SEQUENTIAL_TOOLS = new Set([
+      "bash",
+      "run_command",
+      "write_file",
+      "edit_file",
+      "multi_edit",
+      "apply_patch",
+      "todo_write",
+    ]);
 
     // Strategy: run all read-only tools in parallel, then sequential tools in order
     const parallel: { index: number; toolCall: ToolCallMessage }[] = [];
@@ -334,7 +580,11 @@ export class AgentLoop {
       return { role: "tool", content, tool_call_id: toolCall.id };
     }
 
-    const executionResult = await this.executor.execute(toolCall.function.name, args);
+    const executionResult = await this.executor.execute(
+      toolCall.function.name,
+      args,
+      this.signal,
+    );
 
     this.callbacks.onToolResult?.(
       toolCall.function.name,

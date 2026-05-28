@@ -59,11 +59,14 @@ function buildToolsSection(): string {
 
 - **read_file(path)** — Read file contents. Use BEFORE editing to understand context.
 - **write_file(path, content)** — Create or completely overwrite a file.
-- **edit_file(path, old_string, new_string)** — Replace a specific string in a file. The old_string MUST match exactly (including whitespace/indentation). Include enough surrounding lines to ensure a unique match.
+- **edit_file(path, old_string, new_string, replace_all?)** — Replace a string in a file. old_string MUST match exactly (including whitespace/indentation). Include enough surrounding lines to ensure a unique match — or pass replace_all=true for renames.
+- **multi_edit(path, edits[])** — Apply several sequential string replacements to one file atomically. Prefer this over multiple edit_file calls when making related changes to the same file.
+- **apply_patch(patch, check_only?)** — Apply a unified diff via \`git apply\`. Use for multi-file changes. Pass check_only=true to dry-run.
 - **bash(command)** — Execute a command in a persistent shell. State (cwd, env vars) persists between calls. Use cd to change directories.
 - **glob_search(pattern)** — Find files matching a glob pattern.
 - **grep_search(pattern, path?)** — Search file contents with regex.
-- **list_directory(path)** — List directory contents.`;
+- **list_directory(path)** — List directory contents.
+- **todo_write(todos[])** — Maintain a working todo list for the user. Use for tasks with 3+ steps. Pass the full list each call; mark at most one item in_progress at a time.`;
 }
 
 function buildRulesSection(): string {

@@ -4,6 +4,7 @@ import { Composer } from "./Composer";
 import { PermissionDialog } from "./PermissionDialog";
 import { useApp } from "@/context/AppContext";
 import { Settings } from "@/components/Settings/Settings";
+import { TraceDashboard } from "@/components/TraceDashboard/TraceDashboard";
 
 function HeroView() {
   const { workspace } = useApp();
@@ -34,6 +35,10 @@ export function ChatArea() {
 
   if (mode === "settings") {
     return <Settings />;
+  }
+
+  if (mode === "dashboard") {
+    return <TraceDashboard />;
   }
 
   return (
