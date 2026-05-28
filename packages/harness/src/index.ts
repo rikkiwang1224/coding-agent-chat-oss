@@ -6,8 +6,26 @@ export {
   type AgentLoopOptions,
   type AgentLoopResult,
   type AgentLoopStopReason,
+  type ReasonHookConfig,
   type TokenUsage,
 } from "./agent-loop.js";
+export {
+  runReason,
+  formatReasonFeedback,
+  parseReasonOutput,
+  type ReasonInput,
+  type ReasonOptions,
+  type ReasonResult,
+  type ReasonVerdict,
+  type ReasonMissedCase,
+} from "./reason.js";
+export {
+  buildActivityDigest,
+  renderActivityDigest,
+  type ActivityDigest,
+  type DigestEvent,
+  type DigestOptions,
+} from "./activity-digest.js";
 export { PlanExecutor, type Plan, type PlanStep, type PlanExecuteOptions, type PlanExecuteCallbacks } from "./plan-execute.js";
 export { ContextCompressor, estimateTokens, findSafeCutIndex } from "./context-compressor.js";
 export {

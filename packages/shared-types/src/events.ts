@@ -191,4 +191,8 @@ export interface AgentRunMetrics {
   cacheCreationInputTokens?: number;
   primaryModel?: string;
   modelUsage?: Record<string, AgentModelUsageMetrics>;
+  /** Number of Reason sensor rounds invoked (only present when reason hook enabled). */
+  reasonRoundsUsed?: number;
+  /** Final Reason verdict — "ship" if accepted, "revise" if budget exhausted with revise. */
+  reasonFinalVerdict?: "ship" | "revise";
 }

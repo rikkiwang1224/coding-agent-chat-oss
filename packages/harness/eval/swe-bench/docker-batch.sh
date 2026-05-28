@@ -38,6 +38,13 @@ touch "$DONE_FILE" "$PRED_FILE" "$SUMMARY"
 KEEP_IMAGES="${KEEP_IMAGES:-15}"
 PER_INSTANCE_TIMEOUT="${PER_INSTANCE_TIMEOUT:-600}"
 MODEL_NAME="${MODEL_NAME:-forgelet-docker}"
+# Reason-as-Sensor (independent reviewer pass before declaring done).
+#   FORGELET_REASON=0 → off (baseline)
+#   FORGELET_REASON=1 → on, 2 rounds (default)
+#   FORGELET_REASON=N → on, N rounds (1..5)
+# Default OFF here so existing batches keep their cost/behavior baseline. Opt
+# in explicitly for A/B comparisons: `FORGELET_REASON=1 bash docker-batch.sh ...`.
+FORGELET_REASON="${FORGELET_REASON:-0}"
 
 # SWE-bench naming: swebench/sweb.eval.x86_64.<id_lower with __ → _1776_>:latest
 # 1776 is the literal magic number used in upstream swebench/harness/test_spec.py.
@@ -64,7 +71,7 @@ cleanup_images() {
 TOTAL=$(jq 'length' "$INSTANCES_JSON")
 BATCH_START=$(date +%s)
 echo "=== batch: $TOTAL instances → $OUT_DIR ==="
-echo "=== keep-images=$KEEP_IMAGES, per-instance timeout=${PER_INSTANCE_TIMEOUT}s ==="
+echo "=== keep-images=$KEEP_IMAGES, per-instance timeout=${PER_INSTANCE_TIMEOUT}s, reason=$FORGELET_REASON ==="
 
 for i in $(seq 0 $((TOTAL - 1))); do
   INST_ID=$(jq -r ".[$i].instance_id" "$INSTANCES_JSON")
@@ -102,6 +109,7 @@ for i in $(seq 0 $((TOTAL - 1))); do
       -v "$WORK:/work" \
       --env-file "$HOME/coding-agent-chat-oss/.env" \
       -e SWE_INSTANCE_ID="$INST_ID" \
+      -e FORGELET_REASON="$FORGELET_REASON" \
       "$IMG" \
       bash -lc "
         set -e
@@ -119,11 +127,14 @@ for i in $(seq 0 $((TOTAL - 1))); do
 
   ELAPSED=$(($(date +%s) - START))
   PATCH_LINES=0
-  # Always materialize agent.patch (even when empty) so `jq --rawfile` succeeds.
+  # Materialize agent.patch only if missing. The container creates it (as
+  # root) on successful runs; re-touching a root-owned file as ubuntu fails
+  # with EACCES and would exit the whole batch under `set -e`.
+  #
   # CRITICAL: must NOT pipe through `$(cat ...)` — bash command substitution
   # strips trailing newlines, which breaks `git apply` (it requires a final \n).
   # That single character difference makes every SWE-bench instance fail to apply.
-  touch "$WORK/agent.patch"
+  [ -f "$WORK/agent.patch" ] || touch "$WORK/agent.patch"
   if [ -s "$WORK/agent.patch" ]; then
     PATCH_LINES=$(wc -l < "$WORK/agent.patch")
   fi

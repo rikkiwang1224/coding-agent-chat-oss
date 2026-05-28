@@ -2,6 +2,7 @@ import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { HarnessEngine } from "../../src/harness-engine.js";
 import { SessionStore } from "../../src/session-store.js";
+import type { ReasonHookConfig } from "../../src/agent-loop.js";
 import type { LlmConfig } from "../../src/types.js";
 import { buildSweBenchPrompt } from "./prompt.js";
 import { extractModelPatch } from "./patch.js";
@@ -93,6 +94,7 @@ async function runSingleInstance(
     );
 
     const traceEnabled = options.saveTraces !== false;
+    const reasonHook = buildReasonHook(instance, workspaceDir);
     const engine = new HarnessEngine({
       workspaceRoot: workspaceDir,
       config: options.config,
@@ -107,6 +109,7 @@ async function runSingleInstance(
             workspaceRoot: workspaceDir,
           }
         : undefined,
+      reason: reasonHook,
     });
 
     const controller = new AbortController();
@@ -218,6 +221,41 @@ export async function filterPendingInstances(
   } catch {
     return instances;
   }
+}
+
+/**
+ * Build the Reason-as-Sensor hook for a SWE-bench instance. Gated by the
+ * `FORGELET_REASON` env var:
+ *   - "0" / unset → disabled (sensor never runs)
+ *   - "1" / "on"  → enabled, default 2 rounds
+ *   - numeric N   → enabled, N rounds (1..5)
+ *
+ * The sensor sees the original issue text + hints + the live `git diff` of
+ * the worktree, plus a structured digest of recent tool calls.
+ */
+function buildReasonHook(
+  instance: SweBenchInstance,
+  workspaceDir: string,
+): ReasonHookConfig | undefined {
+  const raw = (process.env.FORGELET_REASON || "").trim().toLowerCase();
+  if (!raw || raw === "0" || raw === "off" || raw === "false") return undefined;
+
+  let maxRounds = 2;
+  if (raw !== "1" && raw !== "on" && raw !== "true") {
+    const n = Number.parseInt(raw, 10);
+    if (Number.isFinite(n) && n >= 1 && n <= 5) maxRounds = n;
+  }
+
+  const issueText = instance.hints_text?.trim()
+    ? `${instance.problem_statement.trim()}\n\n## Hints from issue discussion\n${instance.hints_text.trim()}`
+    : instance.problem_statement.trim();
+
+  return {
+    enabled: true,
+    issueText,
+    maxRounds,
+    getCurrentDiff: () => extractModelPatch(workspaceDir),
+  };
 }
 
 export type { LlmConfig };

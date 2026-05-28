@@ -95,6 +95,10 @@ export class TerminalWriter {
     if (metrics?.numTurns != null) parts.push(`${metrics.numTurns} turns`);
     if (metrics?.durationMs != null) parts.push(`${(metrics.durationMs / 1000).toFixed(1)}s`);
     if (metrics?.totalCostUsd != null) parts.push(`~$${metrics.totalCostUsd.toFixed(4)}`);
+    if (metrics?.reasonRoundsUsed != null && metrics.reasonRoundsUsed > 0) {
+      const v = metrics.reasonFinalVerdict ?? "?";
+      parts.push(`reason: ${metrics.reasonRoundsUsed}r→${v}`);
+    }
     if (parts.length) {
       process.stderr.write(`${DIM}${parts.join(" · ")}${RESET}\n`);
     }

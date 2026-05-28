@@ -11,6 +11,8 @@ import { buildSystemPrompt, type PromptContext } from "./prompt.js";
 import { ContextCompressor, estimateTokens } from "./context-compressor.js";
 import type { HarnessHooks } from "./hooks.js";
 import type { PermissionGuard, PermissionCallback } from "./permissions.js";
+import { buildActivityDigest } from "./activity-digest.js";
+import { runReason, formatReasonFeedback, type ReasonResult } from "./reason.js";
 
 export interface AgentLoopCallbacks {
   onTextDelta?: (delta: string) => void;
@@ -22,6 +24,31 @@ export interface AgentLoopCallbacks {
   onUsageUpdate?: (usage: TokenUsage) => void;
   onComplete?: (summary: string) => void;
   onError?: (error: Error) => void;
+  /** Fired when the Reason sensor returns a verdict (only when reason hook enabled). */
+  onReasonVerdict?: (round: number, result: ReasonResult) => void;
+}
+
+/**
+ * Reason sensor configuration. When enabled, the agent loop invokes an
+ * independent LLM "code reviewer" before declaring a run completed. If the
+ * reviewer says "revise", its feedback is injected as a user message and
+ * the agent loop continues. See `reason.ts` for the rationale.
+ */
+export interface ReasonHookConfig {
+  enabled: boolean;
+  /**
+   * Original task / issue text the agent is trying to solve. Can be a
+   * static string or a function for callers that mutate the issue across
+   * runs (e.g. interactive CLI: each user prompt becomes a fresh issue).
+   */
+  issueText: string | (() => string);
+  /**
+   * Returns the current diff (e.g. `git diff HEAD`) so the sensor can see
+   * what the agent actually changed. Should return "" if no diff.
+   */
+  getCurrentDiff: () => Promise<string>;
+  /** Max number of revise→retry cycles before forcing completion. Default 2. */
+  maxRounds?: number;
 }
 
 export interface TokenUsage {
@@ -54,6 +81,10 @@ export interface AgentLoopResult {
    * exhausted its turn budget — partial work is still in `messages`.
    */
   stopReason: AgentLoopStopReason;
+  /** Number of Reason sensor rounds invoked (0 if hook disabled). */
+  reasonRoundsUsed?: number;
+  /** Verdicts produced by the Reason sensor, in order. */
+  reasonVerdicts?: ReasonResult[];
 }
 
 export interface AgentLoopOptions {
@@ -74,9 +105,12 @@ export interface AgentLoopOptions {
   permissionGuard?: PermissionGuard;
   onPermissionConfirm?: PermissionCallback;
   hooks?: HarnessHooks;
+  /** Reason-as-Sensor configuration (independent reviewer before completion). */
+  reason?: ReasonHookConfig;
 }
 
 const DEFAULT_MAX_TURNS = 50;
+const DEFAULT_REASON_ROUNDS = 2;
 
 export class AgentLoop {
   private readonly client: LlmClient;
@@ -88,17 +122,24 @@ export class AgentLoop {
   private readonly signal?: AbortSignal;
   private readonly callbacks: AgentLoopCallbacks;
   private readonly onMessagesChanged?: (messages: ChatMessage[]) => void;
+  /** LLM config stored so the Reason sensor can reuse the same provider/model. */
+  private readonly llmConfig: LlmConfig;
+  private readonly reason?: ReasonHookConfig;
+  private readonly reasonMaxRounds: number;
   private messages: ChatMessage[];
 
   private turnCount = 0;
   private totalInputTokens = 0;
   private totalOutputTokens = 0;
   private totalCacheReadInputTokens = 0;
+  private reasonRoundsUsed = 0;
+  private readonly reasonVerdicts: ReasonResult[] = [];
   /** Provider's reported `prompt_tokens` from the most recent turn — used to
    * size context compression off the real tokenizer rather than our heuristic. */
   private lastPromptTokens = 0;
 
   constructor(options: AgentLoopOptions) {
+    this.llmConfig = options.config;
     this.client = new LlmClient(options.config);
     this.executor = new ToolExecutor({
       workspaceRoot: options.workspaceRoot,
@@ -117,6 +158,8 @@ export class AgentLoop {
     this.signal = options.signal;
     this.callbacks = options.callbacks;
     this.onMessagesChanged = options.onMessagesChanged;
+    this.reason = options.reason?.enabled ? options.reason : undefined;
+    this.reasonMaxRounds = options.reason?.maxRounds ?? DEFAULT_REASON_ROUNDS;
 
     if (options.initialMessages && options.initialMessages.length > 0) {
       this.messages = [...options.initialMessages];
@@ -157,8 +200,18 @@ export class AgentLoop {
       this.notifyMessagesChanged();
 
       if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
-        // No tool calls — the model is done
+        // No tool calls — the model thinks it's done. Before we accept that,
+        // run the Reason sensor (if enabled) to get an independent verdict.
         this.callbacks.onTurnEnd?.(this.turnCount);
+
+        const reviseFeedback = await this.maybeRunReason();
+        if (reviseFeedback) {
+          // Sensor said revise — inject feedback as a user message and loop again.
+          this.messages.push({ role: "user", content: reviseFeedback });
+          this.notifyMessagesChanged();
+          continue;
+        }
+
         const finalText = assistantMessage.content || "";
         this.callbacks.onComplete?.(finalText);
         this.notifyMessagesChanged();
@@ -192,7 +245,64 @@ export class AgentLoop {
         cacheReadInputTokens: this.totalCacheReadInputTokens || undefined,
       },
       stopReason,
+      reasonRoundsUsed: this.reason ? this.reasonRoundsUsed : undefined,
+      reasonVerdicts: this.reason && this.reasonVerdicts.length > 0 ? this.reasonVerdicts : undefined,
     };
+  }
+
+  /**
+   * Run the Reason sensor (if enabled and budget remains).
+   * Returns the revise-feedback string to inject as a user message, or null
+   * if the sensor said ship (or is disabled / out of budget).
+   *
+   * Token usage from the sensor call is accumulated into the agent's totals
+   * so cost reports stay accurate.
+   */
+  private async maybeRunReason(): Promise<string | null> {
+    if (!this.reason) return null;
+    if (this.reasonRoundsUsed >= this.reasonMaxRounds) return null;
+    if (this.signal?.aborted) return null;
+
+    this.reasonRoundsUsed++;
+    const round = this.reasonRoundsUsed;
+
+    let currentDiff = "";
+    try {
+      currentDiff = await this.reason.getCurrentDiff();
+    } catch {
+      // diff unavailable — sensor still runs with an empty diff. The prompt
+      // tells it to always REVISE if diff is empty + issue non-trivial.
+    }
+
+    const digest = buildActivityDigest(this.messages);
+    const issueText =
+      typeof this.reason.issueText === "function" ? this.reason.issueText() : this.reason.issueText;
+    const result = await runReason(
+      { issueText, currentDiff, digest },
+      { config: this.llmConfig, signal: this.signal },
+    );
+
+    this.reasonVerdicts.push(result);
+    this.callbacks.onReasonVerdict?.(round, result);
+
+    if (result.tokenUsage) {
+      this.totalInputTokens += result.tokenUsage.inputTokens;
+      this.totalOutputTokens += result.tokenUsage.outputTokens;
+      this.totalCacheReadInputTokens += result.tokenUsage.cacheReadInputTokens ?? 0;
+      this.callbacks.onUsageUpdate?.({
+        inputTokens: this.totalInputTokens,
+        outputTokens: this.totalOutputTokens,
+        totalTokens: this.totalInputTokens + this.totalOutputTokens,
+        cacheReadInputTokens: this.totalCacheReadInputTokens || undefined,
+      });
+    }
+
+    if (result.verdict === "ship") return null;
+    // At the budget cap, even a "revise" verdict ships: injecting feedback
+    // now would produce work we have no budget left to re-review. The verdict
+    // is still recorded in `reasonVerdicts` for trace analysis.
+    if (this.reasonRoundsUsed >= this.reasonMaxRounds) return null;
+    return formatReasonFeedback(result, round);
   }
 
   private async executeTurn(): Promise<ChatMessage> {

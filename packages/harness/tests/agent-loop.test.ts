@@ -236,3 +236,174 @@ describe("AgentLoop - tool call with malformed JSON args", () => {
     expect(toolResults[0].output).toContain("Failed to parse");
   });
 });
+
+describe("AgentLoop - reason sensor hook", () => {
+  it("ships on first Reason verdict and records the verdict", async () => {
+    mockTurnQueue = [
+      { content: "Done — fixed it." },
+      // Reason sensor turn
+      { content: JSON.stringify({ verdict: "ship", confidence: "high", rationale: "looks fine" }) },
+    ];
+
+    const { callbacks } = collectCallbacks();
+    const reasonVerdicts: Array<{ round: number; verdict: string }> = [];
+
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp",
+      callbacks: {
+        ...callbacks,
+        onReasonVerdict: (round, r) => reasonVerdicts.push({ round, verdict: r.verdict }),
+      },
+      reason: {
+        enabled: true,
+        issueText: "fix the bug",
+        getCurrentDiff: async () => "diff --git a b\n@@ -1 +1 @@\n-old\n+new\n",
+        maxRounds: 2,
+      },
+    });
+
+    const result = await loop.run("fix the bug");
+    expect(result.stopReason).toBe("completed");
+    expect(result.reasonRoundsUsed).toBe(1);
+    expect(result.reasonVerdicts).toHaveLength(1);
+    expect(result.reasonVerdicts?.[0].verdict).toBe("ship");
+    expect(reasonVerdicts).toEqual([{ round: 1, verdict: "ship" }]);
+  });
+
+  it("re-loops on revise then ships, injecting feedback as user msg", async () => {
+    mockTurnQueue = [
+      // Turn 1: agent claims done
+      { content: "All done!" },
+      // Reason round 1: revise
+      {
+        content: JSON.stringify({
+          verdict: "revise",
+          rationale: "missed empty list",
+          missed_cases: [{ what: "empty list", where: "utils.py" }],
+        }),
+      },
+      // Turn 2: agent says done again (after seeing feedback as user message)
+      { content: "OK fixed the empty list case." },
+      // Reason round 2: ship
+      { content: JSON.stringify({ verdict: "ship", rationale: "good now" }) },
+    ];
+
+    const { callbacks } = collectCallbacks();
+
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp",
+      callbacks,
+      reason: {
+        enabled: true,
+        issueText: "fix the bug",
+        getCurrentDiff: async () => "diff text",
+        maxRounds: 2,
+      },
+    });
+
+    const result = await loop.run("fix the bug");
+    expect(result.stopReason).toBe("completed");
+    expect(result.reasonRoundsUsed).toBe(2);
+    expect(result.reasonVerdicts?.[0].verdict).toBe("revise");
+    expect(result.reasonVerdicts?.[1].verdict).toBe("ship");
+    // Reviewer feedback should have been pushed as a user message between the
+    // two agent turns: system, user, asst("All done!"), user(feedback),
+    // asst("OK fixed..."). Plus the reason call doesn't add to messages.
+    const userMessages = result.messages.filter((m) => m.role === "user");
+    expect(userMessages.length).toBe(2);
+    expect(userMessages[1].content).toMatch(/Independent reviewer feedback/);
+  });
+
+  it("stops at maxRounds even if sensor keeps saying revise", async () => {
+    mockTurnQueue = [
+      { content: "done v1" },
+      { content: JSON.stringify({ verdict: "revise", rationale: "no" }) },
+      { content: "done v2" },
+      { content: JSON.stringify({ verdict: "revise", rationale: "still no" }) },
+      // No third agent turn — we hit maxRounds=2 and bail
+    ];
+
+    const { callbacks } = collectCallbacks();
+
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp",
+      callbacks,
+      reason: {
+        enabled: true,
+        issueText: "fix",
+        getCurrentDiff: async () => "",
+        maxRounds: 2,
+      },
+    });
+
+    const result = await loop.run("fix");
+    expect(result.stopReason).toBe("completed");
+    expect(result.reasonRoundsUsed).toBe(2);
+    expect(result.reasonVerdicts).toHaveLength(2);
+    expect(result.reasonVerdicts?.every((v) => v.verdict === "revise")).toBe(true);
+  });
+
+  it("does not invoke Reason when hook is undefined (legacy path)", async () => {
+    mockTurnQueue = [{ content: "All done!" }];
+    const { callbacks } = collectCallbacks();
+
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp",
+      callbacks,
+    });
+
+    const result = await loop.run("fix");
+    expect(result.stopReason).toBe("completed");
+    expect(result.reasonRoundsUsed).toBeUndefined();
+    expect(result.reasonVerdicts).toBeUndefined();
+  });
+
+  it("does not invoke Reason when hook is enabled=false", async () => {
+    mockTurnQueue = [{ content: "All done!" }];
+    const { callbacks } = collectCallbacks();
+
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp",
+      callbacks,
+      reason: {
+        enabled: false,
+        issueText: "fix",
+        getCurrentDiff: async () => "",
+      },
+    });
+
+    const result = await loop.run("fix");
+    expect(result.reasonRoundsUsed).toBeUndefined();
+  });
+
+  it("supports a function-form issueText (resolved per round)", async () => {
+    mockTurnQueue = [
+      { content: "done" },
+      { content: JSON.stringify({ verdict: "ship", rationale: "ok" }) },
+    ];
+    const { callbacks } = collectCallbacks();
+    let issueCalls = 0;
+
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp",
+      callbacks,
+      reason: {
+        enabled: true,
+        issueText: () => {
+          issueCalls++;
+          return "dynamic issue";
+        },
+        getCurrentDiff: async () => "",
+      },
+    });
+
+    await loop.run("dynamic issue");
+    expect(issueCalls).toBe(1);
+  });
+});

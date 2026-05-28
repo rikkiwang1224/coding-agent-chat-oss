@@ -1,7 +1,8 @@
 import type { AgentEngine, RunTaskInput, EventSink } from "@forgelet/sdk-core";
 import type { AgentEvent, AgentRunMetrics } from "@forgelet/shared-types";
 import type { ChatMessage, LlmConfig } from "./types.js";
-import { AgentLoop } from "./agent-loop.js";
+import { AgentLoop, type ReasonHookConfig } from "./agent-loop.js";
+import type { ReasonResult } from "./reason.js";
 import { PlanExecutor } from "./plan-execute.js";
 import { detectWorkspaceContext, type PromptContext } from "./prompt.js";
 import { SessionStore, sumSessionRunCosts, type SessionData, type SessionRunRecord } from "./session-store.js";
@@ -28,6 +29,12 @@ export interface HarnessEngineOptions {
   hooks?: HarnessHooks;
   /** Append AgentEvent JSONL under FORGELET_HOME/traces (default on when set) */
   trace?: TraceConfig;
+  /**
+   * Reason-as-Sensor hook — independent LLM reviewer that runs before the
+   * agent's "completed" state is accepted. See `agent-loop.ts` for details.
+   * Disabled by default; SWE-bench runner enables it via `FORGELET_REASON=1`.
+   */
+  reason?: ReasonHookConfig;
 }
 
 export class HarnessEngine implements AgentEngine {
@@ -40,6 +47,7 @@ export class HarnessEngine implements AgentEngine {
   private readonly permissionGuard: PermissionGuard;
   private readonly hooks?: HarnessHooks;
   private readonly traceConfig?: TraceConfig;
+  private readonly reason?: ReasonHookConfig;
   private promptContext?: PromptContext;
 
   constructor(options: HarnessEngineOptions) {
@@ -57,6 +65,7 @@ export class HarnessEngine implements AgentEngine {
     );
     this.hooks = options.hooks;
     this.promptContext = options.promptContext;
+    this.reason = options.reason;
   }
 
   getPermissionGuard(): PermissionGuard {
@@ -274,6 +283,23 @@ export class HarnessEngine implements AgentEngine {
           terminalReason: "failed_terminal",
         });
       },
+      onReasonVerdict: (round: number, result: ReasonResult) => {
+        emitEvent("agent.progress", {
+          stage: "execute",
+          message: `[reason r${round}] ${result.verdict.toUpperCase()}${result.confidence ? ` (${result.confidence})` : ""}${result.rationale ? `: ${result.rationale}` : ""}`,
+          status: "running",
+          metadata: {
+            reasonRound: round,
+            verdict: result.verdict,
+            confidence: result.confidence,
+            rationale: result.rationale,
+            missedCases: result.missed_cases,
+            suggestions: result.suggestions,
+            inputTokens: result.tokenUsage?.inputTokens,
+            outputTokens: result.tokenUsage?.outputTokens,
+          },
+        });
+      },
     };
 
     try {
@@ -353,6 +379,7 @@ export class HarnessEngine implements AgentEngine {
         sessionId,
         permissionGuard: this.permissionGuard,
         hooks: this.hooks,
+        reason: this.reason,
         onMessagesChanged: (messages) => {
           scheduleSave(messages, countUserTurns(messages));
         },
@@ -399,6 +426,7 @@ export class HarnessEngine implements AgentEngine {
 
       await flushSession(result.messages);
 
+      const lastVerdict = result.reasonVerdicts?.[result.reasonVerdicts.length - 1]?.verdict;
       const metrics = {
         ...runMetrics,
         runInputTokens: deltaInputTokens || undefined,
@@ -410,6 +438,8 @@ export class HarnessEngine implements AgentEngine {
           totalInputTokens || totalOutputTokens
             ? totalInputTokens + totalOutputTokens
             : result.tokenUsage.totalTokens || undefined,
+        reasonRoundsUsed: result.reasonRoundsUsed,
+        reasonFinalVerdict: lastVerdict,
       };
 
       emitEvent("agent.done", {

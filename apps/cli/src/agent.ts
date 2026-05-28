@@ -1,9 +1,59 @@
 import { randomUUID } from "node:crypto";
 import * as readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import path from "node:path";
-import { HarnessEngine, SessionStore } from "@forgelet/harness";
+import { HarnessEngine, SessionStore, type ReasonHookConfig } from "@forgelet/harness";
 import type { AgentEvent } from "@forgelet/shared-types";
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * Build the Reason-as-Sensor hook from env config.
+ *
+ *   FORGELET_REASON=1      → enabled, 2 rounds (default cap)
+ *   FORGELET_REASON=3      → enabled, 3 rounds
+ *   FORGELET_REASON=0      → disabled (or any falsy)
+ *   FORGELET_REASON unset  → disabled
+ *
+ * The sensor uses `git diff HEAD` of the workspace as "current diff" and
+ * the user's raw prompt as "issue text". For non-git workspaces, the diff
+ * comes back empty — the sensor's prompt is tuned to revise empty-diff
+ * cases for non-trivial issues.
+ */
+function buildCliReasonHook(
+  workspaceRoot: string,
+  getIssueText: () => string,
+): ReasonHookConfig | undefined {
+  const raw = (process.env.FORGELET_REASON || "").trim().toLowerCase();
+  if (!raw || raw === "0" || raw === "off" || raw === "false") return undefined;
+
+  let maxRounds = 2;
+  if (raw !== "1" && raw !== "on" && raw !== "true") {
+    const n = Number.parseInt(raw, 10);
+    if (Number.isFinite(n) && n >= 1 && n <= 5) maxRounds = n;
+  }
+
+  return {
+    enabled: true,
+    issueText: getIssueText,
+    maxRounds,
+    getCurrentDiff: async () => {
+      try {
+        const { stdout } = await execFileAsync(
+          "git",
+          ["diff", "HEAD", "--no-color", "--", "."],
+          { cwd: workspaceRoot, maxBuffer: 16 * 1024 * 1024 },
+        );
+        const trimmed = stdout.trimEnd();
+        return trimmed ? `${trimmed}\n` : "";
+      } catch {
+        return "";
+      }
+    },
+  };
+}
 import type { CliArgs } from "./argv.js";
 import { resolveLlmConfig } from "./config.js";
 import {
@@ -78,6 +128,10 @@ export async function runCliAgent(options: RunCliOptions): Promise<number> {
         engine?.getPermissionGuard().addAlwaysAllow(key || toolName);
       });
 
+  // Mutable issue text — updated per runOnce so interactive mode gives the
+  // reviewer a fresh task on each user turn instead of stale first-prompt context.
+  let currentIssueText = args.prompt?.trim() ?? "";
+  const reasonHook = buildCliReasonHook(workspaceRoot, () => currentIssueText);
   engine = new HarnessEngine({
     workspaceRoot,
     sessionStore,
@@ -97,6 +151,7 @@ export async function runCliAgent(options: RunCliOptions): Promise<number> {
       provider: llm.provider,
     },
     onPermissionConfirm,
+    reason: reasonHook,
   });
 
   const emit = (event: AgentEvent) => {
@@ -104,6 +159,7 @@ export async function runCliAgent(options: RunCliOptions): Promise<number> {
   };
 
   const runOnce = async (userPrompt: string, resume: boolean): Promise<boolean> => {
+    currentIssueText = userPrompt;
     let harnessResume = false;
     if (resume) {
       const existing = await sessionStore.load(sessionId);
