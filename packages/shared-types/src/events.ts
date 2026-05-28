@@ -195,4 +195,8 @@ export interface AgentRunMetrics {
   reasonRoundsUsed?: number;
   /** Final Reason verdict — "ship" if accepted, "revise" if budget exhausted with revise. */
   reasonFinalVerdict?: "ship" | "revise";
+  /** Number of Verify hook rounds invoked (only present when verify hook enabled). */
+  verifyRoundsUsed?: number;
+  /** Final Verify verdict — "pass" if accepted, "fail" if budget exhausted with failure. */
+  verifyFinalVerdict?: "pass" | "fail";
 }

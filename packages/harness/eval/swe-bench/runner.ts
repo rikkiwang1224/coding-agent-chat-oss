@@ -3,6 +3,8 @@ import path from "node:path";
 import { HarnessEngine } from "../../src/harness-engine.js";
 import { SessionStore } from "../../src/session-store.js";
 import type { ReasonHookConfig } from "../../src/agent-loop.js";
+import type { VerifyConfig } from "../../src/verify.js";
+import { buildChangedFilesVerifyConfig } from "../../src/verify-adapters/index.js";
 import type { LlmConfig } from "../../src/types.js";
 import { buildSweBenchPrompt } from "./prompt.js";
 import { extractModelPatch } from "./patch.js";
@@ -95,6 +97,7 @@ async function runSingleInstance(
 
     const traceEnabled = options.saveTraces !== false;
     const reasonHook = buildReasonHook(instance, workspaceDir);
+    const verifyHook = buildVerifyHook(instance, workspaceDir);
     const engine = new HarnessEngine({
       workspaceRoot: workspaceDir,
       config: options.config,
@@ -110,6 +113,7 @@ async function runSingleInstance(
           }
         : undefined,
       reason: reasonHook,
+      verify: verifyHook,
     });
 
     const controller = new AbortController();
@@ -256,6 +260,46 @@ function buildReasonHook(
     maxRounds,
     getCurrentDiff: () => extractModelPatch(workspaceDir),
   };
+}
+
+/**
+ * Build the changed-files Verify hook for a SWE-bench instance. Gated by
+ * `FORGELET_VERIFY`:
+ *   - "0" / unset → disabled
+ *   - "1" / "on"  → enabled, default 3 rounds
+ *   - numeric N   → enabled, N rounds (1..5)
+ *
+ * NOTE: the verify hook ALWAYS runs inside the SWE-bench docker container,
+ * never on the host. The host runs the harness which spawns the SWE-bench
+ * eval — verify runs on the host's worktree, which means it shells out to
+ * the host's Python. That's fine for SWE-bench reproduction (Python deps
+ * live in the container, not the worktree), so we keep verify limited to
+ * pre-flight sanity for the worktree's git state, NOT actual test execution.
+ *
+ * For real test execution, the verify hook fires from inside the container
+ * via the CLI codepath in `apps/cli/src/agent.ts` (also env-gated).
+ */
+function buildVerifyHook(
+  instance: SweBenchInstance,
+  workspaceDir: string,
+): VerifyConfig | undefined {
+  const raw = (process.env.FORGELET_VERIFY || "").trim().toLowerCase();
+  if (!raw || raw === "0" || raw === "off" || raw === "false") return undefined;
+
+  let maxRounds = 3;
+  if (raw !== "1" && raw !== "on" && raw !== "true") {
+    const n = Number.parseInt(raw, 10);
+    if (Number.isFinite(n) && n >= 1 && n <= 5) maxRounds = n;
+  }
+
+  const timeoutMs = Number.parseInt(process.env.FORGELET_VERIFY_TIMEOUT || "", 10);
+  return buildChangedFilesVerifyConfig({
+    enabled: true,
+    workspaceRoot: workspaceDir,
+    repo: instance.repo,
+    maxRounds,
+    timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs * 1000 : undefined,
+  });
 }
 
 export type { LlmConfig };

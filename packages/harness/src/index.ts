@@ -26,6 +26,34 @@ export {
   type DigestEvent,
   type DigestOptions,
 } from "./activity-digest.js";
+export {
+  runVerify,
+  formatVerifyFeedback,
+  truncateHead,
+  truncateTail,
+  extractFailureExcerpt,
+  type VerifyConfig,
+  type VerifyCommand,
+  type VerifyResult,
+  type VerifyCheck,
+  type ExecResult,
+} from "./verify.js";
+export {
+  buildChangedFilesVerifyConfig,
+  detectRepoFromGitRemote,
+  inferTestTargetsFromDiff,
+  inferTestPathsForSource,
+  isTestFile,
+  getTestRunner,
+  fileToDjangoModule,
+  TEST_RUNNERS,
+  type ChangedFilesVerifyOpts,
+  type InferOpts,
+  type InferResult,
+  type TestRunner,
+  type TestTarget,
+  type BuildOpts,
+} from "./verify-adapters/index.js";
 export { PlanExecutor, type Plan, type PlanStep, type PlanExecuteOptions, type PlanExecuteCallbacks } from "./plan-execute.js";
 export { ContextCompressor, estimateTokens, findSafeCutIndex } from "./context-compressor.js";
 export {
