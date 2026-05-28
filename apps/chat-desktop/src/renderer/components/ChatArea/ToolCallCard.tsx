@@ -37,12 +37,7 @@ function prettifyToolName(name: string): string {
   if (lower.includes("read_file")) return "Read File";
   if (lower.includes("write_file") || lower.includes("edit_file"))
     return "Write File";
-  if (
-    lower.includes("run_cmd") ||
-    lower.includes("terminal") ||
-    lower.includes("shell")
-  )
-    return "Run Terminal";
+  if (isTerminalTool(name)) return "Run Terminal";
   if (lower.includes("list_dir")) return "List Directory";
 
   const lastSegment = name.split("__").pop() || name;
@@ -51,17 +46,30 @@ function prettifyToolName(name: string): string {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function isTerminalTool(name: string): boolean {
+  const lower = name.toLowerCase();
+  return (
+    lower === "bash" ||
+    lower.includes("run_cmd") ||
+    lower.includes("run_command") ||
+    lower.includes("terminal") ||
+    lower.includes("shell")
+  );
+}
+
+function getInputPreview(input?: Record<string, unknown>): string | undefined {
+  if (!input) return undefined;
+  if (typeof input.command === "string") return input.command;
+  const firstString = Object.values(input).find((v) => typeof v === "string");
+  return typeof firstString === "string" ? firstString : undefined;
+}
+
 function getToolIcon(name: string) {
   const lower = name.toLowerCase();
   if (lower.includes("grep") || lower.includes("search")) return Search;
   if (lower.includes("read_file")) return FileText;
   if (lower.includes("write_file") || lower.includes("edit")) return FilePenLine;
-  if (
-    lower.includes("run_cmd") ||
-    lower.includes("terminal") ||
-    lower.includes("shell")
-  )
-    return Terminal;
+  if (isTerminalTool(name)) return Terminal;
   if (lower.includes("list_dir") || lower.includes("list_directory"))
     return FolderOpen;
   if (lower.includes("config") || lower.includes("setting")) return Settings;
@@ -77,14 +85,13 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
   const Icon = getToolIcon(toolCall.toolName);
   const label = prettifyToolName(toolCall.toolName);
 
-  const inputSummary = toolCall.input
-    ? Object.values(toolCall.input).filter((v) => typeof v === "string")[0]
-    : undefined;
-  const subtitle =
-    typeof inputSummary === "string"
-      ? inputSummary.length > 60
-        ? `${inputSummary.slice(0, 60)}…`
-        : inputSummary
+  const inputPreview = getInputPreview(toolCall.input);
+  const isTerminal = isTerminalTool(toolCall.toolName);
+  const inlineSubtitle =
+    !isTerminal && inputPreview
+      ? inputPreview.length > 80
+        ? `${inputPreview.slice(0, 80)}…`
+        : inputPreview
       : undefined;
 
   const hasContent = Boolean(toolCall.output || toolCall.error);
@@ -94,41 +101,53 @@ export function ToolCallCard({ toolCall }: ToolCallCardProps) {
       <CollapsibleTrigger asChild disabled={!hasContent}>
         <button
           className={cn(
-            "flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-left transition-colors",
+            "flex w-full flex-col gap-1 rounded-lg px-3 py-1.5 text-left transition-colors",
             hasContent && "hover:bg-white/60 cursor-pointer",
             !hasContent && "cursor-default",
           )}
         >
-          {hasContent && (
-            <ChevronRight
-              className={cn(
-                "h-3 w-3 shrink-0 text-soft transition-transform",
-                open && "rotate-90",
+          <div className="flex w-full min-w-0 items-center gap-2.5">
+            {hasContent && (
+              <ChevronRight
+                className={cn(
+                  "h-3 w-3 shrink-0 text-soft transition-transform",
+                  open && "rotate-90",
+                )}
+              />
+            )}
+            {!hasContent && toolCall.status === "pending" && (
+              <Loader2 className="h-3 w-3 shrink-0 text-warning animate-spin" />
+            )}
+            {!hasContent && toolCall.status !== "pending" && (
+              <ChevronRight className="h-3 w-3 shrink-0 text-soft opacity-0" />
+            )}
+            <Icon className="h-3.5 w-3.5 shrink-0 text-muted" />
+            <span className="text-[13px] font-medium text-text">{label}</span>
+            {inlineSubtitle && (
+              <span
+                className="min-w-0 flex-1 truncate text-xs text-soft"
+                title={inputPreview}
+              >
+                {inlineSubtitle}
+              </span>
+            )}
+            <div className="ml-auto flex items-center shrink-0">
+              {toolCall.status === "pending" && hasContent && (
+                <Loader2 className="h-3.5 w-3.5 text-warning animate-spin" />
               )}
-            />
-          )}
-          {!hasContent && toolCall.status === "pending" && (
-            <Loader2 className="h-3 w-3 shrink-0 text-warning animate-spin" />
-          )}
-          {!hasContent && toolCall.status !== "pending" && (
-            <ChevronRight className="h-3 w-3 shrink-0 text-soft opacity-0" />
-          )}
-          <Icon className="h-3.5 w-3.5 shrink-0 text-muted" />
-          <span className="text-[13px] font-medium text-text">{label}</span>
-          {subtitle && (
-            <span className="text-xs text-soft truncate">{subtitle}</span>
-          )}
-          <div className="ml-auto flex items-center shrink-0">
-            {toolCall.status === "pending" && hasContent && (
-              <Loader2 className="h-3.5 w-3.5 text-warning animate-spin" />
-            )}
-            {toolCall.status === "success" && (
-              <CheckCircle2 className="h-3.5 w-3.5 text-positive" />
-            )}
-            {toolCall.status === "error" && (
-              <XCircle className="h-3.5 w-3.5 text-error" />
-            )}
+              {toolCall.status === "success" && (
+                <CheckCircle2 className="h-3.5 w-3.5 text-positive" />
+              )}
+              {toolCall.status === "error" && (
+                <XCircle className="h-3.5 w-3.5 text-error" />
+              )}
+            </div>
           </div>
+          {isTerminal && inputPreview && (
+            <pre className="ml-[22px] mr-2 max-w-full overflow-x-auto whitespace-pre-wrap break-all font-mono text-xs leading-relaxed text-soft">
+              {inputPreview}
+            </pre>
+          )}
         </button>
       </CollapsibleTrigger>
       {hasContent && (
