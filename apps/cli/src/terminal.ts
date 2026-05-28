@@ -3,6 +3,7 @@ import type {
   AgentDeltaPayload,
   AgentDonePayload,
   AgentErrorPayload,
+  AgentProgressPayload,
   ToolCalledPayload,
   ToolErrorPayload,
   ToolOutputPayload,
@@ -33,6 +34,9 @@ export class TerminalWriter {
         break;
       case "agent.delta":
         this.writeDelta((event.payload as AgentDeltaPayload).delta);
+        break;
+      case "agent.progress":
+        this.writeProgress(event.payload as AgentProgressPayload);
         break;
       case "tool.called":
         this.writeToolCalled(event.payload as ToolCalledPayload);
@@ -82,6 +86,19 @@ export class TerminalWriter {
     const out = truncate(payload.output, 400);
     if (!out.trim()) return;
     process.stderr.write(`${DIM}  └ ${payload.toolName}:${RESET}\n${out}\n`);
+  }
+
+  /**
+   * Render verify / reason hook progress events. We surface these so the
+   * agent.log captures the gate's diagnostic info (what test ran, pass/fail,
+   * round count) without forcing on the trace sink. Plain agent progress
+   * messages (planner stage transitions etc.) are skipped to keep output focused.
+   */
+  private writeProgress(payload: AgentProgressPayload): void {
+    const msg = payload.message ?? "";
+    if (!msg.startsWith("[verify ") && !msg.startsWith("[reason ")) return;
+    this.finishAssistant();
+    process.stderr.write(`${DIM}↳ ${msg}${RESET}\n`);
   }
 
   private writeToolError(payload: ToolErrorPayload): void {

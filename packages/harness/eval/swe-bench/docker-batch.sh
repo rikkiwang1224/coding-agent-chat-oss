@@ -64,6 +64,20 @@ instance_to_image() {
   echo "swebench/sweb.eval.x86_64.${lower//__/_1776_}:latest"
 }
 
+# SWE-bench instance_id format is "<owner>__<repo>-<number>" (e.g.
+# "django__django-10924"). Convert to "<owner>/<repo>" for the verify hook
+# to pick the right test runner. Why we pass this explicitly instead of
+# auto-detecting from git remote: the SWE-bench testbed images don't have
+# an "origin" remote set (the repo is cp'd into place, not cloned), so
+# `git remote get-url origin` fails inside the container.
+instance_to_repo() {
+  local id="$1"
+  local before_dash="${id%-*}"
+  local owner="${before_dash%%__*}"
+  local repo="${before_dash#*__}"
+  echo "${owner}/${repo}"
+}
+
 cleanup_images() {
   local total
   total=$(docker images --format "{{.Repository}}" | grep -c "^swebench/sweb.eval" || true)
@@ -91,6 +105,7 @@ for i in $(seq 0 $((TOTAL - 1))); do
   fi
 
   IMG=$(instance_to_image "$INST_ID")
+  REPO=$(instance_to_repo "$INST_ID")
   WORK="$LOG_DIR/$INST_ID"
   mkdir -p "$WORK"
   jq -r ".[$i].problem_statement" "$INSTANCES_JSON" > "$WORK/prompt.txt"
@@ -122,6 +137,7 @@ for i in $(seq 0 $((TOTAL - 1))); do
       -e FORGELET_REASON="$FORGELET_REASON" \
       -e FORGELET_VERIFY="$FORGELET_VERIFY" \
       -e FORGELET_VERIFY_TIMEOUT="$FORGELET_VERIFY_TIMEOUT" \
+      -e FORGELET_VERIFY_REPO="$REPO" \
       "$IMG" \
       bash -lc "
         set -e

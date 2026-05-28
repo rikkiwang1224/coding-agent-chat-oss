@@ -324,16 +324,29 @@ describe("inferTestPathsForSource", () => {
     expect(candidates.some((c) => c === path.join("tests", "pkg", "test_foo.py"))).toBe(true);
   });
 
-  it("emits Django-specific package candidates for django/django", () => {
-    const candidates = inferTestPathsForSource("django/contrib/admin/views/main.py", "django/django");
-    expect(candidates).toContain("tests/admin/");
-    expect(candidates).toContain("tests/admin_tests/");
+  it("emits curated test apps for known Django source prefixes", () => {
+    const admin = inferTestPathsForSource("django/contrib/admin/views/main.py", "django/django");
+    // From the curated map for django/contrib/admin/
+    expect(admin).toContain("tests/admin_views/");
+    expect(admin).toContain("tests/admin_inlines/");
+    expect(admin).toContain("tests/modeladmin/");
+    // Plus the area-name fallback
+    expect(admin).toContain("tests/admin/");
   });
 
-  it("emits Django package candidates from the area name (no contrib)", () => {
-    const candidates = inferTestPathsForSource("django/db/models/sql/query.py", "django/django");
-    expect(candidates).toContain("tests/db/");
-    expect(candidates).toContain("tests/db_tests/");
+  it("emits SQL-related test apps for query layer changes", () => {
+    const sql = inferTestPathsForSource("django/db/models/sql/query.py", "django/django");
+    expect(sql).toContain("tests/queries/");
+    expect(sql).toContain("tests/expressions/");
+    expect(sql).toContain("tests/lookup/");
+  });
+
+  it("emits model_fields for fields/__init__.py edits (the failing real case)", () => {
+    // django/db/models/fields/__init__.py is the exact path django-10924 patched.
+    // Previous heuristic missed and verify was skipped. After the curated map,
+    // tests/model_fields/ should appear so verify actually runs.
+    const candidates = inferTestPathsForSource("django/db/models/fields/__init__.py", "django/django");
+    expect(candidates).toContain("tests/model_fields/");
   });
 
   it("returns an empty list for non-Python files", () => {
@@ -342,6 +355,7 @@ describe("inferTestPathsForSource", () => {
 
   it("returns Django candidates only (no generic siblings) for __init__.py", () => {
     const candidates = inferTestPathsForSource("django/db/__init__.py", "django/django");
+    // db has no curated mapping but the area-name fallback still emits tests/db/
     expect(candidates).toContain("tests/db/");
     // No "test___init__.py" garbage
     expect(candidates.every((c) => !c.includes("test___init__"))).toBe(true);
@@ -418,9 +432,9 @@ describe("inferTestTargetsFromDiff (real git)", () => {
     expect(out.targets.map((t) => t.spec)).toEqual(["pkg/test_foo.py"]);
   });
 
-  it("uses Django package candidate for django/django changes", async () => {
+  it("uses curated Django test apps for admin changes", async () => {
     writeFile(repoDir, "django/contrib/admin/views/main.py", "x = 1\n");
-    // Tests live under tests/admin_views/  (Django convention)
+    // tests/admin_views/ is one of the curated targets for django/contrib/admin/
     writeFile(repoDir, "tests/admin_views/__init__.py", "");
     writeFile(repoDir, "tests/admin_views/test_actions.py", "def test_a(): pass\n");
     runGit(repoDir, ["add", "."]);
@@ -431,21 +445,10 @@ describe("inferTestTargetsFromDiff (real git)", () => {
       workspaceRoot: repoDir,
       repo: "django/django",
     });
-    // The sibling-test heuristics won't match (Django sources have no
-    // co-located tests), but the django-specific tests/admin/ candidate
-    // will be the only one that survives the existence check.
-    // Actually `tests/admin_views/` doesn't match because the heuristic
-    // emits `tests/<area>/` = "tests/admin/" (area=admin, from contrib/admin).
-    // To make this test meaningful, let's check that at least one of the
-    // candidates we'd attempt is in the targets, or that mirrored tests/
-    // structure picks up something existing.
     const specs = out.targets.map((t) => t.spec);
-    // Mirror tests/django/contrib/admin/views/test_main.py — doesn't exist.
-    // Django candidate tests/admin/ doesn't exist either.
-    // So this particular case ends with EMPTY targets — which is documented
-    // behavior (heuristic miss). The next test covers a hit.
-    expect(out.changedSourceFiles).toEqual(["django/contrib/admin/views/main.py"]);
-    expect(specs).toEqual([]);
+    // The curated map emits tests/admin_views/, tests/admin_inlines/, etc.
+    // Only tests/admin_views/ exists on disk so that's the only survivor.
+    expect(specs).toContain("tests/admin_views/");
   });
 
   it("Django: hits when the conventional tests/<area>/ exists", async () => {
