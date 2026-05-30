@@ -10,6 +10,7 @@ import {
   buildChangedFilesVerifyConfig,
   detectRepoFromGitRemote,
   type ReasonHookConfig,
+  type TraceConfig,
   type VerifyConfig,
 } from "@forgelet/harness";
 import type { AgentEvent } from "@forgelet/shared-types";
@@ -134,6 +135,40 @@ async function readStdinPrompt(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8").trim();
 }
 
+/**
+ * Trace routing for CLI inside SWE-bench Docker:
+ * - Batch/smoke default: `--no-trace` (no JSONL).
+ * - Debug: omit `--no-trace`, set `SWE_INSTANCE_ID` + `FORGELET_TRACE_RUN_ID` →
+ *   `~/.forgelet/traces/swe-bench/eval-<runId>/instances/<id>.jsonl`
+ *   (summarize with `pnpm eval:swe:traces -- --run-id <runId>`).
+ */
+function buildCliTraceConfig(
+  noTrace: boolean,
+  workspaceRoot: string,
+  sessionId: string,
+): TraceConfig | undefined {
+  if (noTrace) return undefined;
+
+  const sweInstanceId = process.env.SWE_INSTANCE_ID?.trim();
+  if (sweInstanceId) {
+    const runId = process.env.FORGELET_TRACE_RUN_ID?.trim() || "docker-debug";
+    return {
+      enabled: true,
+      runKind: "swe-bench",
+      runId,
+      instanceId: sweInstanceId,
+      workspaceRoot,
+    };
+  }
+
+  return {
+    enabled: true,
+    runKind: "cli",
+    runId: sessionId,
+    workspaceRoot,
+  };
+}
+
 function buildRunPrompt(
   userPrompt: string,
   workspaceRoot: string,
@@ -191,19 +226,13 @@ export async function runCliAgent(options: RunCliOptions): Promise<number> {
     workspaceRoot,
     sessionStore,
     persistSession: true,
-    trace: args.noTrace
-      ? undefined
-      : {
-          enabled: true,
-          runKind: "cli",
-          runId: sessionId,
-          workspaceRoot,
-        },
+    trace: buildCliTraceConfig(args.noTrace, workspaceRoot, sessionId),
     config: {
       apiKey: llm.apiKey,
       baseUrl: llm.baseUrl,
       model: llm.model,
       provider: llm.provider,
+      ...(llm.temperature !== undefined ? { temperature: llm.temperature } : {}),
     },
     onPermissionConfirm,
     reason: reasonHook,

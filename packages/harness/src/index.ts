@@ -85,4 +85,15 @@ export {
   type TodoItem,
 } from "./tools/index.js";
 export { buildSystemPrompt, detectWorkspaceContext, type PromptContext } from "./prompt.js";
+export {
+  selectPatch,
+  normalizeSourceChange,
+  extractChangeLines,
+  type PatchCandidate,
+  type RegressionStatus,
+  type CandidateAnnotation,
+  type ClusterInfo,
+  type SelectionResult,
+  type SelectOptions,
+} from "./best-of-n/index.js";
 export type * from "./types.js";

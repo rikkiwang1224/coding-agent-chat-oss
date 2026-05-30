@@ -70,6 +70,21 @@ export interface ResolvedLlmConfig {
   apiKey: string;
   baseUrl: string;
   model: string;
+  /**
+   * Sampling temperature. Undefined → harness default (0, deterministic).
+   * Set via FORGELET_TEMPERATURE — used by Best-of-N sampling so the N runs
+   * diverge instead of all returning the same greedy patch.
+   */
+  temperature?: number;
+}
+
+/** Parse + clamp FORGELET_TEMPERATURE; returns undefined when unset/invalid. */
+function resolveTemperature(): number | undefined {
+  const raw = process.env.FORGELET_TEMPERATURE?.trim();
+  if (!raw) return undefined;
+  const t = Number.parseFloat(raw);
+  if (!Number.isFinite(t)) return undefined;
+  return Math.min(2, Math.max(0, t));
 }
 
 /** Merge CLI flags, env vars, and ~/.forgelet/config.json (flags win). */
@@ -107,5 +122,5 @@ export async function resolveLlmConfig(args: CliArgs): Promise<ResolvedLlmConfig
     preset?.baseUrl ||
     "https://api.deepseek.com";
 
-  return { provider, apiKey, baseUrl, model };
+  return { provider, apiKey, baseUrl, model, temperature: resolveTemperature() };
 }

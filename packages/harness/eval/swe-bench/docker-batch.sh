@@ -146,6 +146,7 @@ for i in $(seq 0 $((TOTAL - 1))); do
         conda activate testbed
         cd /testbed
         PROMPT=\"\$(cat /work/prompt.txt)\"
+        # Batch scoring: always --no-trace (JSONL is huge; use docker-trace-rerun.sh to debug).
         timeout ${PER_INSTANCE_TIMEOUT} node /forgelet/node_modules/tsx/dist/cli.mjs \
           /forgelet/apps/cli/src/main.ts -c /testbed -y --no-trace \"\$PROMPT\" \
           > /work/agent.log 2>&1 || echo \"agent exit=\$?\" >> /work/agent.log

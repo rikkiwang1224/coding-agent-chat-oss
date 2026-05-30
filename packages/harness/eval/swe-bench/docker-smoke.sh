@@ -6,6 +6,11 @@
 # Usage:
 #   docker-smoke.sh <instance_id> [instances.json]
 #
+# Trace (root-cause debugging — do NOT use for batch scoring):
+#   FORGELET_SAVE_TRACE=1 FORGELET_TRACE_RUN_ID=my-debug-a1 docker-smoke.sh <id>
+#   Writes ~/.forgelet/traces/swe-bench/eval-<runId>/instances/<id>.jsonl on the host.
+#   Batch runs must keep `--no-trace` (see docker-batch.sh).
+#
 # Defaults instances.json to ~/swe-batch/instances.json. The agent is given
 # the `problem_statement` field as its prompt and runs against /testbed
 # inside the container with the `testbed` conda env activated.
@@ -20,6 +25,19 @@ set -euo pipefail
 
 INSTANCE_ID="${1:?usage: $0 <instance_id> [instances.json]}"
 INSTANCES_JSON="${2:-$HOME/swe-batch/instances.json}"
+SAVE_TRACE="${FORGELET_SAVE_TRACE:-0}"
+TRACE_RUN_ID="${FORGELET_TRACE_RUN_ID:-docker-smoke-${INSTANCE_ID}}"
+FORGELET_HOME="${FORGELET_HOME:-$HOME/.forgelet}"
+TRACE_FLAG="--no-trace"
+TRACE_MOUNT=()
+if [[ "$SAVE_TRACE" == "1" || "$SAVE_TRACE" == "true" || "$SAVE_TRACE" == "on" ]]; then
+  TRACE_FLAG=""
+  mkdir -p "$FORGELET_HOME/traces/swe-bench"
+  TRACE_MOUNT=(-v "$FORGELET_HOME/traces:/root/.forgelet/traces")
+  echo "=== trace: ON → /root/.forgelet/traces/swe-bench/eval-${TRACE_RUN_ID}/instances/${INSTANCE_ID}.jsonl ==="
+else
+  echo "=== trace: OFF (--no-trace; set FORGELET_SAVE_TRACE=1 to enable JSONL) ==="
+fi
 
 # SWE-bench image name = swebench/sweb.eval.x86_64.<id_lower with __ → _1776_>:latest
 # (1776 is the literal magic number used in upstream swebench/harness/test_spec.py)
@@ -51,26 +69,37 @@ docker run --rm \
   -v "$HOME/node-prebuilt/node-v20:/opt/node:ro" \
   -v "$HOME/coding-agent-chat-oss:/forgelet:ro" \
   -v "$WORK:/work" \
+  "${TRACE_MOUNT[@]}" \
   --env-file "$HOME/coding-agent-chat-oss/.env" \
   -e SWE_INSTANCE_ID="$INSTANCE_ID" \
+  -e FORGELET_TRACE_RUN_ID="$TRACE_RUN_ID" \
+  -e FORGELET_HOME=/root/.forgelet \
   "$IMG" \
-  bash -lc '
+  bash -lc "
     set -e
-    export PATH=/opt/node/bin:$PATH
+    export PATH=/opt/node/bin:\$PATH
     source /opt/miniconda3/etc/profile.d/conda.sh
     conda activate testbed
-    echo "[env] python: $(python --version) | which: $(which python)"
-    echo "[env] pytest: $(pytest --version 2>&1 | head -1)"
+    echo '[env] python: '\$(python --version)' | which: '\$(which python)
+    echo '[env] pytest: '\$(pytest --version 2>&1 | head -1)
     cd /testbed
-    PROMPT="$(cat /work/prompt.txt)"
-    echo "=== container ready, agent starting ==="
+    PROMPT=\"\$(cat /work/prompt.txt)\"
+    echo '=== container ready, agent starting ==='
     timeout 600 node /forgelet/node_modules/tsx/dist/cli.mjs /forgelet/apps/cli/src/main.ts \
-      -c /testbed -y --no-trace "$PROMPT" 2>&1 | tee /work/agent.log || echo "agent exit=$?"
-    echo "=== capturing patch ==="
+      -c /testbed -y ${TRACE_FLAG} \"\$PROMPT\" 2>&1 | tee /work/agent.log || echo \"agent exit=\$?\"
+    echo '=== capturing patch ==='
     cd /testbed && git diff > /work/agent.patch
-    echo "patch_lines=$(wc -l < /work/agent.patch)"
+    echo \"patch_lines=\$(wc -l < /work/agent.patch)\"
     head -200 /work/agent.patch
-  '
+  "
 
 echo "=== total elapsed: $(($(date +%s) - START))s ==="
 ls -lh "$WORK"
+if [[ -z "$TRACE_FLAG" ]]; then
+  TRACE_FILE="$FORGELET_HOME/traces/swe-bench/eval-${TRACE_RUN_ID}/instances/${INSTANCE_ID}.jsonl"
+  if [[ -f "$TRACE_FILE" ]]; then
+    echo "=== trace file: $TRACE_FILE ($(wc -l < "$TRACE_FILE") events) ==="
+  else
+    echo "=== warn: trace expected at $TRACE_FILE but missing ==="
+  fi
+fi

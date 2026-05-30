@@ -97,6 +97,8 @@ export interface AgentLoopResult {
   verifyRoundsUsed?: number;
   /** Verdicts produced by the Verify hook, in order. */
   verifyVerdicts?: VerifyResult[];
+  /** Number of exploration nudges injected (0 if guard disabled or never triggered). */
+  explorationNudges?: number;
 }
 
 export interface AgentLoopOptions {
@@ -126,11 +128,27 @@ export interface AgentLoopOptions {
    * this is deterministic and not LLM-based.
    */
   verify?: VerifyConfig;
+  /**
+   * Max consecutive read-only turns before injecting a nudge message telling
+   * the agent to stop exploring and start editing. Set to `false` to disable.
+   * Default: 15.
+   */
+  explorationBudget?: number | false;
 }
 
 const DEFAULT_MAX_TURNS = 50;
 const DEFAULT_REASON_ROUNDS = 2;
 const DEFAULT_VERIFY_ROUNDS = 3;
+const DEFAULT_EXPLORATION_BUDGET = 15;
+const MAX_EXPLORATION_NUDGES = 2;
+
+const READ_ONLY_TOOLS = new Set([
+  "read_file",
+  "grep_search",
+  "list_directory",
+  "glob_search",
+  "todo_write",
+]);
 
 export class AgentLoop {
   private readonly client: LlmClient;
@@ -158,6 +176,9 @@ export class AgentLoop {
   private readonly reasonVerdicts: ReasonResult[] = [];
   private verifyRoundsUsed = 0;
   private readonly verifyVerdicts: VerifyResult[] = [];
+  private consecutiveReadOnlyTurns = 0;
+  private nudgesInjected = 0;
+  private readonly explorationBudget: number | false;
   /** Provider's reported `prompt_tokens` from the most recent turn — used to
    * size context compression off the real tokenizer rather than our heuristic. */
   private lastPromptTokens = 0;
@@ -186,6 +207,9 @@ export class AgentLoop {
     this.reasonMaxRounds = options.reason?.maxRounds ?? DEFAULT_REASON_ROUNDS;
     this.verify = options.verify?.enabled ? options.verify : undefined;
     this.verifyMaxRounds = options.verify?.maxRounds ?? DEFAULT_VERIFY_ROUNDS;
+    this.explorationBudget = options.explorationBudget !== false
+      ? (options.explorationBudget ?? DEFAULT_EXPLORATION_BUDGET)
+      : false;
 
     if (options.initialMessages && options.initialMessages.length > 0) {
       this.messages = [...options.initialMessages];
@@ -261,6 +285,34 @@ export class AgentLoop {
       }
       this.notifyMessagesChanged();
 
+      // Exploration budget guard: detect consecutive read-only turns
+      if (this.explorationBudget !== false) {
+        const allReadOnly = assistantMessage.tool_calls.every(
+          (tc) => READ_ONLY_TOOLS.has(tc.function.name),
+        );
+        if (allReadOnly) {
+          this.consecutiveReadOnlyTurns++;
+        } else {
+          this.consecutiveReadOnlyTurns = 0;
+        }
+
+        if (
+          this.consecutiveReadOnlyTurns >= this.explorationBudget &&
+          this.nudgesInjected < MAX_EXPLORATION_NUDGES
+        ) {
+          this.nudgesInjected++;
+          this.consecutiveReadOnlyTurns = 0;
+          const nudge =
+            `[System] You have spent ${this.explorationBudget} consecutive turns ` +
+            `reading/searching without making any edits. Based on your exploration ` +
+            `so far, please attempt a minimal code change now — even if imperfect, ` +
+            `you can iterate after seeing test results. Avoid further reading of ` +
+            `files you have already seen.`;
+          this.messages.push({ role: "user", content: nudge });
+          this.notifyMessagesChanged();
+        }
+      }
+
       this.callbacks.onTurnEnd?.(this.turnCount);
     }
 
@@ -285,6 +337,7 @@ export class AgentLoop {
       reasonVerdicts: this.reason && this.reasonVerdicts.length > 0 ? this.reasonVerdicts : undefined,
       verifyRoundsUsed: this.verify ? this.verifyRoundsUsed : undefined,
       verifyVerdicts: this.verify && this.verifyVerdicts.length > 0 ? this.verifyVerdicts : undefined,
+      explorationNudges: this.nudgesInjected || undefined,
     };
   }
 

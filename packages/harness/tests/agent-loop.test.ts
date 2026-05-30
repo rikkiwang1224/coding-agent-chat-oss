@@ -629,3 +629,110 @@ describe("AgentLoop - verify hook", () => {
     expect(injectedUserMsg).toBeDefined();
   });
 });
+
+describe("AgentLoop - exploration budget guard", () => {
+  it("injects nudge after N consecutive read-only turns", async () => {
+    // 4 read-only turns (budget=3) → nudge injected before 4th LLM call
+    mockTurnQueue = [
+      { toolCalls: [{ id: "c1", name: "grep_search", arguments: '{"pattern":"foo"}' }] },
+      { toolCalls: [{ id: "c2", name: "read_file", arguments: '{"path":"/tmp/test-workspace"}' }] },
+      { toolCalls: [{ id: "c3", name: "list_directory", arguments: '{}' }] },
+      // After nudge, agent does an edit
+      { toolCalls: [{ id: "c4", name: "edit_file", arguments: '{"path":"/tmp/test-workspace/x.txt","old_string":"a","new_string":"b"}' }] },
+      { content: "Done." },
+    ];
+
+    const { callbacks } = collectCallbacks();
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp/test-workspace",
+      callbacks,
+      explorationBudget: 3,
+    });
+
+    const result = await loop.run("Fix the bug");
+    expect(result.explorationNudges).toBe(1);
+    const nudgeMsg = result.messages.find(
+      (m) => m.role === "user" && typeof m.content === "string" && m.content.includes("[System]"),
+    );
+    expect(nudgeMsg).toBeDefined();
+    expect(nudgeMsg!.content).toContain("3 consecutive turns");
+  });
+
+  it("does not nudge when agent writes within budget", async () => {
+    mockTurnQueue = [
+      { toolCalls: [{ id: "c1", name: "read_file", arguments: '{"path":"/tmp/test-workspace"}' }] },
+      { toolCalls: [{ id: "c2", name: "edit_file", arguments: '{"path":"/tmp/test-workspace/x.txt","old_string":"a","new_string":"b"}' }] },
+      { content: "Done." },
+    ];
+
+    const { callbacks } = collectCallbacks();
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp/test-workspace",
+      callbacks,
+      explorationBudget: 3,
+    });
+
+    const result = await loop.run("Fix it");
+    expect(result.explorationNudges).toBeUndefined();
+    const nudgeMsg = result.messages.find(
+      (m) => m.role === "user" && typeof m.content === "string" && m.content.includes("[System]"),
+    );
+    expect(nudgeMsg).toBeUndefined();
+  });
+
+  it("nudges at most MAX_EXPLORATION_NUDGES times", async () => {
+    // Budget=2, produce 7 read-only turns (should trigger nudge at turn 2 and 4, then stop)
+    mockTurnQueue = [
+      { toolCalls: [{ id: "c1", name: "read_file", arguments: '{"path":"/tmp/test-workspace"}' }] },
+      { toolCalls: [{ id: "c2", name: "grep_search", arguments: '{"pattern":"x"}' }] },
+      // nudge #1 fires here (counter resets)
+      { toolCalls: [{ id: "c3", name: "read_file", arguments: '{"path":"/tmp/test-workspace"}' }] },
+      { toolCalls: [{ id: "c4", name: "grep_search", arguments: '{"pattern":"y"}' }] },
+      // nudge #2 fires here (counter resets, max reached)
+      { toolCalls: [{ id: "c5", name: "read_file", arguments: '{"path":"/tmp/test-workspace"}' }] },
+      { toolCalls: [{ id: "c6", name: "read_file", arguments: '{"path":"/tmp/test-workspace"}' }] },
+      // no more nudges despite still reading
+      { content: "I give up." },
+    ];
+
+    const { callbacks } = collectCallbacks();
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp/test-workspace",
+      callbacks,
+      explorationBudget: 2,
+    });
+
+    const result = await loop.run("Fix");
+    expect(result.explorationNudges).toBe(2);
+    const nudges = result.messages.filter(
+      (m) => m.role === "user" && typeof m.content === "string" && m.content.includes("[System]"),
+    );
+    expect(nudges).toHaveLength(2);
+  });
+
+  it("can be disabled with explorationBudget: false", async () => {
+    // 5 consecutive read-only turns with budget disabled
+    mockTurnQueue = [
+      { toolCalls: [{ id: "c1", name: "read_file", arguments: '{"path":"/tmp/test-workspace"}' }] },
+      { toolCalls: [{ id: "c2", name: "read_file", arguments: '{"path":"/tmp/test-workspace"}' }] },
+      { toolCalls: [{ id: "c3", name: "read_file", arguments: '{"path":"/tmp/test-workspace"}' }] },
+      { toolCalls: [{ id: "c4", name: "read_file", arguments: '{"path":"/tmp/test-workspace"}' }] },
+      { toolCalls: [{ id: "c5", name: "read_file", arguments: '{"path":"/tmp/test-workspace"}' }] },
+      { content: "Done." },
+    ];
+
+    const { callbacks } = collectCallbacks();
+    const loop = new AgentLoop({
+      config: makeConfig(),
+      workspaceRoot: "/tmp/test-workspace",
+      callbacks,
+      explorationBudget: false,
+    });
+
+    const result = await loop.run("Fix");
+    expect(result.explorationNudges).toBeUndefined();
+  });
+});

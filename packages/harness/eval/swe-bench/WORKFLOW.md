@@ -30,15 +30,30 @@ flowchart LR
 | 跑 agent + self-verify | **ECS Docker** | `docker-batch.sh` 调 instance image，agent 在 `/testbed` 直接跑 pytest |
 | 开代理（让 ECS 能访问 GitHub） | Mac | `pproxy :7890` + `ssh -R 7890:127.0.0.1:7890` |
 | **评分** | **ECS** | `python -m swebench.harness.run_evaluation --max_workers 4` |
-| 调试单题 | ECS Docker | `docker-smoke.sh <id>`（流式 stdout） |
+| 调试单题 | ECS Docker | `docker-smoke.sh <id>`（流式 stdout，`--no-trace`） |
+| **根因深挖（开 trace）** | ECS Docker | `docker-trace-rerun.sh <id> 3` → JSONL 在 `~/.forgelet/traces/...` |
 | 拉日志+生成成本报告 | Mac | `pull-and-report.sh <run-id>` → 生成 `cost-report.{tsv,md}` |
-| 看 trace | Mac | `~/.forgelet/runs/swe-bench/<run-id>/logs/<id>/agent.log`（pull-and-report 已 rsync） |
+| 看 agent 终端 log | Mac | `~/.forgelet/runs/swe-bench/<run-id>/logs/<id>/agent.log` |
+| 看逐步 trace | Mac | `pnpm eval:swe:traces -- --run-id <id>`（仅 trace 重跑后有） |
 
 ### 轨迹日志位置
 
 - **运行时（ECS）**：`~/swe-batch/<run-id>/logs/<id>/agent.log`（docker 容器内 stdout/stderr 落到这里）
 - **同步后（Mac）**：`~/.forgelet/runs/swe-bench/<run-id>/logs/<id>/agent.log`（由 `pull-and-report.sh` rsync 回来）
-- 每题三件套：`agent.log`（轨迹）、`agent.patch`（diff）、`prompt.txt`（题目）
+- 每题三件套：`agent.log`（终端回放）、`agent.patch`（diff）、`prompt.txt`（题目）
+
+### Trace：`--no-trace` 与 JSONL（批量 vs 根因）
+
+| 场景 | CLI 标志 | 产出 |
+|------|----------|------|
+| **`docker-batch.sh` 打分 batch** | **必须** `--no-trace` | 只有 `agent.log`；50 题 JSONL 体积/IO 不划算 |
+| **`docker-smoke.sh` 默认** | `--no-trace` | 同上，快速看 stdout |
+| **诡异题根因分析** | 去掉 `--no-trace`（`FORGELET_SAVE_TRACE=1`） | `~/.forgelet/traces/swe-bench/eval-<runId>/instances/<id>.jsonl` |
+
+`docker-batch.sh` / 默认 `docker-smoke.sh` **已经带 `--no-trace`**——batch 并没有误开 trace。  
+要对比工具调用逐步事件，用 **`docker-trace-rerun.sh`**（见 §2.1），**定锤 root cause 之前不要改 agent 逻辑**。
+
+Mac 上 `pnpm eval:swe` 默认**开** trace；ECS Docker 路径默认**关** trace，二者不要混用同一套预期。
 
 `docker-batch.sh` 结束时会自动调一次 `cost-report.py`，在 `<run-id>/cost-report.tsv` 和 `cost-report.md` 写入每题的 instance_id / cost / turns / 耗时 / 评测结果 / 日志路径。Mac 侧再跑一次 `pull-and-report.sh` 既同步日志又重算一份（评测完成后 eval-report.json 会加入评测列）。
 
@@ -294,12 +309,55 @@ less ~/.forgelet/runs/swe-bench/$RUN_ID/logs/<id>/agent.log
 - 改的方向对不对
 - 是不是"改头一动后面不管"型错误
 
-要重跑单题：
+要重跑单题（快速，无 JSONL）：
 
 ```bash
 ssh ubuntu@$ECS_IP '~/docker-smoke.sh <id> ~/swe-batch/instances.json'
 # 看 ~/.forgelet/runs/docker-smoke/<id>/agent.{log,patch}
 ```
+
+### 2.1 诡异案例：开 trace 单跑 ×3（定锤后再改代码）
+
+对 **resolved/unresolved 行为反常**、或 patch 看起来对但分不对的题，在 ECS 上各跑 **3 次**（看随机性 / 早停 / 工具链差异），对比 JSONL：
+
+| instance_id | Lite 切片 | instances.json（ECS） |
+|-------------|-----------|------------------------|
+| `django__django-11797` | 1–50（约第 23 题） | `~/swe-batch/lite-50/instances.json` 或 `instances.json` |
+| `django__django-14017` | 51–100 | `~/swe-batch/lite-51-100-instances.json` |
+| `django__django-15738` | 51–100 | 同上 |
+
+```bash
+export ECS_IP=119.91.220.67
+ssh ubuntu@$ECS_IP 'cd ~/coding-agent-chat-oss && \
+  cp packages/harness/eval/swe-bench/docker-{smoke,trace-rerun}.sh ~/ && chmod +x ~/docker-*.sh'
+
+# 每题 3 次，trace 写到 ~/.forgelet/traces/swe-bench/eval-weird-<id>-a{1,2,3}/...
+ssh ubuntu@$ECS_IP '~/docker-trace-rerun.sh django__django-11797 3 \
+  ~/swe-batch/lite-50/instances.json weird-11797'
+
+ssh ubuntu@$ECS_IP '~/docker-trace-rerun.sh django__django-14017 3 \
+  ~/swe-batch/lite-51-100-instances.json weird-14017'
+
+ssh ubuntu@$ECS_IP '~/docker-trace-rerun.sh django__django-15738 3 \
+  ~/swe-batch/lite-51-100-instances.json weird-15738'
+```
+
+Mac 上汇总（`run-id` 不含 `eval-` 前缀即可，`summarize-traces` 会自动加）：
+
+```bash
+pnpm eval:swe:traces -- --run-id weird-14017-a1 --instance django__django-14017
+pnpm eval:swe:traces -- --run-id weird-14017-a2 --instance django__django-14017
+pnpm eval:swe:traces -- --run-id weird-14017-a3 --instance django__django-14017
+```
+
+也可 rsync traces 回 Mac：
+
+```bash
+rsync -avz ubuntu@$ECS_IP:~/.forgelet/traces/swe-bench/eval-weird-* \
+  ~/.forgelet/traces/swe-bench/
+```
+
+**流程**：3 次 trace → 对比 `tool.called` / reason / verify 轮次 → 写清 root cause → 再改 `packages/harness` 或 CLI → 最后用 **无 trace** 的 `docker-batch` 重跑小切片验证分数。
 
 ---
 
@@ -352,7 +410,8 @@ scp ~/.forgelet/runs/swe-bench/$RUN/predictions.jsonl ubuntu@$ECS_IP:~/swe-batch
 | 路径 | 用途 |
 |------|------|
 | [`docker-batch.sh`](./docker-batch.sh) | 批量跑 N 题，输出 `predictions.jsonl` |
-| [`docker-smoke.sh`](./docker-smoke.sh) | 单题跑（流式 stdout，调试用） |
+| [`docker-smoke.sh`](./docker-smoke.sh) | 单题跑（流式 stdout，默认 `--no-trace`） |
+| [`docker-trace-rerun.sh`](./docker-trace-rerun.sh) | 单题 ×N 次，开 JSONL trace（根因分析） |
 | [`run.ts`](./run.ts) | Mac-only 路径入口（`pnpm eval:swe`） |
 | [`fetch_instances.py`](./fetch_instances.py) | 一次性拉 HF 数据集 |
 | [`evaluate.sh`](./evaluate.sh) | 老的本地 docker 评分脚本，跟 §1.5 ECS 评分方法等价（只是 Mac-side 包装） |
