@@ -1,18 +1,22 @@
 # SWE-bench 端到端工作流
 
-**最终方案**：Mac 准备题集 + 跑 pproxy → ECS 跑 **agent in instance Docker**（self-verify）+ **ECS 跑官方 swebench harness 评分**（走代理拉 GitHub）→ 拉报告回 Mac。
+**最终方案**：Mac 准备题集 + 跑 pproxy → **按需开机 ECS** → ECS 跑 **agent in instance Docker**（self-verify）+ **ECS 跑官方 swebench harness 评分**（走代理拉 GitHub）→ 拉报告回 Mac → **API 关机省云费**。
+
+> 💡 **省钱**：ECS 按量计费空转约 **1–2 元/小时**。用 `start-ecs.sh` / `stop-ecs.sh`（腾讯云 `StopInstances` API）只在跑 batch 期间开机，详见 **§0.3**。
 
 > ⚠️ **不再用 sb-cli**：经实测 `sb-cli submit swe-bench_lite test/dev` 后端整套全是 `0/N resolved`，**连 gold patch 都 100% failed**。这工具对 swe-bench_lite 不可用，会浪费配额（详见 §4）。
 
 ```mermaid
 flowchart LR
   subgraph mac [Mac]
+    A0[start-ecs.sh]
     A1[fetch_instances.py<br>→ instances.json]
     A1 --> A2[rsync code+instances<br>到 ECS]
     P1[pproxy :7890]
     P2[ssh -R 反向隧道]
     P1 --> P2
     R[forgelet-docker.RUN.json] --> A6[本地分析 traces]
+    A4[pull-and-report.sh] --> A7[stop-ecs.sh]
   end
   subgraph ecs [ECS · Docker]
     B1[docker-batch.sh] --> B2[per instance:<br>swebench/sweb.eval... image<br>+ agent in container]
@@ -20,12 +24,15 @@ flowchart LR
     B3 --> B4[python -m swebench.harness<br>.run_evaluation<br>--max_workers 4]
     B4 --> R
   end
+  A0 --> A2
   A2 --> B1
+  B4 --> A4
   P2 -.HTTPS_PROXY.-> B4
 ```
 
 | 阶段 | 在哪 | 工具 |
 |------|------|------|
+| **开机** | Mac | `start-ecs.sh --wait` 或 `pnpm eval:ecs:start`（腾讯云 API） |
 | 拉题集 | Mac | `fetch_instances.py`（一次性 venv） |
 | 跑 agent + self-verify | **ECS Docker** | `docker-batch.sh` 调 instance image，agent 在 `/testbed` 直接跑 pytest |
 | 开代理（让 ECS 能访问 GitHub） | Mac | `pproxy :7890` + `ssh -R 7890:127.0.0.1:7890` |
@@ -33,6 +40,7 @@ flowchart LR
 | 调试单题 | ECS Docker | `docker-smoke.sh <id>`（流式 stdout，`--no-trace`） |
 | **根因深挖（开 trace）** | ECS Docker | `docker-trace-rerun.sh <id> 3` → JSONL 在 `~/.forgelet/traces/...` |
 | 拉日志+生成成本报告 | Mac | `pull-and-report.sh <run-id>` → 生成 `cost-report.{tsv,md}` |
+| **关机** | Mac | `pull-and-report.sh … --stop` 或 `stop-ecs.sh --wait`（`STOP_CHARGING`） |
 | 看 agent 终端 log | Mac | `~/.forgelet/runs/swe-bench/<run-id>/logs/<id>/agent.log` |
 | 看逐步 trace | Mac | `pnpm eval:swe:traces -- --run-id <id>`（仅 trace 重跑后有） |
 
@@ -73,6 +81,9 @@ Mac 上 `pnpm eval:swe` 默认**开** trace；ECS Docker 路径默认**关** tra
 | 数据集 venv | `pnpm eval:swe:setup` |
 | **pproxy**（让 ECS 走 Mac 出口访问 GitHub） | `python3 -m pip install --user pproxy` |
 | `.env` | `DEEPSEEK_API_KEY=...` 放仓库根，自动被 batch 透传到 container |
+| **tccli**（ECS 开关机） | `python3 -m pip install --user tccli` |
+| **腾讯云 API 密钥** | 仓库根 `.env` 加 `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY`（[CAM 控制台](https://console.cloud.tencent.com/cam/capi)） |
+| **ECS 标识** | `.env` 加 `TENCENT_ECS_REGION`（如 `ap-guangzhou`）+ `TENCENT_ECS_INSTANCE_ID`（`ins-…`）或 `ECS_IP`（自动查 id） |
 
 ### 0.2 ECS（首次配 / 换机时）
 
@@ -87,6 +98,41 @@ Mac 上 `pnpm eval:swe` 默认**开** trace；ECS Docker 路径默认**关** tra
 | 装依赖 + build | `ssh ubuntu@$ECS_IP 'cd ~/coding-agent-chat-oss && ELECTRON_SKIP_BINARY_DOWNLOAD=1 pnpm install && pnpm --filter @forgelet/sdk-runtime build'` |
 | `.env` | `scp .env ubuntu@$ECS_IP:~/coding-agent-chat-oss/.env`（含 `DEEPSEEK_API_KEY`） |
 | 预热 HF dataset 缓存（首次，需代理） | `ssh ubuntu@$ECS_IP 'env https_proxy=http://127.0.0.1:7890 ~/sweb-venv/bin/python -c "from datasets import load_dataset; load_dataset(\"SWE-bench/SWE-bench_Lite\", split=\"test\")"'` |
+
+### 0.3 腾讯云 ECS 开关机（推荐 · 省钱）
+
+脚本在 `packages/harness/eval/`，通过官方 [StopInstances / StartInstances](https://cloud.tencent.com/document/product/213/15743) API 控制 CVM。**在 Mac 上调用**（不要把 SecretKey 放到 ECS 上）。
+
+**`.env` 示例**（见仓库根 `.env.example`）：
+
+```bash
+TENCENTCLOUD_SECRET_ID=AKID...
+TENCENTCLOUD_SECRET_KEY=...
+TENCENT_ECS_REGION=ap-guangzhou
+TENCENT_ECS_INSTANCE_ID=ins-xxxxxxxx   # 控制台可见；省略则用 ECS_IP 自动查
+ECS_IP=119.91.220.67
+```
+
+| 命令 | 作用 |
+|------|------|
+| `./packages/harness/eval/start-ecs.sh --wait` | 开机并等到 `RUNNING` |
+| `./packages/harness/eval/stop-ecs.sh --wait` | 软关机 + `STOP_CHARGING`（按量停 CPU/RAM 计费） |
+| `pnpm --filter @forgelet/harness eval:ecs:start` | 同上（包装 `--wait`） |
+| `pnpm --filter @forgelet/harness eval:ecs:stop` | 同上 |
+
+**推荐节奏**（空转时不计费）：
+
+```bash
+# 跑 batch 前
+pnpm --filter @forgelet/harness eval:ecs:start
+# … sync → docker-batch → eval …
+# 全部拉完后
+./packages/harness/eval/swe-bench/pull-and-report.sh lite-50 --stop --wait-stop
+```
+
+`--stop` 会在 rsync + 成本报告之后自动调 `stop-ecs.sh`。等价写法：`pull-and-stop.sh lite-50 --wait-stop`。
+
+> 关机后**系统盘、弹性公网 IP 可能仍计费**（几元/天量级）。长期不用可考虑释放 EIP 或「快照 + 退还实例」。
 
 ---
 
@@ -113,7 +159,10 @@ jq '.[0:50]' ~/.forgelet/runs/swe-bench/lite-full/instances.json \
 ### 1.2 同步到 ECS
 
 ```bash
-export ECS_IP=119.91.220.67          # 改成你的
+export ECS_IP=119.91.220.67          # 改成你的（或写在 .env）
+
+# 若实例已关机，先开机（§0.3）
+pnpm --filter @forgelet/harness eval:ecs:start
 
 # 同步切片好的 instances
 ssh ubuntu@$ECS_IP 'mkdir -p ~/swe-batch'
@@ -171,8 +220,12 @@ KEEP_IMAGES=20 PER_INSTANCE_TIMEOUT=900 MODEL_NAME=forgelet-docker-v2 \
 ```bash
 # 任何时候都能跑（batch 跑完之后，或者评测完之后再跑一次拿 eval_status）：
 ./packages/harness/eval/swe-bench/pull-and-report.sh lite-50
+
+# 拉完自动关机（推荐，§0.3）：
+./packages/harness/eval/swe-bench/pull-and-report.sh lite-50 --stop --wait-stop
+
 # 或自定义 ECS / 路径：
-ECS_HOST=ubuntu@<ip> ECS_BATCH_ROOT='~/swe-batch' ./pull-and-report.sh lite-50
+ECS_HOST=ubuntu@<ip> ECS_BATCH_ROOT='~/swe-batch' ./pull-and-report.sh lite-50 --stop
 ```
 
 产物（落在 `~/.forgelet/runs/swe-bench/<run-id>/`）：
@@ -285,6 +338,18 @@ jq -r '.error_ids[]' $REP        # 评测基建出错（罕见）
 ssh ubuntu@$ECS_IP "cat ~/logs/run_evaluation/$RUN_ID/forgelet-docker/<id>/report.json | jq '.[\"<id>\"]'"
 # 含 patch_successfully_applied / resolved / tests_status.{FAIL_TO_PASS,PASS_TO_PASS}.{success,failure}
 ```
+
+### 1.9 关机（评测全部完成后）
+
+若 §1.4 已加 `--stop`，可跳过。否则：
+
+```bash
+./packages/harness/eval/stop-ecs.sh --wait
+# 或
+pnpm --filter @forgelet/harness eval:ecs:stop
+```
+
+确认 Mac 侧已 rsync 完 `predictions.jsonl`、`logs/`、`eval-report.json` 再关。Docker 镜像留在系统盘上，下次开机可续跑 `done.txt` 断点。
 
 ---
 
@@ -400,6 +465,7 @@ scp ~/.forgelet/runs/swe-bench/$RUN/predictions.jsonl ubuntu@$ECS_IP:~/swe-batch
 | `FAIL_PULL` | docker hub 偶发限流 / 网络抖动，等一会儿手动重跑这一题：`grep -v <id> done.txt > done.txt.new && mv done.txt.new done.txt && ~/docker-batch.sh ...`（resume-safe） |
 | 单题超时 | 调 `PER_INSTANCE_TIMEOUT`，或看 agent.log 是不是死循环 |
 | ECS 磁盘满 | `KEEP_IMAGES` 调小，或手动 `docker image prune -a -f --filter "until=2h"` |
+| **云费太高 / ECS 空转** | 不用时 `stop-ecs.sh --wait`；跑 batch 前 `start-ecs.sh`；拉报告用 `pull-and-report.sh … --stop`（§0.3） |
 | Mac-only 路径分数极低 | 正常，没 self-verify。走 §1 ECS docker 路径 |
 | eval `error_instances > 0` | 评测基建侧出错（pytest crash / docker oom），看 `~/logs/run_evaluation/$RUN_ID/forgelet-docker/<id>/run_instance.log` |
 
@@ -409,6 +475,11 @@ scp ~/.forgelet/runs/swe-bench/$RUN/predictions.jsonl ubuntu@$ECS_IP:~/swe-batch
 
 | 路径 | 用途 |
 |------|------|
+| [`../start-ecs.sh`](../start-ecs.sh) | 腾讯云 API 开机 |
+| [`../stop-ecs.sh`](../stop-ecs.sh) | 腾讯云 API 关机（`STOP_CHARGING`） |
+| [`../ecs-lib.sh`](../ecs-lib.sh) | 读 `.env`、解析 `InstanceId` |
+| [`pull-and-report.sh`](./pull-and-report.sh) | rsync batch 产物 + 本地 `cost-report`；支持 `--stop` |
+| [`pull-and-stop.sh`](./pull-and-stop.sh) | `pull-and-report` + `stop-ecs.sh` |
 | [`docker-batch.sh`](./docker-batch.sh) | 批量跑 N 题，输出 `predictions.jsonl` |
 | [`docker-smoke.sh`](./docker-smoke.sh) | 单题跑（流式 stdout，默认 `--no-trace`） |
 | [`docker-trace-rerun.sh`](./docker-trace-rerun.sh) | 单题 ×N 次，开 JSONL trace（根因分析） |
@@ -424,7 +495,11 @@ scp ~/.forgelet/runs/swe-bench/$RUN/predictions.jsonl ubuntu@$ECS_IP:~/swe-batch
 # 一次性（Mac）
 pnpm install
 pnpm eval:swe:setup
-python3 -m pip install --user pproxy
+python3 -m pip install --user pproxy tccli
+# .env 配 TENCENTCLOUD_* + TENCENT_ECS_REGION + TENCENT_ECS_INSTANCE_ID（或 ECS_IP）
+
+# 跑 batch 前：开机
+pnpm --filter @forgelet/harness eval:ecs:start
 
 # 一次性（ECS）
 ssh ubuntu@$ECS_IP 'python3 -m venv ~/sweb-venv && \
@@ -480,6 +555,9 @@ jq '{submitted_instances, completed_instances, resolved_instances, unresolved_in
      empty_patch_instances, error_instances,
      resolved_rate:((.resolved_instances/.submitted_instances*100)|tostring + "%")}' \
   ~/.forgelet/runs/swe-bench/$RUN_ID/eval-report.json
+
+# 拉 agent 日志 + 成本报告，并关机
+./packages/harness/eval/swe-bench/pull-and-report.sh lite-50 --stop --wait-stop
 
 # 排查单题
 less ~/.forgelet/runs/swe-bench/$RUN_ID/logs/<id>/agent.log

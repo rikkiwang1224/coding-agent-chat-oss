@@ -3,19 +3,35 @@
 # locally. Idempotent — re-runs are cheap (rsync skips unchanged files).
 #
 # Usage:
-#   ./pull-and-report.sh <run-id> [ecs-host] [ecs-batch-root]
+#   ./pull-and-report.sh <run-id> [ecs-host] [ecs-batch-root] [--stop] [--wait-stop]
 #
 # Defaults:
 #   ecs-host        = ubuntu@119.91.220.67  (override with $ECS_HOST or arg2)
 #   ecs-batch-root  = ~/swe-batch            (override with $ECS_BATCH_ROOT or arg3)
 #
+#   --stop       after pull, call ../../stop-ecs.sh (Tencent Cloud API shutdown)
+#   --wait-stop  same as --stop, and wait until instance is STOPPED
+#
 # Outputs land in ~/.forgelet/runs/swe-bench/<run-id>/, including:
 #   summary.tsv, predictions.jsonl, logs/<id>/agent.log, cost-report.{tsv,md}
 set -euo pipefail
 
-RUN_ID="${1:?usage: $0 <run-id> [ecs-host] [ecs-batch-root]}"
-ECS_HOST="${2:-${ECS_HOST:-ubuntu@119.91.220.67}}"
-ECS_ROOT="${3:-${ECS_BATCH_ROOT:-~/swe-batch}}"
+RUN_ID="${1:?usage: $0 <run-id> [ecs-host] [ecs-batch-root] [--stop] [--wait-stop]}"
+shift
+
+STOP_AFTER=false
+WAIT_STOP=false
+POSITIONAL=()
+for arg in "$@"; do
+  case "$arg" in
+    --stop) STOP_AFTER=true ;;
+    --wait-stop) STOP_AFTER=true; WAIT_STOP=true ;;
+    *) POSITIONAL+=("$arg") ;;
+  esac
+done
+
+ECS_HOST="${POSITIONAL[0]:-${ECS_HOST:-ubuntu@119.91.220.67}}"
+ECS_ROOT="${POSITIONAL[1]:-${ECS_BATCH_ROOT:-~/swe-batch}}"
 
 LOCAL_ROOT="$HOME/.forgelet/runs/swe-bench"
 LOCAL_DIR="$LOCAL_ROOT/$RUN_ID"
@@ -45,3 +61,14 @@ echo "Files:"
 echo "  Per-instance TSV:  $LOCAL_DIR/cost-report.tsv"
 echo "  Markdown summary:  $LOCAL_DIR/cost-report.md"
 echo "  Trajectory logs:   $LOCAL_DIR/logs/<instance_id>/agent.log"
+
+if [[ "$STOP_AFTER" == true ]]; then
+  STOP_SCRIPT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/stop-ecs.sh"
+  STOP_ARGS=()
+  if [[ "$WAIT_STOP" == true ]]; then
+    STOP_ARGS+=(--wait)
+  fi
+  echo ""
+  echo "=== stopping ECS ==="
+  "$STOP_SCRIPT" "${STOP_ARGS[@]}"
+fi

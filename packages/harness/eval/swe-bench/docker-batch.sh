@@ -16,6 +16,8 @@
 #   KEEP_IMAGES          — LRU keep N swebench/sweb.eval.* images (default 15)
 #   PER_INSTANCE_TIMEOUT — per-instance wall clock seconds (default 600)
 #   MODEL_NAME           — predictions.jsonl model_name_or_path (default forgelet-docker)
+#   FORGELET_SAVE_TRACE  — 1 → JSONL under ~/.forgelet/traces/swe-bench/eval-<runId>/ (default 0)
+#   FORGELET_TRACE_RUN_ID — trace run id (default: basename of <output_dir>)
 #
 # Prereqs on the host (typically the ECS box):
 #   - $HOME/node-prebuilt/node-v20/bin/node
@@ -55,6 +57,18 @@ FORGELET_REASON="${FORGELET_REASON:-0}"
 # remote, so no FORGELET_VERIFY_REPO is needed here.
 FORGELET_VERIFY="${FORGELET_VERIFY:-0}"
 FORGELET_VERIFY_TIMEOUT="${FORGELET_VERIFY_TIMEOUT:-300}"
+SAVE_TRACE="${FORGELET_SAVE_TRACE:-0}"
+FORGELET_HOME="${FORGELET_HOME:-$HOME/.forgelet}"
+TRACE_RUN_ID="${FORGELET_TRACE_RUN_ID:-$(basename "$OUT_DIR")}"
+TRACE_FLAG="--no-trace"
+TRACE_MOUNT=()
+TRACE_ENV=()
+if [[ "$SAVE_TRACE" == "1" || "$SAVE_TRACE" == "true" || "$SAVE_TRACE" == "on" ]]; then
+  TRACE_FLAG=""
+  mkdir -p "$FORGELET_HOME/traces/swe-bench"
+  TRACE_MOUNT=(-v "$FORGELET_HOME/traces:/root/.forgelet/traces")
+  TRACE_ENV=(-e "FORGELET_TRACE_RUN_ID=$TRACE_RUN_ID" -e FORGELET_HOME=/root/.forgelet)
+fi
 
 # SWE-bench naming: swebench/sweb.eval.x86_64.<id_lower with __ → _1776_>:latest
 # 1776 is the literal magic number used in upstream swebench/harness/test_spec.py.
@@ -95,7 +109,7 @@ cleanup_images() {
 TOTAL=$(jq 'length' "$INSTANCES_JSON")
 BATCH_START=$(date +%s)
 echo "=== batch: $TOTAL instances → $OUT_DIR ==="
-echo "=== keep-images=$KEEP_IMAGES, per-instance timeout=${PER_INSTANCE_TIMEOUT}s, reason=$FORGELET_REASON, verify=$FORGELET_VERIFY ==="
+echo "=== keep-images=$KEEP_IMAGES, per-instance timeout=${PER_INSTANCE_TIMEOUT}s, reason=$FORGELET_REASON, verify=$FORGELET_VERIFY, trace=$SAVE_TRACE (runId=$TRACE_RUN_ID) ==="
 
 for i in $(seq 0 $((TOTAL - 1))); do
   INST_ID=$(jq -r ".[$i].instance_id" "$INSTANCES_JSON")
@@ -132,12 +146,14 @@ for i in $(seq 0 $((TOTAL - 1))); do
       -v "$HOME/node-prebuilt/node-v20:/opt/node:ro" \
       -v "$HOME/coding-agent-chat-oss:/forgelet:ro" \
       -v "$WORK:/work" \
+      "${TRACE_MOUNT[@]}" \
       --env-file "$HOME/coding-agent-chat-oss/.env" \
       -e SWE_INSTANCE_ID="$INST_ID" \
       -e FORGELET_REASON="$FORGELET_REASON" \
       -e FORGELET_VERIFY="$FORGELET_VERIFY" \
       -e FORGELET_VERIFY_TIMEOUT="$FORGELET_VERIFY_TIMEOUT" \
       -e FORGELET_VERIFY_REPO="$REPO" \
+      "${TRACE_ENV[@]}" \
       "$IMG" \
       bash -lc "
         set -e
@@ -146,9 +162,8 @@ for i in $(seq 0 $((TOTAL - 1))); do
         conda activate testbed
         cd /testbed
         PROMPT=\"\$(cat /work/prompt.txt)\"
-        # Batch scoring: always --no-trace (JSONL is huge; use docker-trace-rerun.sh to debug).
         timeout ${PER_INSTANCE_TIMEOUT} node /forgelet/node_modules/tsx/dist/cli.mjs \
-          /forgelet/apps/cli/src/main.ts -c /testbed -y --no-trace \"\$PROMPT\" \
+          /forgelet/apps/cli/src/main.ts -c /testbed -y ${TRACE_FLAG} \"\$PROMPT\" \
           > /work/agent.log 2>&1 || echo \"agent exit=\$?\" >> /work/agent.log
         cd /testbed && git diff > /work/agent.patch
       " 2>&1 | tail -3 || STATUS="FAIL_RUN"

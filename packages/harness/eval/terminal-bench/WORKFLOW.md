@@ -1,8 +1,10 @@
 # Terminal-Bench 端到端工作流
 
-**最终方案**：Mac 准备 Forgelet staging + sync → **ECS 跑 Harbor**（Docker Compose 起 task 容器，容器内 Forgelet CLI）→ Harbor 自动 `tests.sh` 评分 → Mac 拉 job 报告。
+**最终方案**：Mac 准备 Forgelet staging + sync → **按需开机 ECS** → **ECS 跑 Harbor**（Docker Compose 起 task 容器，容器内 Forgelet CLI）→ Harbor 自动 `tests.sh` 评分 → Mac 拉 job 报告 → **API 关机省云费**。
 
 > Mac **不需要 Docker**，也**不要**在 Mac 上跑 `setup.sh` / `smoke.sh`。Harbor 必须在有 Docker 的 ECS 上跑。
+>
+> 💡 **ECS 开关机**：与 SWE-bench 共用同一台 CVM 时，用 SWE-bench [WORKFLOW §0.3](../swe-bench/WORKFLOW.md#03-腾讯云-ecs-开关机推荐--省钱) 的 `start-ecs.sh` / `stop-ecs.sh`（腾讯云 API）。
 
 **集成状态（2026-05）**：已在 ECS 上跑通 Harbor 0.9 + `forgelet_agent` 全链路（装环境 → 上传 Forgelet → agent 执行 → verifier 打分）。smoke 出现 **0 分但 Exceptions=0** 表示基建 OK、题目未过官方测试（见 §5）。
 
@@ -16,10 +18,14 @@ export TB_EVAL=$TB_REPO/packages/harness/eval/terminal-bench
 ```mermaid
 flowchart LR
   subgraph mac [Mac · 无 Docker]
+    A0[start-ecs.sh]
     P[prepare-forgelet.sh]
     S[sync-to-ecs.sh]
     R[pull-and-report.sh]
+    A7[stop-ecs.sh]
     P --> S
+    A0 --> S
+    R --> A7
   end
   subgraph ecs [ECS · Docker]
     D[prepare-forgelet-linux-deps.sh]
@@ -36,6 +42,7 @@ flowchart LR
 
 | 阶段 | 在哪 | 工具 |
 |------|------|------|
+| **开机** | Mac | `pnpm eval:ecs:start`（见 SWE-bench WORKFLOW §0.3） |
 | 打包源码 + Linux Node | **Mac** | `prepare-forgelet.sh` |
 | 同步到 ECS | **Mac** | `sync-to-ecs.sh` |
 | 装 Linux `node_modules` + build | **ECS** | `prepare-forgelet-linux-deps.sh` |
@@ -43,6 +50,7 @@ flowchart LR
 | 单题 smoke | **ECS** | `$TB_EVAL/smoke.sh [task-id]` |
 | 全量 batch | **ECS** | `$TB_EVAL/tb-docker-batch.sh <job-name>` |
 | 拉报告 | **Mac** | `pull-and-report.sh <job-name>` |
+| **关机** | Mac | `pnpm eval:ecs:stop`（Harbor job 全拉完后） |
 
 ### 产物位置
 
@@ -65,6 +73,7 @@ flowchart LR
 | `.env` | 放**主仓库**或 worktree 根；`sync-to-ecs.sh` 自动找 |
 | ECS_IP | `export ECS_IP=119.91.220.67` |
 | pproxy（ECS 出网用） | `python3 -m pip install --user pproxy` |
+| **tccli + 腾讯云密钥** | 与 SWE-bench 相同：`.env` 配 `TENCENTCLOUD_*`、`TENCENT_ECS_REGION`、`TENCENT_ECS_INSTANCE_ID`（详见 [SWE-bench §0.3](../swe-bench/WORKFLOW.md#03-腾讯云-ecs-开关机推荐--省钱)） |
 
 **Mac 只做**：`prepare-forgelet.sh` → `sync-to-ecs.sh`。不在 Mac 上 `pnpm install`（会生成 darwin 二进制）。
 
@@ -90,6 +99,10 @@ cd packages/harness/eval/terminal-bench
 
 export ECS_IP=119.91.220.67
 export FORGELET_ENV_FILE="/path/to/coding-agent-chat-oss/.env"
+
+# 若 ECS 已关机，先开机
+pnpm --filter @forgelet/harness eval:ecs:start
+
 ./sync-to-ecs.sh
 ```
 
@@ -161,12 +174,15 @@ https_proxy=http://127.0.0.1:7890 http_proxy=http://127.0.0.1:7890 \
   "$TB_EVAL"/tb-docker-batch.sh "$JOB"
 ```
 
-### 1.5 Mac：拉回报告
+### 1.5 Mac：拉回报告 + 关机
 
 ```bash
 export ECS_IP=119.91.220.67
 cd packages/harness/eval/terminal-bench
 ./pull-and-report.sh forgelet-tb-20260529
+
+# Harbor job 已全部拉回后关机（与 SWE-bench 共用脚本）
+pnpm --filter @forgelet/harness eval:ecs:stop
 ```
 
 ---
@@ -256,12 +272,16 @@ A: Mac `export FORGELET_ENV_FILE=.../.env && ./sync-to-ecs.sh`，或 ECS `export
 **Q: MOTD `changelogs.ubuntu.com`**  
 A: 可忽略，不影响评测。
 
+**Q: 云费太高 / ECS 空转**  
+A: 不用时 `pnpm eval:ecs:stop`；跑 job 前 `pnpm eval:ecs:start`。配置见 [SWE-bench WORKFLOW §0.3](../swe-bench/WORKFLOW.md#03-腾讯云-ecs-开关机推荐--省钱)。
+
 ---
 
 ## 6. pnpm 快捷命令
 
 | 命令 | 跑在哪 |
 |------|--------|
+| `pnpm eval:ecs:start` / `eval:ecs:stop` | Mac（腾讯云 API，§0.3） |
 | `pnpm eval:tb:prepare` | Mac |
 | `pnpm eval:tb:sync` | Mac |
 | `pnpm eval:tb:setup` / `smoke` / `eval:tb` | **ECS** |
