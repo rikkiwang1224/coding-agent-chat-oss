@@ -590,7 +590,14 @@ export function applyEdit(
       error: `old_string found ${occurrences} times — must be unique (or pass replace_all=true). Include more context.`,
     };
   }
-  return { content: source.replace(oldString, newString), replacements: 1 };
+  // Use indexOf+slice instead of String.replace() to avoid $ replacement
+  // patterns ($', $&, $`, $$) corrupting the output when newString contains
+  // literal dollar signs (common in regex, shell scripts, template literals).
+  const idx = source.indexOf(oldString);
+  return {
+    content: source.slice(0, idx) + newString + source.slice(idx + oldString.length),
+    replacements: 1,
+  };
 }
 
 function formatTodos(todos: TodoItem[]): string {

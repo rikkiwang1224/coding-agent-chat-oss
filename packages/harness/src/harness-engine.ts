@@ -3,7 +3,6 @@ import type { AgentEvent, AgentRunMetrics } from "@forgelet/shared-types";
 import type { ChatMessage, LlmConfig } from "./types.js";
 import { AgentLoop, type ReasonHookConfig } from "./agent-loop.js";
 import type { ReasonResult } from "./reason.js";
-import type { VerifyConfig, VerifyResult } from "./verify.js";
 import { PlanExecutor } from "./plan-execute.js";
 import { detectWorkspaceContext, mergePromptContextFromEnv, type PromptContext } from "./prompt.js";
 import { SessionStore, sumSessionRunCosts, type SessionData, type SessionRunRecord } from "./session-store.js";
@@ -36,13 +35,6 @@ export interface HarnessEngineOptions {
    * Disabled by default; SWE-bench runner enables it via `FORGELET_REASON=1`.
    */
   reason?: ReasonHookConfig;
-  /**
-   * Verify hook — runs an external command (typically the project's test
-   * suite) before the agent's "completed" state is accepted. If it fails, the
-   * output is injected back as a user message so the agent can fix it. This
-   * is the ground-truth complement to the LLM-based Reason sensor.
-   */
-  verify?: VerifyConfig;
 }
 
 export class HarnessEngine implements AgentEngine {
@@ -56,7 +48,6 @@ export class HarnessEngine implements AgentEngine {
   private readonly hooks?: HarnessHooks;
   private readonly traceConfig?: TraceConfig;
   private readonly reason?: ReasonHookConfig;
-  private readonly verify?: VerifyConfig;
   private promptContext?: PromptContext;
 
   constructor(options: HarnessEngineOptions) {
@@ -75,7 +66,6 @@ export class HarnessEngine implements AgentEngine {
     this.hooks = options.hooks;
     this.promptContext = options.promptContext;
     this.reason = options.reason;
-    this.verify = options.verify;
   }
 
   getPermissionGuard(): PermissionGuard {
@@ -312,20 +302,6 @@ export class HarnessEngine implements AgentEngine {
           },
         });
       },
-      onVerifyVerdict: (round: number, result: VerifyResult) => {
-        emitEvent("agent.progress", {
-          stage: "execute",
-          message: `[verify r${round}] ${result.verdict.toUpperCase()}`,
-          status: "running",
-          metadata: {
-            verifyRound: round,
-            verdict: result.verdict,
-            // Trim feedback to keep events small; full text is in the message log.
-            feedbackPreview: result.feedback.slice(0, 500),
-            checks: result.checks,
-          },
-        });
-      },
     };
 
     try {
@@ -406,7 +382,6 @@ export class HarnessEngine implements AgentEngine {
         permissionGuard: this.permissionGuard,
         hooks: this.hooks,
         reason: this.reason,
-        verify: this.verify,
         onMessagesChanged: (messages) => {
           scheduleSave(messages, countUserTurns(messages));
         },
@@ -454,7 +429,6 @@ export class HarnessEngine implements AgentEngine {
       await flushSession(result.messages);
 
       const lastReasonVerdict = result.reasonVerdicts?.[result.reasonVerdicts.length - 1]?.verdict;
-      const lastVerifyVerdict = result.verifyVerdicts?.[result.verifyVerdicts.length - 1]?.verdict;
       const metrics = {
         ...runMetrics,
         runInputTokens: deltaInputTokens || undefined,
@@ -468,8 +442,6 @@ export class HarnessEngine implements AgentEngine {
             : result.tokenUsage.totalTokens || undefined,
         reasonRoundsUsed: result.reasonRoundsUsed,
         reasonFinalVerdict: lastReasonVerdict,
-        verifyRoundsUsed: result.verifyRoundsUsed,
-        verifyFinalVerdict: lastVerifyVerdict,
       };
 
       emitEvent("agent.done", {

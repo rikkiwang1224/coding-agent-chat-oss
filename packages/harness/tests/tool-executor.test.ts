@@ -237,6 +237,32 @@ describe("grep_search", () => {
   });
 });
 
+describe("edit_file with dollar signs in replacement", () => {
+  it("treats $' literally instead of as a JS replace pattern", async () => {
+    await writeFile(path.join(tmpDir, "regex.py"), 'pattern = r"old"\n');
+    const result = await executor.execute("edit_file", {
+      path: "regex.py",
+      old_string: 'pattern = r"old"',
+      new_string: "pattern = r\"$'end\"",
+    });
+    expect(result.ok).toBe(true);
+    const content = await readFile(path.join(tmpDir, "regex.py"), "utf8");
+    expect(content).toBe("pattern = r\"$'end\"\n");
+  });
+
+  it("treats $& and $` literally", async () => {
+    await writeFile(path.join(tmpDir, "shell.sh"), "echo hello\n");
+    const result = await executor.execute("edit_file", {
+      path: "shell.sh",
+      old_string: "echo hello",
+      new_string: "echo $&$`$$",
+    });
+    expect(result.ok).toBe(true);
+    const content = await readFile(path.join(tmpDir, "shell.sh"), "utf8");
+    expect(content).toBe("echo $&$`$$\n");
+  });
+});
+
 describe("edit_file with replace_all", () => {
   it("replaces every occurrence when replace_all=true", async () => {
     await writeFile(path.join(tmpDir, "rename.ts"), "old(); old(); foo(old);");

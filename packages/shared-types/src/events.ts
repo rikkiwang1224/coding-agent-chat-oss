@@ -22,7 +22,7 @@ export interface AgentEvent<TPayload = unknown> {
 
 export type AgentTaskStatus = "running" | "completed" | "failed" | "cancelled";
 export type AgentRunMode = "run" | "resume" | "retry";
-export type AgentLoopStage = "plan" | "execute" | "verify" | "summarize";
+export type AgentLoopStage = "plan" | "execute" | "summarize";
 export type AgentContinueReason = "needs_follow_up" | "tool_failure_recoverable";
 export interface AgentImageAttachment {
   path: string;
@@ -195,8 +195,4 @@ export interface AgentRunMetrics {
   reasonRoundsUsed?: number;
   /** Final Reason verdict — "ship" if accepted, "revise" if budget exhausted with revise. */
   reasonFinalVerdict?: "ship" | "revise";
-  /** Number of Verify hook rounds invoked (only present when verify hook enabled). */
-  verifyRoundsUsed?: number;
-  /** Final Verify verdict — "pass" if accepted, "fail" if budget exhausted with failure. */
-  verifyFinalVerdict?: "pass" | "fail";
 }

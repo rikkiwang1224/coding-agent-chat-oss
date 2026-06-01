@@ -50,18 +50,16 @@ flowchart LR
 - **同步后（Mac）**：`~/.forgelet/runs/swe-bench/<run-id>/logs/<id>/agent.log`（由 `pull-and-report.sh` rsync 回来）
 - 每题三件套：`agent.log`（终端回放）、`agent.patch`（diff）、`prompt.txt`（题目）
 
-### Trace：`--no-trace` 与 JSONL（批量 vs 根因）
+### Trace：JSONL 默认开（batch / smoke 可关）
 
-| 场景 | CLI 标志 | 产出 |
-|------|----------|------|
-| **`docker-batch.sh` 打分 batch** | **必须** `--no-trace` | 只有 `agent.log`；50 题 JSONL 体积/IO 不划算 |
-| **`docker-smoke.sh` 默认** | `--no-trace` | 同上，快速看 stdout |
-| **诡异题根因分析** | 去掉 `--no-trace`（`FORGELET_SAVE_TRACE=1`） | `~/.forgelet/traces/swe-bench/eval-<runId>/instances/<id>.jsonl` |
+| 场景 | 默认 | 产出 |
+|------|------|------|
+| **`docker-batch.sh` 打分 batch** | **trace ON**（`FORGELET_SAVE_TRACE` 默认 1） | `agent.log` + `~/.forgelet/traces/swe-bench/eval-<runId>/instances/<id>.jsonl` |
+| **关 trace（省 IO）** | `FORGELET_SAVE_TRACE=0` | 只有 `agent.log` |
+| **`docker-smoke.sh` 默认** | `--no-trace` | 快速看 stdout；要 JSONL 设 `FORGELET_SAVE_TRACE=1` |
+| **单题 ×N 根因分析** | `docker-trace-rerun.sh` | 同上 trace 路径 |
 
-`docker-batch.sh` / 默认 `docker-smoke.sh` **已经带 `--no-trace`**——batch 并没有误开 trace。  
-要对比工具调用逐步事件，用 **`docker-trace-rerun.sh`**（见 §2.1），**定锤 root cause 之前不要改 agent 逻辑**。
-
-Mac 上 `pnpm eval:swe` 默认**开** trace；ECS Docker 路径默认**关** trace，二者不要混用同一套预期。
+Mac 上 `pnpm eval:swe` 与 ECS `docker-batch.sh` **默认都开 trace**。大批量若只关心分数、不要 JSONL，batch 前显式 `FORGELET_SAVE_TRACE=0`。
 
 `docker-batch.sh` 结束时会自动调一次 `cost-report.py`，在 `<run-id>/cost-report.tsv` 和 `cost-report.md` 写入每题的 instance_id / cost / turns / 耗时 / 评测结果 / 日志路径。Mac 侧再跑一次 `pull-and-report.sh` 既同步日志又重算一份（评测完成后 eval-report.json 会加入评测列）。
 

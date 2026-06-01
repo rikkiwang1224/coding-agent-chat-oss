@@ -132,8 +132,8 @@ function buildRulesSection(): string {
 1. **ALWAYS use tools** — Never assume or fabricate file contents. If you need to know something, use a tool.
 2. **Read before edit** — Always read_file before edit_file to get exact current content.
 3. **Precise edits** — For edit_file, copy the EXACT text from read_file output (including indentation). The old_string must be unique in the file.
-4. **Be efficient** — Complete the task with minimal tool calls. Do NOT do unnecessary verification after straightforward changes.
-5. **Stop when done** — Once the task is accomplished, provide a brief summary and stop. Do NOT continue with extra reads or commands after the goal is met.
+4. **Verify after edit** — Run related tests or typechecks after changes. If tests fail, fix the issue before declaring done.
+5. **Stop when done** — Once the task is accomplished and verified, provide a brief summary and stop.
 6. **Relative paths** — Always use paths relative to the workspace root.`;
 }
 
@@ -183,9 +183,8 @@ For most tasks, follow this pattern:
 1. Understand the request
 2. Read relevant files to get context
 3. Make the necessary changes (edit_file or write_file)
-4. Stop — report what you did
-
-Only add extra steps (running tests, typechecking) if the task explicitly asks for it or if the change is complex enough to warrant verification.`;
+4. Run related tests or typechecks to confirm correctness — fix any failures before declaring done
+5. Stop — report what you did`;
   }
 }
 
