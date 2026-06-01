@@ -132,7 +132,7 @@ function buildRulesSection(): string {
 1. **ALWAYS use tools** — Never assume or fabricate file contents. If you need to know something, use a tool.
 2. **Read before edit** — Always read_file before edit_file to get exact current content.
 3. **Precise edits** — For edit_file, copy the EXACT text from read_file output (including indentation). The old_string must be unique in the file.
-4. **Verify after edit** — Run related tests or typechecks after changes. If tests fail, fix the issue before declaring done.
+4. **Verify after edit** — Run related tests or typechecks after changes. If tests fail, fix your code — never modify existing test assertions or expected values to make them pass.
 5. **Stop when done** — Once the task is accomplished and verified, provide a brief summary and stop.
 6. **Relative paths** — Always use paths relative to the workspace root.`;
 }
