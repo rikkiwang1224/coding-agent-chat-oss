@@ -17,6 +17,7 @@
     "eval:swe:setup": "cd eval/swe-bench && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt",
     "eval:swe:traces": "tsx eval/swe-bench/summarize-traces.ts",
     "eval:swe:analyze": "bash eval/swe-bench/analyze-run.sh",
+    "eval:swe:merge-report": "python3 eval/swe-bench/merge-eval-report.py",
     "eval:ecs:start": "bash eval/start-ecs.sh --wait",
     "eval:ecs:stop": "bash eval/stop-ecs.sh --wait",
     "eval:tb:bundle": "bash eval/terminal-bench/bundle-harbor-for-ecs.sh",
