@@ -81,7 +81,7 @@ Mac 上 `pnpm eval:swe` 默认**开** trace；ECS Docker 路径默认**关** tra
 | 数据集 venv | `pnpm eval:swe:setup` |
 | **pproxy**（让 ECS 走 Mac 出口访问 GitHub） | `python3 -m pip install --user pproxy` |
 | `.env` | `DEEPSEEK_API_KEY=...` 放仓库根，自动被 batch 透传到 container |
-| **tccli**（ECS 开关机） | `python3 -m pip install --user tccli` |
+| **tccli**（ECS 开关机） | `python3 -m pip install --user tccli`（`start-ecs.sh` / `stop-ecs.sh` 会自动找 `~/Library/Python/*/bin/tccli`，不必手动改 PATH） |
 | **腾讯云 API 密钥** | 仓库根 `.env` 加 `TENCENTCLOUD_SECRET_ID` / `TENCENTCLOUD_SECRET_KEY`（[CAM 控制台](https://console.cloud.tencent.com/cam/capi)） |
 | **ECS 标识** | `.env` 加 `TENCENT_ECS_REGION`（如 `ap-guangzhou`）+ `TENCENT_ECS_INSTANCE_ID`（`ins-…`）或 `ECS_IP`（自动查 id） |
 
@@ -288,6 +288,63 @@ ssh ubuntu@$ECS_IP "rm -rf ~/logs/run_evaluation/$RUN_ID; \
 
 预估总耗时：每题 pytest **~5-10 min**，46 题（50 题中扣 4 空 patch） / 4 并行 ≈ **30-60 min**。首次 image 拉取（如果没缓存）每题 +2-5 min。
 
+### 1.6.1 增量 eval（只评补跑的 empty patch）
+
+Agent batch 与 eval 都可以「只处理变更的题、再合入旧结果」——补跑 empty patch 时 **不必** 对全部 50 题重跑 harness。
+
+```text
+首次全量 eval:     29 resolved + 13 unresolved + 8 empty = 50
+补跑 agent（8 题）:  predictions.jsonl 合入（见 docker-batch resume）
+增量 eval（8 题）:   run_evaluation --instance_ids …  →  x/8
+合入报告:           merge-eval-report.py  →  29+x / 50
+```
+
+**1. 只评 N 题（ECS）**
+
+```bash
+# Mac: pproxy + ssh -R（§1.5）后
+ssh ubuntu@$ECS_IP '~/eval-partial.sh \
+  ~/swe-batch/lite-51-100-rv1/predictions.jsonl \
+  lite-51-100-rv1-eval-partial8 \
+  django__django-15061 django__django-15202 django__django-15213 \
+  django__django-15252 django__django-15320 django__django-15695 \
+  django__django-15738 django__django-15781'
+
+# 完成条件: report.json 数 == N（不是 50−empty）
+ssh ubuntu@$ECS_IP 'find ~/logs/run_evaluation/lite-51-100-rv1-eval-partial8 -name report.json | wc -l'
+```
+
+**2. 拉回 partial 报告 + 合入 base**
+
+```bash
+PARTIAL_RUN=lite-51-100-rv1-eval-partial8
+BASE_RUN=lite-51-100-rv1-eval-rerun8
+MERGED_RUN=lite-51-100-rv1-eval-merged
+
+mkdir -p ~/.forgelet/runs/swe-bench/{$PARTIAL_RUN,$MERGED_RUN}
+scp ubuntu@$ECS_IP:~/forgelet-docker-rv1.$PARTIAL_RUN.json \
+  ~/.forgelet/runs/swe-bench/$PARTIAL_RUN/eval-report.json
+
+python3 packages/harness/eval/swe-bench/merge-eval-report.py \
+  --base  ~/.forgelet/runs/swe-bench/$BASE_RUN/eval-report.json \
+  --partial ~/.forgelet/runs/swe-bench/$PARTIAL_RUN/eval-report.json \
+  --out   ~/.forgelet/runs/swe-bench/$MERGED_RUN/eval-report.json
+
+# 让 cost-report 读到合并分：复制或 symlink 到 batch 目录
+cp ~/.forgelet/runs/swe-bench/$MERGED_RUN/eval-report.json \
+   ~/.forgelet/runs/swe-bench/lite-51-100-rv1/eval-report.json
+python3 packages/harness/eval/swe-bench/cost-report.py \
+  ~/.forgelet/runs/swe-bench/lite-51-100-rv1
+```
+
+| 监控口径 | 全量 eval | 增量 eval（8 empty 补完） |
+|----------|-----------|---------------------------|
+| harness 进度条 | `x/50` | `x/8` |
+| `report.json` 数 | 50 − empty | **N**（补跑题数） |
+| 合入后分数 | 同左（慢） | `base.resolved + partial.resolved` |
+
+> 全量重评 50 题结果应与合入一致（未改 patch 的题 deterministic），但增量可省 **~80%** 阅卷时间。
+
 ### 1.7 监控进度
 
 ```bash
@@ -480,6 +537,8 @@ scp ~/.forgelet/runs/swe-bench/$RUN/predictions.jsonl ubuntu@$ECS_IP:~/swe-batch
 | [`../ecs-lib.sh`](../ecs-lib.sh) | 读 `.env`、解析 `InstanceId` |
 | [`pull-and-report.sh`](./pull-and-report.sh) | rsync batch 产物 + 本地 `cost-report`；支持 `--stop` |
 | [`pull-and-stop.sh`](./pull-and-stop.sh) | `pull-and-report` + `stop-ecs.sh` |
+| [`eval-partial.sh`](./eval-partial.sh) | 增量官方 eval（`--instance_ids`，只评补跑题） |
+| [`merge-eval-report.py`](./merge-eval-report.py) | 把 partial eval 合入 base `eval-report.json` |
 | [`docker-batch.sh`](./docker-batch.sh) | 批量跑 N 题，输出 `predictions.jsonl` |
 | [`docker-smoke.sh`](./docker-smoke.sh) | 单题跑（流式 stdout，默认 `--no-trace`） |
 | [`docker-trace-rerun.sh`](./docker-trace-rerun.sh) | 单题 ×N 次，开 JSONL trace（根因分析） |

@@ -64,7 +64,7 @@ if [[ "$STATE" == "STARTING" ]]; then
   wait_for_instance_state "$INSTANCE_ID" "RUNNING" 300
 fi
 
-tccli cvm StopInstances \
+run_tccli cvm StopInstances \
   --region "$TENCENT_ECS_REGION" \
   --InstanceIds "[\"${INSTANCE_ID}\"]" \
   --StopType "$STOP_TYPE" \

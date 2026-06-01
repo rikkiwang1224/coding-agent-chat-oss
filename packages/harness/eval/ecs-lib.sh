@@ -64,13 +64,57 @@ load_ecs_env() {
   done < "$env_file"
 }
 
-require_tccli() {
-  if command -v tccli >/dev/null 2>&1; then
+# Resolved once by require_tccli / run_tccli (pip --user installs often miss PATH).
+TCCLI_BIN=""
+
+resolve_tccli_bin() {
+  if [[ -n "$TCCLI_BIN" ]]; then
     return 0
   fi
-  echo "error: tccli not found. Install: pip3 install tccli" >&2
+
+  local candidate py ver
+  if command -v tccli >/dev/null 2>&1; then
+    TCCLI_BIN="$(command -v tccli)"
+    export TCCLI_BIN
+    return 0
+  fi
+
+  # pip install --user: try each python's user-base (homebrew python3 may != pip's python).
+  for py in python3 python3.13 python3.12 python3.11 python3.10 python; do
+    command -v "$py" >/dev/null 2>&1 || continue
+    candidate="$("$py" -m site --user-base 2>/dev/null)/bin/tccli"
+    if [[ -x "$candidate" ]]; then
+      TCCLI_BIN="$candidate"
+      export TCCLI_BIN
+      return 0
+    fi
+  done
+
+  # macOS: ~/Library/Python/X.Y/bin/tccli (pick newest version dir).
+  for candidate in $(ls -d "${HOME}"/Library/Python/*/bin/tccli 2>/dev/null | sort -Vr); do
+    if [[ -x "$candidate" ]]; then
+      TCCLI_BIN="$candidate"
+      export TCCLI_BIN
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+require_tccli() {
+  if resolve_tccli_bin; then
+    return 0
+  fi
+  echo "error: tccli not found. Install: pip3 install --user tccli" >&2
   echo "  then configure TENCENTCLOUD_SECRET_ID / TENCENTCLOUD_SECRET_KEY in .env" >&2
+  echo "  or add to PATH: export PATH=\"\$(python3 -m site --user-base)/bin:\$PATH\"" >&2
   exit 1
+}
+
+run_tccli() {
+  require_tccli
+  "$TCCLI_BIN" "$@"
 }
 
 require_tencent_credentials() {
@@ -103,7 +147,7 @@ resolve_instance_id() {
   require_region
 
   local json instance_id
-  json="$(tccli cvm DescribeInstances \
+  json="$(run_tccli cvm DescribeInstances \
     --region "$TENCENT_ECS_REGION" \
     --Filters "[{\"Name\":\"public-ip-address\",\"Values\":[\"${ECS_IP}\"]}]" \
     --output json 2>/dev/null)" || {
@@ -127,7 +171,7 @@ resolve_instance_id() {
 
 describe_instance_state() {
   local instance_id="$1"
-  tccli cvm DescribeInstances \
+  run_tccli cvm DescribeInstances \
     --region "$TENCENT_ECS_REGION" \
     --InstanceIds "[\"${instance_id}\"]" \
     --output json \
