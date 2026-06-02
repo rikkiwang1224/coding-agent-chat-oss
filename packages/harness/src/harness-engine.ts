@@ -35,6 +35,11 @@ export interface HarnessEngineOptions {
    * Disabled by default; SWE-bench runner enables it via `FORGELET_REASON=1`.
    */
   reason?: ReasonHookConfig;
+  /**
+   * Path patterns that block write operations. Passed through to ToolExecutor.
+   * Used by SWE-bench to prevent editing test files.
+   */
+  protectedPathPatterns?: string[];
 }
 
 export class HarnessEngine implements AgentEngine {
@@ -48,6 +53,7 @@ export class HarnessEngine implements AgentEngine {
   private readonly hooks?: HarnessHooks;
   private readonly traceConfig?: TraceConfig;
   private readonly reason?: ReasonHookConfig;
+  private readonly protectedPathPatterns?: string[];
   private promptContext?: PromptContext;
 
   constructor(options: HarnessEngineOptions) {
@@ -66,6 +72,7 @@ export class HarnessEngine implements AgentEngine {
     this.hooks = options.hooks;
     this.promptContext = options.promptContext;
     this.reason = options.reason;
+    this.protectedPathPatterns = options.protectedPathPatterns;
   }
 
   getPermissionGuard(): PermissionGuard {
@@ -382,6 +389,7 @@ export class HarnessEngine implements AgentEngine {
         permissionGuard: this.permissionGuard,
         hooks: this.hooks,
         reason: this.reason,
+        protectedPathPatterns: this.protectedPathPatterns,
         onMessagesChanged: (messages) => {
           scheduleSave(messages, countUserTurns(messages));
         },

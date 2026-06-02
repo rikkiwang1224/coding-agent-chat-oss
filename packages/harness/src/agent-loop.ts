@@ -115,6 +115,11 @@ export interface AgentLoopOptions {
    * Default: 15.
    */
   explorationBudget?: number | false;
+  /**
+   * Path patterns that block write operations. Passed through to ToolExecutor.
+   * Used by SWE-bench to prevent editing test files.
+   */
+  protectedPathPatterns?: string[];
 }
 
 const DEFAULT_MAX_TURNS = 50;
@@ -168,6 +173,7 @@ export class AgentLoop {
       onPermissionConfirm: options.onPermissionConfirm,
       hooks: options.hooks,
       sessionId: options.sessionId,
+      protectedPathPatterns: options.protectedPathPatterns,
     });
     this.workspaceRoot = options.workspaceRoot;
     this.maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;

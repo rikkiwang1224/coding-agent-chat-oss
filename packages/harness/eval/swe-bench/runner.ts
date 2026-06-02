@@ -110,6 +110,12 @@ async function runSingleInstance(
           }
         : undefined,
       reason: reasonHook,
+      protectedPathPatterns: [
+        "test_*",
+        "*_test.py",
+        "tests/",
+        "testing/",
+      ],
     });
 
     const controller = new AbortController();
