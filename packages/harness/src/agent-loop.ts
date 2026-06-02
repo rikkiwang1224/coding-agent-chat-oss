@@ -13,12 +13,6 @@ import type { HarnessHooks } from "./hooks.js";
 import type { PermissionGuard, PermissionCallback } from "./permissions.js";
 import { buildActivityDigest } from "./activity-digest.js";
 import { runReason, formatReasonFeedback, type ReasonResult } from "./reason.js";
-import {
-  runVerify,
-  formatVerifyFeedback,
-  type VerifyConfig,
-  type VerifyResult,
-} from "./verify.js";
 
 export interface AgentLoopCallbacks {
   onTextDelta?: (delta: string) => void;
@@ -32,8 +26,6 @@ export interface AgentLoopCallbacks {
   onError?: (error: Error) => void;
   /** Fired when the Reason sensor returns a verdict (only when reason hook enabled). */
   onReasonVerdict?: (round: number, result: ReasonResult) => void;
-  /** Fired when the Verify hook returns a verdict (only when verify hook enabled). */
-  onVerifyVerdict?: (round: number, result: VerifyResult) => void;
 }
 
 /**
@@ -93,10 +85,6 @@ export interface AgentLoopResult {
   reasonRoundsUsed?: number;
   /** Verdicts produced by the Reason sensor, in order. */
   reasonVerdicts?: ReasonResult[];
-  /** Number of Verify hook rounds invoked (0 if hook disabled). */
-  verifyRoundsUsed?: number;
-  /** Verdicts produced by the Verify hook, in order. */
-  verifyVerdicts?: VerifyResult[];
   /** Number of exploration nudges injected (0 if guard disabled or never triggered). */
   explorationNudges?: number;
 }
@@ -122,23 +110,20 @@ export interface AgentLoopOptions {
   /** Reason-as-Sensor configuration (independent reviewer before completion). */
   reason?: ReasonHookConfig;
   /**
-   * Verify hook (ground-truth gate before completion). Runs an external
-   * command — typically the project's tests or typechecker — and injects
-   * any failure output back into the loop as a user message. Unlike Reason,
-   * this is deterministic and not LLM-based.
-   */
-  verify?: VerifyConfig;
-  /**
    * Max consecutive read-only turns before injecting a nudge message telling
    * the agent to stop exploring and start editing. Set to `false` to disable.
    * Default: 15.
    */
   explorationBudget?: number | false;
+  /**
+   * Path patterns that block write operations. Passed through to ToolExecutor.
+   * Used by SWE-bench to prevent editing test files.
+   */
+  protectedPathPatterns?: string[];
 }
 
 const DEFAULT_MAX_TURNS = 50;
 const DEFAULT_REASON_ROUNDS = 2;
-const DEFAULT_VERIFY_ROUNDS = 3;
 const DEFAULT_EXPLORATION_BUDGET = 15;
 const MAX_EXPLORATION_NUDGES = 2;
 
@@ -164,8 +149,6 @@ export class AgentLoop {
   private readonly llmConfig: LlmConfig;
   private readonly reason?: ReasonHookConfig;
   private readonly reasonMaxRounds: number;
-  private readonly verify?: VerifyConfig;
-  private readonly verifyMaxRounds: number;
   private messages: ChatMessage[];
 
   private turnCount = 0;
@@ -174,8 +157,6 @@ export class AgentLoop {
   private totalCacheReadInputTokens = 0;
   private reasonRoundsUsed = 0;
   private readonly reasonVerdicts: ReasonResult[] = [];
-  private verifyRoundsUsed = 0;
-  private readonly verifyVerdicts: VerifyResult[] = [];
   private consecutiveReadOnlyTurns = 0;
   private nudgesInjected = 0;
   private readonly explorationBudget: number | false;
@@ -192,6 +173,7 @@ export class AgentLoop {
       onPermissionConfirm: options.onPermissionConfirm,
       hooks: options.hooks,
       sessionId: options.sessionId,
+      protectedPathPatterns: options.protectedPathPatterns,
     });
     this.workspaceRoot = options.workspaceRoot;
     this.maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
@@ -205,8 +187,6 @@ export class AgentLoop {
     this.onMessagesChanged = options.onMessagesChanged;
     this.reason = options.reason?.enabled ? options.reason : undefined;
     this.reasonMaxRounds = options.reason?.maxRounds ?? DEFAULT_REASON_ROUNDS;
-    this.verify = options.verify?.enabled ? options.verify : undefined;
-    this.verifyMaxRounds = options.verify?.maxRounds ?? DEFAULT_VERIFY_ROUNDS;
     this.explorationBudget = options.explorationBudget !== false
       ? (options.explorationBudget ?? DEFAULT_EXPLORATION_BUDGET)
       : false;
@@ -250,20 +230,9 @@ export class AgentLoop {
       this.notifyMessagesChanged();
 
       if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
-        // No tool calls — the model thinks it's done. Before we accept that:
-        //   1. Verify (ground-truth, deterministic) — if it fails, surface the
-        //      failure output so the agent can fix it.
-        //   2. Reason (LLM sensor) — only consulted when Verify passes (or is
-        //      disabled), because there's no point asking an LLM to opine when
-        //      we already have a deterministic failure to act on.
+        // No tool calls — the model thinks it's done. Before we accept that,
+        // consult the Reason sensor (LLM reviewer) if enabled.
         this.callbacks.onTurnEnd?.(this.turnCount);
-
-        const verifyFeedback = await this.maybeRunVerify();
-        if (verifyFeedback) {
-          this.messages.push({ role: "user", content: verifyFeedback });
-          this.notifyMessagesChanged();
-          continue;
-        }
 
         const reviseFeedback = await this.maybeRunReason();
         if (reviseFeedback) {
@@ -335,48 +304,8 @@ export class AgentLoop {
       stopReason,
       reasonRoundsUsed: this.reason ? this.reasonRoundsUsed : undefined,
       reasonVerdicts: this.reason && this.reasonVerdicts.length > 0 ? this.reasonVerdicts : undefined,
-      verifyRoundsUsed: this.verify ? this.verifyRoundsUsed : undefined,
-      verifyVerdicts: this.verify && this.verifyVerdicts.length > 0 ? this.verifyVerdicts : undefined,
       explorationNudges: this.nudgesInjected || undefined,
     };
-  }
-
-  /**
-   * Run the Verify hook (if enabled and budget remains).
-   * Returns the failure-feedback string to inject as a user message, or null
-   * if the gate passed, was skipped, or is out of budget.
-   *
-   * Verify is ground truth — runs an external command (typically tests) and
-   * reports its verdict. Unlike Reason, this is NOT an LLM call, so it costs
-   * no tokens but may cost wall-clock time (per-round timeoutMs).
-   */
-  private async maybeRunVerify(): Promise<string | null> {
-    if (!this.verify) return null;
-    if (this.verifyRoundsUsed >= this.verifyMaxRounds) return null;
-    if (this.signal?.aborted) return null;
-
-    this.verifyRoundsUsed++;
-    const round = this.verifyRoundsUsed;
-
-    const result = await runVerify(this.verify);
-    if (result === "skipped") {
-      // Nothing to verify this round (e.g. no changed files yet). Don't burn
-      // the budget on a no-op: roll back the counter so a later round still
-      // has a chance to actually run the gate.
-      this.verifyRoundsUsed--;
-      return null;
-    }
-
-    this.verifyVerdicts.push(result);
-    this.callbacks.onVerifyVerdict?.(round, result);
-
-    if (result.verdict === "pass") return null;
-    // At the budget cap, even a failing verdict ships: we'd inject feedback
-    // we have no budget left to re-verify, wasting LLM time. The verdict is
-    // still recorded so the caller can decide what to do (e.g. mark the run
-    // as "verify-failed" rather than "completed").
-    if (this.verifyRoundsUsed >= this.verifyMaxRounds) return null;
-    return formatVerifyFeedback(result, round, this.verify.label);
   }
 
   /**

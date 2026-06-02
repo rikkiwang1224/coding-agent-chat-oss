@@ -53,6 +53,7 @@ const model = getArg("model") || "deepseek-v4-pro";
 const baseUrl = getArg("base-url") || "https://api.deepseek.com";
 const dataset = (getArg("dataset") || "lite") as SweBenchDatasetId;
 const limit = getArg("limit") ? Number(getArg("limit")) : undefined;
+const start = getArg("start") ? Number(getArg("start")) : undefined;
 const instanceIds = getArg("instance-ids")?.split(",").filter(Boolean);
 const instancesPath = getArg("instances");
 const maxTurns = Number(getArg("max-turns") || "75");
@@ -113,6 +114,7 @@ async function fetchInstances(): Promise<string> {
     "--split",
     "test",
   ];
+  if (start !== undefined) pyArgs.push("--start", String(start));
   if (limit !== undefined) pyArgs.push("--limit", String(limit));
   if (instanceIds?.length) pyArgs.push("--instance-ids", ...instanceIds);
 

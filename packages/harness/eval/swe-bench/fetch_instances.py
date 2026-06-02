@@ -26,6 +26,12 @@ def main() -> None:
     parser.add_argument("--output", required=True, help="Output JSON file path")
     parser.add_argument("--limit", type=int, default=None, help="Max instances to export")
     parser.add_argument(
+        "--start",
+        type=int,
+        default=1,
+        help="1-based index of first instance in the dataset (default 1; use 101 for slice 101–150)",
+    )
+    parser.add_argument(
         "--instance-ids",
         nargs="*",
         default=None,
@@ -48,7 +54,10 @@ def main() -> None:
     rows: list[dict] = []
     id_set = set(args.instance_ids) if args.instance_ids else None
 
-    for row in ds:
+    skip = max(0, args.start - 1)
+    for i, row in enumerate(ds):
+        if i < skip:
+            continue
         item = dict(row)
         if id_set and item.get("instance_id") not in id_set:
             continue

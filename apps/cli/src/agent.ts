@@ -7,11 +7,9 @@ import path from "node:path";
 import {
   HarnessEngine,
   SessionStore,
-  buildChangedFilesVerifyConfig,
   detectRepoFromGitRemote,
   type ReasonHookConfig,
   type TraceConfig,
-  type VerifyConfig,
 } from "@forgelet/harness";
 import type { AgentEvent } from "@forgelet/shared-types";
 
@@ -63,52 +61,6 @@ function buildCliReasonHook(
   };
 }
 
-/**
- * Build the changed-files Verify hook from env config.
- *
- *   FORGELET_VERIFY=1            → enabled, default 3 rounds
- *   FORGELET_VERIFY=N            → enabled, N rounds (1..5)
- *   FORGELET_VERIFY=0 / unset    → disabled
- *   FORGELET_VERIFY_REPO=owner/r → override the auto-detected repo identifier
- *   FORGELET_VERIFY_TIMEOUT=300  → per-round timeout in seconds (default 300)
- *
- * On startup the hook detects the repo from `git remote get-url origin` so
- * it can pick the right test runner (Django runtests vs pytest). Detection
- * is best-effort; pass FORGELET_VERIFY_REPO to override for monorepos /
- * forks / unusual layouts.
- */
-async function buildCliVerifyHook(workspaceRoot: string): Promise<VerifyConfig | undefined> {
-  const raw = (process.env.FORGELET_VERIFY || "").trim().toLowerCase();
-  if (!raw || raw === "0" || raw === "off" || raw === "false") return undefined;
-
-  let maxRounds = 3;
-  if (raw !== "1" && raw !== "on" && raw !== "true") {
-    const n = Number.parseInt(raw, 10);
-    if (Number.isFinite(n) && n >= 1 && n <= 5) maxRounds = n;
-  }
-
-  const repoOverride = process.env.FORGELET_VERIFY_REPO?.trim();
-  const repo = repoOverride || (await detectRepoFromGitRemote(workspaceRoot));
-  if (!repo) {
-    // We could fall back to "" + pytest by default, but the test-runner
-    // picker keys off `repo` and we'd silently lose Django-specific handling
-    // for any repo whose remote is missing. Better to surface this loudly
-    // so the user knows to set FORGELET_VERIFY_REPO.
-    process.stderr.write(
-      "warn: FORGELET_VERIFY is on but no origin remote was found and FORGELET_VERIFY_REPO is unset; verify hook disabled.\n",
-    );
-    return undefined;
-  }
-
-  const timeoutSec = Number.parseInt(process.env.FORGELET_VERIFY_TIMEOUT || "", 10);
-  return buildChangedFilesVerifyConfig({
-    enabled: true,
-    workspaceRoot,
-    repo,
-    maxRounds,
-    timeoutMs: Number.isFinite(timeoutSec) && timeoutSec > 0 ? timeoutSec * 1000 : undefined,
-  });
-}
 import type { CliArgs } from "./argv.js";
 import { resolveLlmConfig } from "./config.js";
 import {
@@ -221,7 +173,6 @@ export async function runCliAgent(options: RunCliOptions): Promise<number> {
   // reviewer a fresh task on each user turn instead of stale first-prompt context.
   let currentIssueText = args.prompt?.trim() ?? "";
   const reasonHook = buildCliReasonHook(workspaceRoot, () => currentIssueText);
-  const verifyHook = await buildCliVerifyHook(workspaceRoot);
   engine = new HarnessEngine({
     workspaceRoot,
     sessionStore,
@@ -236,7 +187,6 @@ export async function runCliAgent(options: RunCliOptions): Promise<number> {
     },
     onPermissionConfirm,
     reason: reasonHook,
-    verify: verifyHook,
   });
 
   const emit = (event: AgentEvent) => {

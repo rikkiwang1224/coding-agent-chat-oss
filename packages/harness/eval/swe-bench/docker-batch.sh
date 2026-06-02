@@ -16,7 +16,7 @@
 #   KEEP_IMAGES          — LRU keep N swebench/sweb.eval.* images (default 15)
 #   PER_INSTANCE_TIMEOUT — per-instance wall clock seconds (default 600)
 #   MODEL_NAME           — predictions.jsonl model_name_or_path (default forgelet-docker)
-#   FORGELET_SAVE_TRACE  — 1 → JSONL under ~/.forgelet/traces/swe-bench/eval-<runId>/ (default 0)
+#   FORGELET_SAVE_TRACE  — 0/off → no JSONL; default ON → ~/.forgelet/traces/swe-bench/eval-<runId>/
 #   FORGELET_TRACE_RUN_ID — trace run id (default: basename of <output_dir>)
 #
 # Prereqs on the host (typically the ECS box):
@@ -57,13 +57,14 @@ FORGELET_REASON="${FORGELET_REASON:-0}"
 # remote, so no FORGELET_VERIFY_REPO is needed here.
 FORGELET_VERIFY="${FORGELET_VERIFY:-0}"
 FORGELET_VERIFY_TIMEOUT="${FORGELET_VERIFY_TIMEOUT:-300}"
-SAVE_TRACE="${FORGELET_SAVE_TRACE:-0}"
+# JSONL traces default ON for post-hoc debugging. Opt out: FORGELET_SAVE_TRACE=0
+SAVE_TRACE="${FORGELET_SAVE_TRACE:-1}"
 FORGELET_HOME="${FORGELET_HOME:-$HOME/.forgelet}"
 TRACE_RUN_ID="${FORGELET_TRACE_RUN_ID:-$(basename "$OUT_DIR")}"
 TRACE_FLAG="--no-trace"
 TRACE_MOUNT=()
 TRACE_ENV=()
-if [[ "$SAVE_TRACE" == "1" || "$SAVE_TRACE" == "true" || "$SAVE_TRACE" == "on" ]]; then
+if [[ "$SAVE_TRACE" != "0" && "$SAVE_TRACE" != "off" && "$SAVE_TRACE" != "false" ]]; then
   TRACE_FLAG=""
   mkdir -p "$FORGELET_HOME/traces/swe-bench"
   TRACE_MOUNT=(-v "$FORGELET_HOME/traces:/root/.forgelet/traces")

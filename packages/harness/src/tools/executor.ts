@@ -31,6 +31,13 @@ export interface ToolExecutorOptions {
   sessionId?: string;
   /** Default bash timeout when the model omits timeout_ms (default 60s). */
   defaultBashTimeoutMs?: number;
+  /**
+   * Glob-style path patterns that block write operations (edit_file, multi_edit,
+   * write_file, apply_patch). When a write target matches any pattern, the tool
+   * returns an error message instead of executing. Used by SWE-bench to prevent
+   * the agent from modifying test files.
+   */
+  protectedPathPatterns?: string[];
 }
 
 const DEFAULT_BASH_TIMEOUT_MS = 60_000;
@@ -56,6 +63,7 @@ export class ToolExecutor {
    */
   private todos: TodoItem[] = [];
   private readonly defaultBashTimeoutMs: number;
+  private readonly protectedPathPatterns: string[];
 
   constructor(options: ToolExecutorOptions) {
     this.workspaceRoot = path.resolve(options.workspaceRoot);
@@ -65,6 +73,7 @@ export class ToolExecutor {
       new PermissionGuard(options.permissionPolicy, options.onPermissionConfirm);
     this.hooks = options.hooks;
     this.sessionId = options.sessionId;
+    this.protectedPathPatterns = options.protectedPathPatterns ?? [];
   }
 
   getPermissionGuard(): PermissionGuard {
@@ -73,6 +82,25 @@ export class ToolExecutor {
 
   getTodos(): TodoItem[] {
     return this.todos;
+  }
+
+  /**
+   * Returns a rejection message if `filePath` matches any protectedPathPatterns,
+   * or `null` if the path is allowed.
+   */
+  private checkProtectedPath(filePath: string): string | null {
+    if (this.protectedPathPatterns.length === 0) return null;
+    const rel = path.relative(this.workspaceRoot, filePath);
+    const basename = path.basename(filePath);
+    for (const pattern of this.protectedPathPatterns) {
+      if (matchProtectedPattern(rel, basename, pattern)) {
+        return (
+          `Cannot edit ${basename}: this file is protected (matches pattern "${pattern}"). ` +
+          `You must fix your source code to make existing tests pass — do not modify test files.`
+        );
+      }
+    }
+    return null;
   }
 
   private getShell(): ShellSession {
@@ -223,6 +251,8 @@ export class ToolExecutor {
 
   private async writeFile(args: Record<string, unknown>): Promise<ToolExecutionResult> {
     const filePath = this.resolvePath(String(args.path || ""));
+    const blocked = this.checkProtectedPath(filePath);
+    if (blocked) return { ok: false, output: blocked };
     const content = String(args.content ?? "");
     await mkdir(path.dirname(filePath), { recursive: true });
     await writeFile(filePath, content, "utf8");
@@ -231,6 +261,8 @@ export class ToolExecutor {
 
   private async editFile(args: Record<string, unknown>): Promise<ToolExecutionResult> {
     const filePath = this.resolvePath(String(args.path || ""));
+    const blocked = this.checkProtectedPath(filePath);
+    if (blocked) return { ok: false, output: blocked };
     const oldString = String(args.old_string ?? "");
     const newString = String(args.new_string ?? "");
     const replaceAll = args.replace_all === true;
@@ -259,6 +291,8 @@ export class ToolExecutor {
 
   private async multiEdit(args: Record<string, unknown>): Promise<ToolExecutionResult> {
     const filePath = this.resolvePath(String(args.path || ""));
+    const blocked = this.checkProtectedPath(filePath);
+    if (blocked) return { ok: false, output: blocked };
     const edits = Array.isArray(args.edits) ? args.edits : null;
 
     if (!edits || edits.length === 0) {
@@ -316,6 +350,16 @@ export class ToolExecutor {
     const checkOnly = args.check_only === true;
     if (!patch.trim()) {
       return { ok: false, output: "patch is required" };
+    }
+
+    // Check if any file in the patch is protected
+    if (this.protectedPathPatterns.length > 0) {
+      const patchFiles = extractPatchFilePaths(patch);
+      for (const fp of patchFiles) {
+        const resolved = this.resolvePath(fp);
+        const blocked = this.checkProtectedPath(resolved);
+        if (blocked) return { ok: false, output: blocked };
+      }
     }
 
     // Write patch to a temp file inside the workspace and feed it to git apply.
@@ -590,7 +634,14 @@ export function applyEdit(
       error: `old_string found ${occurrences} times — must be unique (or pass replace_all=true). Include more context.`,
     };
   }
-  return { content: source.replace(oldString, newString), replacements: 1 };
+  // Use indexOf+slice instead of String.replace() to avoid $ replacement
+  // patterns ($', $&, $`, $$) corrupting the output when newString contains
+  // literal dollar signs (common in regex, shell scripts, template literals).
+  const idx = source.indexOf(oldString);
+  return {
+    content: source.slice(0, idx) + newString + source.slice(idx + oldString.length),
+    replacements: 1,
+  };
 }
 
 function formatTodos(todos: TodoItem[]): string {
@@ -620,4 +671,41 @@ function formatTodos(todos: TodoItem[]): string {
     })`,
     ...lines,
   ].join("\n");
+}
+
+/**
+ * Simple pattern matching for protected paths. Supports:
+ *   - "test_*"        → matches basename starting with "test_"
+ *   - "*_test.py"     → matches basename ending with "_test.py"
+ *   - "tests/"        → matches if any path segment is "tests"
+ *   - "testing/"      → matches if any path segment is "testing"
+ *   - "*\/tests\/*"   → matches if "tests" appears as a directory segment
+ */
+export function matchProtectedPattern(relPath: string, basename: string, pattern: string): boolean {
+  if (pattern.endsWith("/")) {
+    const dir = pattern.slice(0, -1);
+    const segments = relPath.split(path.sep);
+    return segments.includes(dir);
+  }
+  if (pattern.startsWith("*") && !pattern.includes("/")) {
+    const suffix = pattern.slice(1);
+    return basename.endsWith(suffix);
+  }
+  if (pattern.endsWith("*") && !pattern.includes("/")) {
+    const prefix = pattern.slice(0, -1);
+    return basename.startsWith(prefix);
+  }
+  return basename === pattern || relPath.includes(pattern);
+}
+
+/** Extract file paths from a unified diff (the `b/...` side of `diff --git`). */
+function extractPatchFilePaths(patch: string): string[] {
+  const paths: string[] = [];
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("diff --git ")) {
+      const match = line.match(/diff --git a\/.+ b\/(.+)/);
+      if (match) paths.push(match[1]);
+    }
+  }
+  return paths;
 }

@@ -16,8 +16,8 @@ ${instance.problem_statement.trim()}${hints}
 
 1. Understand the issue and locate the relevant code.
 2. Implement a minimal fix in **source files only** — do not modify test files unless the issue explicitly requires it.
-3. Use tools to read, search, and edit the codebase. Run tests or repro commands when helpful.
-4. When the fix is complete, stop — do not add unrelated changes or documentation.
+3. After making the fix, run the related tests to confirm the fix works and doesn't break other tests. If tests fail, fix your code — never modify existing test assertions or expected values to make them pass.
+4. When the fix is verified by passing tests, stop — do not add unrelated changes or documentation.
 
 Repository: \`${instance.repo}\`
 Instance: \`${instance.instance_id}\``;

@@ -9,7 +9,7 @@
 # Trace (root-cause debugging — do NOT use for batch scoring):
 #   FORGELET_SAVE_TRACE=1 FORGELET_TRACE_RUN_ID=my-debug-a1 docker-smoke.sh <id>
 #   Writes ~/.forgelet/traces/swe-bench/eval-<runId>/instances/<id>.jsonl on the host.
-#   Batch runs must keep `--no-trace` (see docker-batch.sh).
+#   Batch runs default trace ON; smoke stays --no-trace unless FORGELET_SAVE_TRACE=1.
 #
 # Defaults instances.json to ~/swe-batch/instances.json. The agent is given
 # the `problem_statement` field as its prompt and runs against /testbed
