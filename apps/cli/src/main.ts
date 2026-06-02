@@ -16,7 +16,12 @@ import { runCliAgent } from "./agent.js";
 import { loadCliEnv } from "./load-env.js";
 import { runConfigCommand } from "./commands/config.js";
 
-loadCliEnv(process.cwd());
+/** Directory where the user invoked pnpm/npm (not always `process.cwd()` under --filter). */
+function resolveInvocationCwd(): string {
+  return process.env.INIT_CWD || process.env.PWD || process.cwd();
+}
+
+loadCliEnv(resolveInvocationCwd());
 
 const rawArgv = process.argv.slice(2);
 
@@ -42,6 +47,10 @@ if (args.version) {
   process.exit(0);
 }
 
-const workspaceRoot = path.resolve(args.cwd?.trim() || process.cwd());
+// Resolve -c/--cwd against the invocation directory (PWD when using pnpm --filter).
+const invocationCwd = resolveInvocationCwd();
+const workspaceRoot = args.cwd?.trim()
+  ? path.resolve(invocationCwd, args.cwd)
+  : path.resolve(invocationCwd);
 const exitCode = await runCliAgent({ args, workspaceRoot });
 process.exit(exitCode);

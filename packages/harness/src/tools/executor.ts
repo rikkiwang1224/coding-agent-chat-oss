@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { ShellSession } from "./shell-session.js";
 import { PermissionGuard, type PermissionPolicy, type PermissionCallback } from "../permissions.js";
 import type { HarnessHooks } from "../hooks.js";
+import type { CodebaseMemoryClient } from "../code-graph/codebase-memory.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -38,6 +39,8 @@ export interface ToolExecutorOptions {
    * the agent from modifying test files.
    */
   protectedPathPatterns?: string[];
+  /** When set, enables code_graph_* tools (requires codebase-memory-mcp on PATH). */
+  codeGraph?: CodebaseMemoryClient;
 }
 
 const DEFAULT_BASH_TIMEOUT_MS = 60_000;
@@ -64,6 +67,7 @@ export class ToolExecutor {
   private todos: TodoItem[] = [];
   private readonly defaultBashTimeoutMs: number;
   private readonly protectedPathPatterns: string[];
+  private readonly codeGraph?: CodebaseMemoryClient;
 
   constructor(options: ToolExecutorOptions) {
     this.workspaceRoot = path.resolve(options.workspaceRoot);
@@ -74,6 +78,7 @@ export class ToolExecutor {
     this.hooks = options.hooks;
     this.sessionId = options.sessionId;
     this.protectedPathPatterns = options.protectedPathPatterns ?? [];
+    this.codeGraph = options.codeGraph;
   }
 
   getPermissionGuard(): PermissionGuard {
@@ -178,6 +183,18 @@ export class ToolExecutor {
           break;
         case "list_directory":
           result = await this.listDirectory(args);
+          break;
+        case "code_graph_architecture":
+          result = await this.codeGraphArchitecture(args);
+          break;
+        case "code_graph_search":
+          result = await this.codeGraphSearch(args);
+          break;
+        case "code_graph_trace":
+          result = await this.codeGraphTrace(args);
+          break;
+        case "code_graph_impact":
+          result = await this.codeGraphImpact();
           break;
         default:
           result = { ok: false, output: `Unknown tool: ${toolName}` };
@@ -593,6 +610,83 @@ export class ToolExecutor {
       });
 
     return { ok: true, output: lines.join("\n") || "(empty directory)" };
+  }
+
+  private codeGraphUnavailable(): ToolExecutionResult {
+    return {
+      ok: false,
+      output:
+        "Code graph is not available. Install codebase-memory-mcp (https://github.com/DeusData/codebase-memory-mcp) " +
+        "or set FORGELET_CODEBASE_MEMORY_BIN. Disable with FORGELET_CODE_GRAPH=0.",
+    };
+  }
+
+  private async codeGraphArchitecture(args: Record<string, unknown>): Promise<ToolExecutionResult> {
+    if (!this.codeGraph) return this.codeGraphUnavailable();
+    const client = this.codeGraph;
+
+    let aspects: string[] | undefined;
+    if (Array.isArray(args.aspects)) {
+      aspects = args.aspects.map((a) => String(a).trim()).filter(Boolean);
+    }
+
+    const result = await client.getArchitecture(aspects?.length ? { aspects } : undefined);
+    return { ok: result.ok, output: this.truncate(result.output) };
+  }
+
+  private async codeGraphSearch(args: Record<string, unknown>): Promise<ToolExecutionResult> {
+    if (!this.codeGraph) return this.codeGraphUnavailable();
+    const client = this.codeGraph;
+
+    const namePattern = String(args.name_pattern ?? ".*");
+    const label = args.label !== undefined ? String(args.label) : undefined;
+    const filePattern = args.file_pattern !== undefined ? String(args.file_pattern) : undefined;
+    const limit =
+      typeof args.limit === "number" && Number.isFinite(args.limit)
+        ? Math.min(Math.max(1, args.limit), 200)
+        : 50;
+
+    const result = await client.searchGraph({
+      name_pattern: namePattern,
+      label,
+      file_pattern: filePattern,
+      limit,
+    });
+    return { ok: result.ok, output: this.truncate(result.output) };
+  }
+
+  private async codeGraphTrace(args: Record<string, unknown>): Promise<ToolExecutionResult> {
+    if (!this.codeGraph) return this.codeGraphUnavailable();
+    const client = this.codeGraph;
+
+    const functionName = String(args.function_name ?? "").trim();
+    if (!functionName) {
+      return { ok: false, output: "function_name is required" };
+    }
+
+    const direction = args.direction as "inbound" | "outbound" | "both" | undefined;
+    const depth =
+      typeof args.depth === "number" && Number.isFinite(args.depth)
+        ? Math.min(Math.max(1, args.depth), 5)
+        : 3;
+
+    const result = await client.traceCallPath({
+      function_name: functionName,
+      direction:
+        direction === "inbound" || direction === "outbound" || direction === "both"
+          ? direction
+          : "both",
+      depth,
+    });
+    return { ok: result.ok, output: this.truncate(result.output) };
+  }
+
+  private async codeGraphImpact(): Promise<ToolExecutionResult> {
+    if (!this.codeGraph) return this.codeGraphUnavailable();
+    const client = this.codeGraph;
+
+    const result = await client.detectChanges();
+    return { ok: result.ok, output: this.truncate(result.output) };
   }
 }
 

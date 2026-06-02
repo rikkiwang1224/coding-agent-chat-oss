@@ -14,6 +14,7 @@ import {
 import type { HarnessHooks } from "./hooks.js";
 import { createTraceSink, type TraceConfig, type TraceSink } from "./trace-sink.js";
 import { estimateRunCostUsd } from "@forgelet/sdk-runtime";
+import { CodebaseMemoryClient } from "./code-graph/codebase-memory.js";
 
 export interface HarnessEngineOptions {
   workspaceRoot: string;
@@ -40,6 +41,11 @@ export interface HarnessEngineOptions {
    * Used by SWE-bench to prevent editing test files.
    */
   protectedPathPatterns?: string[];
+  /**
+   * Code graph via codebase-memory-mcp. Default: auto (use binary if on PATH).
+   * Set false to disable. Set true to require it (warn in progress if missing).
+   */
+  codeGraph?: boolean;
 }
 
 export class HarnessEngine implements AgentEngine {
@@ -54,6 +60,7 @@ export class HarnessEngine implements AgentEngine {
   private readonly traceConfig?: TraceConfig;
   private readonly reason?: ReasonHookConfig;
   private readonly protectedPathPatterns?: string[];
+  private readonly codeGraphOption: boolean;
   private promptContext?: PromptContext;
 
   constructor(options: HarnessEngineOptions) {
@@ -73,10 +80,30 @@ export class HarnessEngine implements AgentEngine {
     this.promptContext = options.promptContext;
     this.reason = options.reason;
     this.protectedPathPatterns = options.protectedPathPatterns;
+    this.codeGraphOption = options.codeGraph !== false;
   }
 
   getPermissionGuard(): PermissionGuard {
     return this.permissionGuard;
+  }
+
+  private async prepareCodeGraph(
+    emit: ProgressEmitter,
+    signal?: AbortSignal,
+  ): Promise<CodebaseMemoryClient | undefined> {
+    const client = await prepareCodeGraphForRun(
+      this.workspaceRoot,
+      this.codeGraphOption,
+      emit,
+      signal,
+    );
+    if (client) {
+      this.promptContext = {
+        ...(this.promptContext ?? { workspaceRoot: this.workspaceRoot }),
+        codeGraphEnabled: true,
+      };
+    }
+    return client;
   }
 
   async runTask(input: RunTaskInput, emit: EventSink): Promise<void> {
@@ -371,6 +398,8 @@ export class HarnessEngine implements AgentEngine {
         return;
       }
 
+      const codeGraphClient = await this.prepareCodeGraph(emitEvent, signal);
+
       emitEvent("agent.progress", {
         stage: "execute",
         message: `Starting agent loop with ${this.config.model || "unknown model"}`,
@@ -390,6 +419,7 @@ export class HarnessEngine implements AgentEngine {
         hooks: this.hooks,
         reason: this.reason,
         protectedPathPatterns: this.protectedPathPatterns,
+        codeGraph: codeGraphClient,
         onMessagesChanged: (messages) => {
           scheduleSave(messages, countUserTurns(messages));
         },
@@ -485,4 +515,53 @@ export class HarnessEngine implements AgentEngine {
 function truncateForEvent(text: string, maxLen = 4096): string {
   if (text.length <= maxLen) return text;
   return text.slice(0, maxLen) + "... [truncated]";
+}
+
+type ProgressEmitter = (type: AgentEvent["type"], payload: unknown) => void;
+
+async function prepareCodeGraphForRun(
+  workspaceRoot: string,
+  enabled: boolean,
+  emit: ProgressEmitter,
+  signal?: AbortSignal,
+): Promise<CodebaseMemoryClient | undefined> {
+  if (!enabled) return undefined;
+  if (signal?.aborted) return undefined;
+
+  const client = await CodebaseMemoryClient.create(workspaceRoot);
+  if (!client) {
+    emit("agent.progress", {
+      stage: "execute",
+      message:
+        "Code graph skipped: install codebase-memory-mcp (https://github.com/DeusData/codebase-memory-mcp) or set FORGELET_CODEBASE_MEMORY_BIN",
+      status: "running",
+    });
+    return undefined;
+  }
+
+  emit("agent.progress", {
+    stage: "execute",
+    message: "Indexing workspace for code graph (codebase-memory-mcp)…",
+    status: "running",
+  });
+
+  const indexResult = await client.indexRepository();
+  if (signal?.aborted) return undefined;
+
+  if (indexResult.ok) {
+    const projectHint = client.projectName ? ` project=${client.projectName}` : "";
+    emit("agent.progress", {
+      stage: "execute",
+      message: `Code graph ready${projectHint} (code_graph_architecture, code_graph_search, code_graph_trace, code_graph_impact)`,
+      status: "running",
+    });
+    return client;
+  }
+
+  emit("agent.progress", {
+    stage: "execute",
+    message: `Code graph index failed; structural tools disabled. ${truncateForEvent(indexResult.output, 512)}`,
+    status: "running",
+  });
+  return undefined;
 }

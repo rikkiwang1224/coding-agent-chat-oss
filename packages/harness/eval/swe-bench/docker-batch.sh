@@ -23,6 +23,7 @@
 #   - $HOME/node-prebuilt/node-v20/bin/node
 #   - $HOME/coding-agent-chat-oss              (Forgelet source w/ deps + built dist)
 #   - $HOME/coding-agent-chat-oss/.env         (DEEPSEEK_API_KEY=...)
+#   - codebase-memory-mcp on PATH (pnpm --filter @forgelet/harness install:codebase-memory)
 #   - docker, jq
 
 set -euo pipefail
@@ -161,6 +162,24 @@ for i in $(seq 0 $((TOTAL - 1))); do
         export PATH=/opt/node/bin:\$PATH
         source /opt/miniconda3/etc/profile.d/conda.sh
         conda activate testbed
+
+        # Pre-pin sphinx dependencies that break with newer PyPI versions.
+        # Without this, the agent wastes turns fixing setup.py instead of
+        # solving the actual issue. These pins match what the official
+        # SWE-bench sphinx images were built against.
+        if [[ \"$INST_ID\" == sphinx-doc__sphinx-* ]]; then
+          pip install -q --no-warn-script-location \
+            'markupsafe<=2.0.1' \
+            'Jinja2<3.1' \
+            'alabaster>=0.7,<0.7.12' \
+            'sphinxcontrib-applehelp<=1.0.7' \
+            'sphinxcontrib-devhelp<=1.0.5' \
+            'sphinxcontrib-htmlhelp<=2.0.4' \
+            'sphinxcontrib-serializinghtml<=1.1.9' \
+            'sphinxcontrib-qthelp<=1.0.6' \
+            2>/dev/null || true
+        fi
+
         cd /testbed
         PROMPT=\"\$(cat /work/prompt.txt)\"
         timeout ${PER_INSTANCE_TIMEOUT} node /forgelet/node_modules/tsx/dist/cli.mjs \

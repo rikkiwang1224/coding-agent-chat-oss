@@ -26,7 +26,8 @@
     "eval:tb:sync": "bash eval/terminal-bench/sync-to-ecs.sh",
     "eval:tb:pull": "bash eval/terminal-bench/pull-and-report.sh",
     "eval:tb:smoke": "bash eval/terminal-bench/smoke.sh",
-    "eval:tb": "bash eval/terminal-bench/tb-docker-batch.sh"
+    "eval:tb": "bash eval/terminal-bench/tb-docker-batch.sh",
+    "install:codebase-memory": "bash scripts/install-codebase-memory.sh"
   },
   "dependencies": {
     "@forgelet/sdk-core": "workspace:*",
