@@ -6,7 +6,10 @@ import type {
   ToolCallMessage,
 } from "./types.js";
 import { LlmClient } from "./api-client.js";
-import { TOOL_DEFINITIONS, ToolExecutor } from "./tools/index.js";
+import { buildToolDefinitions } from "./code-graph/index.js";
+import type { CodebaseMemoryClient } from "./code-graph/codebase-memory.js";
+import { ToolExecutor } from "./tools/index.js";
+import type { ToolDefinition } from "./types.js";
 import { buildSystemPrompt, type PromptContext } from "./prompt.js";
 import { ContextCompressor, estimateTokens } from "./context-compressor.js";
 import type { HarnessHooks } from "./hooks.js";
@@ -120,6 +123,8 @@ export interface AgentLoopOptions {
    * Used by SWE-bench to prevent editing test files.
    */
   protectedPathPatterns?: string[];
+  /** When set, registers code_graph_* tools and wires the CLI client. */
+  codeGraph?: CodebaseMemoryClient;
 }
 
 const DEFAULT_MAX_TURNS = 50;
@@ -133,11 +138,16 @@ const READ_ONLY_TOOLS = new Set([
   "list_directory",
   "glob_search",
   "todo_write",
+  "code_graph_architecture",
+  "code_graph_search",
+  "code_graph_trace",
+  "code_graph_impact",
 ]);
 
 export class AgentLoop {
   private readonly client: LlmClient;
   private readonly executor: ToolExecutor;
+  private readonly toolDefinitions: ToolDefinition[];
   private readonly workspaceRoot: string;
   private readonly maxTurns: number;
   private readonly maxTotalTokens: number;
@@ -167,6 +177,8 @@ export class AgentLoop {
   constructor(options: AgentLoopOptions) {
     this.llmConfig = options.config;
     this.client = new LlmClient(options.config);
+    const codeGraphEnabled = Boolean(options.codeGraph);
+    this.toolDefinitions = buildToolDefinitions(codeGraphEnabled);
     this.executor = new ToolExecutor({
       workspaceRoot: options.workspaceRoot,
       permissionGuard: options.permissionGuard,
@@ -174,6 +186,7 @@ export class AgentLoop {
       hooks: options.hooks,
       sessionId: options.sessionId,
       protectedPathPatterns: options.protectedPathPatterns,
+      codeGraph: options.codeGraph,
     });
     this.workspaceRoot = options.workspaceRoot;
     this.maxTurns = options.maxTurns ?? DEFAULT_MAX_TURNS;
@@ -377,7 +390,7 @@ export class AgentLoop {
 
     const stream = this.client.stream({
       messages: this.messages,
-      tools: TOOL_DEFINITIONS,
+      tools: this.toolDefinitions,
       signal: this.signal,
     });
 

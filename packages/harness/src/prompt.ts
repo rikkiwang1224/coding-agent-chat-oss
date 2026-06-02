@@ -15,6 +15,8 @@ export interface PromptContext {
   customInstructions?: string;
   /** Task category hint */
   taskHint?: "debug" | "implement" | "refactor" | "explain" | "terminal" | "general";
+  /** codebase-memory-mcp indexed and code_graph_* tools are available */
+  codeGraphEnabled?: boolean;
 }
 
 /** Read optional prompt extras from process env (used by Terminal-Bench eval). */
@@ -81,8 +83,9 @@ export function buildSystemPrompt(contextOrRoot: string | PromptContext): string
   const sections = [
     buildRoleSection(),
     buildWorkspaceSection(ctx),
-    buildToolsSection(),
-    buildRulesSection(),
+    buildToolsSection(ctx),
+    ...(ctx.codeGraphEnabled ? [buildCodeGraphRoutingSection()] : []),
+    buildRulesSection(ctx),
     buildWorkflowSection(ctx),
   ];
 
@@ -111,8 +114,8 @@ function buildWorkspaceSection(ctx: PromptContext): string {
   return section;
 }
 
-function buildToolsSection(): string {
-  return `## Available Tools
+function buildToolsSection(ctx: PromptContext): string {
+  const base = `## Available Tools
 
 - **read_file(path)** — Read file contents. Use BEFORE editing to understand context.
 - **write_file(path, content)** — Create or completely overwrite a file.
@@ -124,47 +127,87 @@ function buildToolsSection(): string {
 - **grep_search(pattern, path?)** — Search file contents with regex.
 - **list_directory(path)** — List directory contents.
 - **todo_write(todos[])** — Maintain a working todo list for the user. Use for tasks with 3+ steps. Pass the full list each call; mark at most one item in_progress at a time.`;
+
+  if (!ctx.codeGraphEnabled) return base;
+
+  return `${base}
+- **code_graph_architecture(aspects?)** — Indexed repo overview: languages, packages, entry points, routes, hotspots, clusters. Use first on unfamiliar/large codebases.
+- **code_graph_search(name_pattern?, label?, file_pattern?)** — Find functions/classes/methods by symbol name in the graph (not plain-text grep).
+- **code_graph_trace(function_name, direction?, depth?)** — Callers (inbound) or callees (outbound) of a symbol.
+- **code_graph_impact()** — Map uncommitted git changes to affected symbols; run before declaring done.`;
 }
 
-function buildRulesSection(): string {
+function buildCodeGraphRoutingSection(): string {
+  return `## Tool routing (code graph vs text tools)
+
+The codebase is indexed for structural tools. They complement — do not replace — read_file / grep / glob / bash:
+
+| Goal | Tool |
+|------|------|
+| Orient in an unfamiliar or large repo | **code_graph_architecture** first, then search/read |
+| Find a class, function, or method by name | **code_graph_search** (then **read_file** that path before edit) |
+| Who calls this / what does it call | **code_graph_trace** |
+| Error messages, strings, configs, comments in files | **grep_search** |
+| Find files by path pattern | **glob_search** |
+| Exact file contents for editing | **read_file** (required before edit_file) |
+| Run tests, git, builds | **bash** |
+| Before stopping — missing symmetric fixes? | **code_graph_search** / **code_graph_trace**, then **code_graph_impact** |
+
+Do not use grep_search to enumerate all methods in a class when code_graph_search can do it. Do not skip read_file after graph tools — the graph gives locations, not editable source text.`;
+}
+
+function buildRulesSection(ctx: PromptContext): string {
+  const structuralRule = ctx.codeGraphEnabled
+    ? "5. **Structural completeness** — After editing one method, use code_graph_search or code_graph_trace to check paired/symmetric methods in the same class (transform/inverse_transform, serialize/deserialize) and apply the same fix where needed.\n6. **Finish with impact** — Before declaring done, run code_graph_impact once when you have uncommitted source changes.\n"
+    : "";
+  const stopNum = ctx.codeGraphEnabled ? 7 : 5;
+  const pathNum = ctx.codeGraphEnabled ? 8 : 6;
+
   return `## Critical Rules
 
 1. **ALWAYS use tools** — Never assume or fabricate file contents. If you need to know something, use a tool.
 2. **Read before edit** — Always read_file before edit_file to get exact current content.
 3. **Precise edits** — For edit_file, copy the EXACT text from read_file output (including indentation). The old_string must be unique in the file.
 4. **Verify after edit** — Run related tests or typechecks after changes. If tests fail, fix your source code — never modify existing test assertions or expected values to make them pass. You may add new test functions if useful, but never alter or delete existing ones.
-5. **Stop when done** — Once the task is accomplished and verified, provide a brief summary and stop.
-6. **Relative paths** — Always use paths relative to the workspace root.`;
+${structuralRule}${stopNum}. **Stop when done** — Once the task is accomplished and verified, provide a brief summary and stop.
+${pathNum}. **Relative paths** — Always use paths relative to the workspace root.`;
 }
 
 function buildWorkflowSection(ctx: PromptContext): string {
+  const graphLocate = ctx.codeGraphEnabled
+    ? "Use code_graph_search (or code_graph_architecture if the repo layout is unclear), then read_file paths from results. "
+    : "";
+  const graphFinish = ctx.codeGraphEnabled
+    ? " Before stopping, run code_graph_impact if you changed source files.\n"
+    : "";
+
   switch (ctx.taskHint) {
     case "debug":
       return `## Workflow (Debugging)
 
 1. Read the failing test or error message to understand symptoms
-2. Trace the code path — follow imports and function calls to find the root cause
+2. Trace the code path — ${graphLocate}use code_graph_trace for call chains; grep_search for error strings in logs
 3. Fix the root cause (not the symptom)
 4. Run the test/command to verify the fix
-5. Report what you found and fixed`;
+5. Report what you found and fixed${graphFinish}`;
 
     case "implement":
       return `## Workflow (Implementation)
 
-1. Read existing code to understand patterns, conventions, and interfaces
+1. ${ctx.codeGraphEnabled ? "code_graph_architecture or " : ""}read existing code to understand patterns, conventions, and interfaces
 2. Check for README or documentation describing the expected behavior
 3. Implement the feature following existing patterns
 4. Run tests if they exist to verify
-5. Report what you implemented`;
+5. Report what you implemented${graphFinish}`;
 
     case "refactor":
       return `## Workflow (Refactoring)
 
 1. Read the current code and understand its full API surface
-2. Identify all callers/importers that depend on it
+2. Identify all callers — ${ctx.codeGraphEnabled ? "code_graph_trace (inbound) and " : ""}imports that depend on it
 3. Make changes incrementally, preserving the public interface
 4. Run existing tests to verify nothing broke
-5. Report the refactoring done`;
+5. Report the refactoring done${graphFinish}`;
 
     case "terminal":
       return `## Workflow (Terminal / CLI Tasks)
@@ -177,7 +220,17 @@ function buildWorkflowSection(ctx: PromptContext): string {
 6. Stop when the task is complete — do not run unrelated exploration.`;
 
     default:
-      return `## Workflow
+      return ctx.codeGraphEnabled
+        ? `## Workflow
+
+For most tasks, follow this pattern:
+1. Understand the request — if the repo is unfamiliar, start with code_graph_architecture
+2. Locate symbols with code_graph_search (or grep_search for plain text), then read_file before any edit
+3. Make the necessary changes (edit_file or write_file)
+4. After edits to a method, code_graph_search/trace for symmetric or related symbols; fix those too
+5. Run related tests or typechecks — fix failures in source, not existing tests
+6. code_graph_impact, then stop — report what you did`
+        : `## Workflow
 
 For most tasks, follow this pattern:
 1. Understand the request

@@ -86,6 +86,15 @@ export {
 } from "./tools/index.js";
 
 export {
+  CodebaseMemoryClient,
+  resolveCodebaseMemoryBinary,
+  isCodeGraphDisabled,
+  CODE_GRAPH_TOOL_DEFINITIONS,
+  buildToolDefinitions,
+  type CodebaseMemoryCliResult,
+} from "./code-graph/index.js";
+
+export {
   selectPatch,
   normalizeSourceChange,
   extractChangeLines,

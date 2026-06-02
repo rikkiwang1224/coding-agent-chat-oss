@@ -14,10 +14,11 @@ ${instance.problem_statement.trim()}${hints}
 
 ## Your task
 
-1. Understand the issue and locate the relevant code.
+1. Understand the issue and locate the relevant code. When code graph tools are available: use **code_graph_search** for symbols (classes/functions/methods), **code_graph_trace** for call chains, **grep_search** only for error strings or non-symbol text — then **read_file** before editing.
 2. Implement a minimal fix in **source files only** — do not modify test files unless the issue explicitly requires it.
-3. After making the fix, run the related tests to confirm the fix works and doesn't break other tests. If tests fail, fix your code — never modify existing test assertions or expected values to make them pass.
-4. When the fix is verified by passing tests, stop — do not add unrelated changes or documentation.
+3. After editing one method, use **code_graph_search** or **code_graph_trace** to find paired/symmetric methods in the same class and apply the same fix if needed.
+4. Run the related tests to confirm the fix works and doesn't break other tests. If tests fail, fix your code — never modify existing test assertions or expected values to make them pass.
+5. Before stopping, run **code_graph_impact** if you have uncommitted source changes. When tests pass, stop — do not add unrelated changes or documentation.
 
 Repository: \`${instance.repo}\`
 Instance: \`${instance.instance_id}\``;

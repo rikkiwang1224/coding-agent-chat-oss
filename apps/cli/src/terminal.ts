@@ -96,7 +96,12 @@ export class TerminalWriter {
    */
   private writeProgress(payload: AgentProgressPayload): void {
     const msg = payload.message ?? "";
-    if (!msg.startsWith("[reason ")) return;
+    const lower = msg.toLowerCase();
+    const show =
+      msg.startsWith("[reason ") ||
+      lower.includes("code graph") ||
+      lower.includes("codebase-memory");
+    if (!show) return;
     this.finishAssistant();
     process.stderr.write(`${DIM}↳ ${msg}${RESET}\n`);
   }
