@@ -23,10 +23,15 @@
 #   - $HOME/node-prebuilt/node-v20/bin/node
 #   - $HOME/coding-agent-chat-oss              (Forgelet source w/ deps + built dist)
 #   - $HOME/coding-agent-chat-oss/.env         (DEEPSEEK_API_KEY=...)
-#   - codebase-memory-mcp on PATH (pnpm --filter @forgelet/harness install:codebase-memory)
+#   - codebase-memory-mcp on host PATH (pnpm --filter @forgelet/harness install:codebase-memory)
+#     Binary + ~/.cache/codebase-memory-mcp are mounted into each instance container.
 #   - docker, jq
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=docker-codegraph-mounts.sh
+source "$SCRIPT_DIR/docker-codegraph-mounts.sh"
 
 INSTANCES_JSON="${1:?usage: $0 <instances.json> <output_dir>}"
 OUT_DIR="${2:?usage: $0 <instances.json> <output_dir>}"
@@ -111,7 +116,7 @@ cleanup_images() {
 TOTAL=$(jq 'length' "$INSTANCES_JSON")
 BATCH_START=$(date +%s)
 echo "=== batch: $TOTAL instances → $OUT_DIR ==="
-echo "=== keep-images=$KEEP_IMAGES, per-instance timeout=${PER_INSTANCE_TIMEOUT}s, reason=$FORGELET_REASON, verify=$FORGELET_VERIFY, trace=$SAVE_TRACE (runId=$TRACE_RUN_ID) ==="
+echo "=== keep-images=$KEEP_IMAGES, per-instance timeout=${PER_INSTANCE_TIMEOUT}s, reason=$FORGELET_REASON, verify=$FORGELET_VERIFY, trace=$SAVE_TRACE (runId=$TRACE_RUN_ID), code_graph=$CODE_GRAPH_STATUS ==="
 
 for i in $(seq 0 $((TOTAL - 1))); do
   INST_ID=$(jq -r ".[$i].instance_id" "$INSTANCES_JSON")
@@ -149,6 +154,7 @@ for i in $(seq 0 $((TOTAL - 1))); do
       -v "$HOME/coding-agent-chat-oss:/forgelet:ro" \
       -v "$WORK:/work" \
       "${TRACE_MOUNT[@]}" \
+      "${CODE_GRAPH_MOUNT[@]}" \
       --env-file "$HOME/coding-agent-chat-oss/.env" \
       -e SWE_INSTANCE_ID="$INST_ID" \
       -e FORGELET_REASON="$FORGELET_REASON" \
@@ -156,10 +162,11 @@ for i in $(seq 0 $((TOTAL - 1))); do
       -e FORGELET_VERIFY_TIMEOUT="$FORGELET_VERIFY_TIMEOUT" \
       -e FORGELET_VERIFY_REPO="$REPO" \
       "${TRACE_ENV[@]}" \
+      "${CODE_GRAPH_ENV[@]}" \
       "$IMG" \
       bash -lc "
         set -e
-        export PATH=/opt/node/bin:\$PATH
+        export PATH=${CODE_GRAPH_PATH_PREFIX}/opt/node/bin:\$PATH
         source /opt/miniconda3/etc/profile.d/conda.sh
         conda activate testbed
 

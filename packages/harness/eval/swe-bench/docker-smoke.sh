@@ -23,6 +23,10 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=docker-codegraph-mounts.sh
+source "$SCRIPT_DIR/docker-codegraph-mounts.sh"
+
 INSTANCE_ID="${1:?usage: $0 <instance_id> [instances.json]}"
 INSTANCES_JSON="${2:-$HOME/swe-batch/instances.json}"
 SAVE_TRACE="${FORGELET_SAVE_TRACE:-0}"
@@ -64,20 +68,23 @@ if ! docker image inspect "$IMG" >/dev/null 2>&1; then
 fi
 
 START=$(date +%s)
+echo "=== code_graph: $CODE_GRAPH_STATUS ==="
 docker run --rm \
   --network host \
   -v "$HOME/node-prebuilt/node-v20:/opt/node:ro" \
   -v "$HOME/coding-agent-chat-oss:/forgelet:ro" \
   -v "$WORK:/work" \
   "${TRACE_MOUNT[@]}" \
+  "${CODE_GRAPH_MOUNT[@]}" \
   --env-file "$HOME/coding-agent-chat-oss/.env" \
   -e SWE_INSTANCE_ID="$INSTANCE_ID" \
   -e FORGELET_TRACE_RUN_ID="$TRACE_RUN_ID" \
   -e FORGELET_HOME=/root/.forgelet \
+  "${CODE_GRAPH_ENV[@]}" \
   "$IMG" \
   bash -lc "
     set -e
-    export PATH=/opt/node/bin:\$PATH
+    export PATH=${CODE_GRAPH_PATH_PREFIX}/opt/node/bin:\$PATH
     source /opt/miniconda3/etc/profile.d/conda.sh
     conda activate testbed
     echo '[env] python: '\$(python --version)' | which: '\$(which python)
