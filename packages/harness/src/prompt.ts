@@ -169,6 +169,8 @@ function buildRulesSection(ctx: PromptContext): string {
 2. **Read before edit** — Always read_file before edit_file to get exact current content.
 3. **Precise edits** — For edit_file, copy the EXACT text from read_file output (including indentation). The old_string must be unique in the file.
 4. **Verify after edit** — Run related tests or typechecks after changes. If tests fail, fix your source code — never modify existing test assertions or expected values to make them pass. You may add new test functions if useful, but never alter or delete existing ones.
+4b. **Trace before fix** — When fixing a failing test or bug, trace the test's call chain (code_graph_trace if available, otherwise read the test and follow the imports) to understand what the test asserts before writing any fix. This prevents fixing the wrong location or over-fixing.
+4c. **Never modify vendored/third-party code** — Directories like \`vendor/\`, \`vendored/\`, \`third_party/\`, \`_vendor/\`, or bundled dependency packages must not be edited. Fix at the project's own source layer.
 ${structuralRule}${stopNum}. **Stop when done** — Once the task is accomplished and verified, provide a brief summary and stop.
 ${pathNum}. **Relative paths** — Always use paths relative to the workspace root.`;
 }

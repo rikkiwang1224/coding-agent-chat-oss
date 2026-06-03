@@ -1,0 +1,7 @@
+# Five SWE-bench Lite instances for smoke-testing codebase-memory / test guards.
+# See smoke-codegraph-5.sh and comments in smoke-codegraph-5.check.sh.
+matplotlib__matplotlib-23987
+pallets__flask-5063
+matplotlib__matplotlib-23476
+scikit-learn__scikit-learn-14092
+psf__requests-2148
