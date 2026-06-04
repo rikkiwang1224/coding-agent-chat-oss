@@ -10,7 +10,7 @@
 #   predictions.jsonl  — {instance_id, model_name_or_path, model_patch} per line
 #   summary.tsv        — <instance_id> <status> <patch_lines> <elapsed_s>
 #   done.txt           — completed instance_ids (resume-safe; rerun to continue)
-#   logs/<id>/         — agent.log, agent.patch, prompt.txt per instance
+#   logs/<id>/         — agent.log, agent.patch, instance.json per instance
 #
 # Tunables (env vars):
 #   KEEP_IMAGES          — LRU keep N swebench/sweb.eval.* images (default 15)
@@ -129,7 +129,7 @@ for i in $(seq 0 $((TOTAL - 1))); do
   REPO=$(instance_to_repo "$INST_ID")
   WORK="$LOG_DIR/$INST_ID"
   mkdir -p "$WORK"
-  jq -r ".[$i].problem_statement" "$INSTANCES_JSON" > "$WORK/prompt.txt"
+  jq ".[$i]" "$INSTANCES_JSON" > "$WORK/instance.json"
 
   echo ""
   echo "=========================================="
@@ -188,11 +188,13 @@ for i in $(seq 0 $((TOTAL - 1))); do
         fi
 
         cd /testbed
-        PROMPT=\"\$(cat /work/prompt.txt)\"
         timeout ${PER_INSTANCE_TIMEOUT} node /forgelet/node_modules/tsx/dist/cli.mjs \
-          /forgelet/apps/cli/src/main.ts -c /testbed -y ${TRACE_FLAG} \"\$PROMPT\" \
-          > /work/agent.log 2>&1 || echo \"agent exit=\$?\" >> /work/agent.log
-        cd /testbed && git diff > /work/agent.patch
+          /forgelet/packages/harness/eval/swe-bench/docker-agent.ts \
+          --workspace /testbed \
+          --instance /work/instance.json \
+          --patch-out /work/agent.patch \
+          ${TRACE_FLAG} \
+          > /work/agent.log 2>&1 || echo "agent exit=$?" >> /work/agent.log
       " 2>&1 | tail -3 || STATUS="FAIL_RUN"
   fi
 

@@ -53,14 +53,14 @@ mkdir -p "$WORK"
 
 [ -f "$INSTANCES_JSON" ] || { echo "Missing $INSTANCES_JSON" >&2; exit 1; }
 jq -er --arg id "$INSTANCE_ID" \
-  '(if type=="array" then map(select(.instance_id==$id))[0] else . end).problem_statement' \
-  "$INSTANCES_JSON" > "$WORK/prompt.txt" \
+  '(if type=="array" then map(select(.instance_id==$id))[0] else . end)' \
+  "$INSTANCES_JSON" > "$WORK/instance.json" \
   || { echo "instance_id $INSTANCE_ID not found in $INSTANCES_JSON" >&2; exit 1; }
 
 echo "=== instance: $INSTANCE_ID ==="
 echo "=== image:    $IMG ==="
 echo "=== work:     $WORK ==="
-echo "=== prompt chars: $(wc -c < "$WORK/prompt.txt") ==="
+echo "=== instance chars: $(wc -c < "$WORK/instance.json") ==="
 
 if ! docker image inspect "$IMG" >/dev/null 2>&1; then
   echo "=== pulling image (this may take 1-3 min) ==="
@@ -90,12 +90,14 @@ docker run --rm \
     echo '[env] python: '\$(python --version)' | which: '\$(which python)
     echo '[env] pytest: '\$(pytest --version 2>&1 | head -1)
     cd /testbed
-    PROMPT=\"\$(cat /work/prompt.txt)\"
     echo '=== container ready, agent starting ==='
-    timeout 600 node /forgelet/node_modules/tsx/dist/cli.mjs /forgelet/apps/cli/src/main.ts \
-      -c /testbed -y ${TRACE_FLAG} \"\$PROMPT\" 2>&1 | tee /work/agent.log || echo \"agent exit=\$?\"
-    echo '=== capturing patch ==='
-    cd /testbed && git diff > /work/agent.patch
+    timeout 600 node /forgelet/node_modules/tsx/dist/cli.mjs \
+      /forgelet/packages/harness/eval/swe-bench/docker-agent.ts \
+      --workspace /testbed \
+      --instance /work/instance.json \
+      --patch-out /work/agent.patch \
+      ${TRACE_FLAG} \
+      2>&1 | tee /work/agent.log || echo "agent exit=$?"
     echo \"patch_lines=\$(wc -l < /work/agent.patch)\"
     head -200 /work/agent.patch
   "
