@@ -4,7 +4,7 @@ import type { ChatMessage, LlmConfig } from "./types.js";
 import { AgentLoop, type ReasonHookConfig } from "./agent-loop.js";
 import type { ReasonResult } from "./reason.js";
 import { PlanExecutor } from "./plan-execute.js";
-import { detectWorkspaceContext, mergePromptContextFromEnv, type PromptContext } from "./prompt.js";
+import { detectWorkspaceContext, mergePromptContextFromEnv, withLlmIdentity, type PromptContext } from "./prompt.js";
 import { SessionStore, sumSessionRunCosts, type SessionData, type SessionRunRecord } from "./session-store.js";
 import {
   PermissionGuard,
@@ -121,6 +121,7 @@ export class HarnessEngine implements AgentEngine {
         await detectWorkspaceContext(this.workspaceRoot),
       );
     }
+    this.promptContext = withLlmIdentity(this.promptContext, this.config);
 
     let initialMessages: ChatMessage[] | undefined;
     let sessionTotalCostUsd = 0;

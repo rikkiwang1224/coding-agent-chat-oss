@@ -111,6 +111,7 @@ export {
   detectWorkspaceContext,
   mergePromptContextFromEnv,
   readPromptExtrasFromEnv,
+  withLlmIdentity,
   type PromptContext,
 } from "./prompt.js";
 export { resolveDefaultBashTimeoutMs } from "./tools/executor.js";

@@ -4,9 +4,14 @@
  */
 
 import { readFileSync } from "node:fs";
+import { PROVIDER_PRESETS, type LlmProvider } from "@forgelet/sdk-runtime";
 
 export interface PromptContext {
   workspaceRoot: string;
+  /** Configured LLM vendor — injected at runtime for identity questions. */
+  provider?: LlmProvider;
+  /** Configured model id — injected at runtime for identity questions. */
+  model?: string;
   /** Detected languages/frameworks in the workspace */
   languages?: string[];
   /** Key files discovered (package.json, Cargo.toml, etc.) */
@@ -60,6 +65,18 @@ export function readPromptExtrasFromEnv(): {
   return out;
 }
 
+/** Attach runtime LLM identity from config (config wins when already set on ctx). */
+export function withLlmIdentity(
+  ctx: PromptContext,
+  config: { provider?: LlmProvider; model?: string },
+): PromptContext {
+  return {
+    ...ctx,
+    provider: config.provider ?? ctx.provider,
+    model: config.model ?? ctx.model,
+  };
+}
+
 /** Merge env-driven prompt extras into a PromptContext (env wins on taskHint). */
 export function mergePromptContextFromEnv(ctx: PromptContext): PromptContext {
   const extras = readPromptExtrasFromEnv();
@@ -82,6 +99,7 @@ export function buildSystemPrompt(contextOrRoot: string | PromptContext): string
 
   const sections = [
     buildRoleSection(),
+    buildIdentitySection(ctx),
     buildWorkspaceSection(ctx),
     buildToolsSection(ctx),
     ...(ctx.codeGraphEnabled ? [buildCodeGraphRoutingSection()] : []),
@@ -102,6 +120,50 @@ export function buildSystemPrompt(contextOrRoot: string | PromptContext): string
 
 function buildRoleSection(): string {
   return `You are an expert software engineer acting as a coding agent. You MUST use the provided tools to interact with the codebase — never guess or hallucinate file contents, paths, or command outputs.`;
+}
+
+function providerLabel(provider: LlmProvider): string {
+  if (provider in PROVIDER_PRESETS) {
+    return PROVIDER_PRESETS[provider as keyof typeof PROVIDER_PRESETS].label;
+  }
+  switch (provider) {
+    case "bedrock":
+      return "AWS Bedrock";
+    case "vertex":
+      return "Google Vertex AI";
+    case "custom":
+      return "custom provider";
+    default:
+      return provider;
+  }
+}
+
+function buildIdentitySection(ctx: PromptContext): string {
+  const neverGuessRule =
+    "Never invent or guess your vendor or model name. Do not claim to be Claude, Anthropic, GPT, OpenAI, Gemini, or any vendor unless listed below.";
+
+  if (!ctx.provider && !ctx.model) {
+    return `## Identity
+
+You are **Forgelet**, a coding agent in this workspace.
+If asked who you are or what model powers you, say you are Forgelet and that provider/model metadata is unavailable in this session.
+${neverGuessRule}`;
+  }
+
+  const vendor = ctx.provider ? providerLabel(ctx.provider) : "configured provider";
+  const model =
+    ctx.model ??
+    (ctx.provider && ctx.provider in PROVIDER_PRESETS
+      ? PROVIDER_PRESETS[ctx.provider as keyof typeof PROVIDER_PRESETS].defaultPrimaryModel
+      : "configured model");
+
+  return `## Identity
+
+You are **Forgelet**, a coding agent powered by **${vendor}** model **${model}**.
+
+When the user asks who you are, what model you use, or whether you are Claude / GPT / DeepSeek / etc.:
+- Answer **only** from this Identity section: Forgelet on ${vendor} (${model}).
+- ${neverGuessRule}`;
 }
 
 function buildWorkspaceSection(ctx: PromptContext): string {

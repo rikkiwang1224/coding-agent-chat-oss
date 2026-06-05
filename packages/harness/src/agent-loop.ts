@@ -10,7 +10,7 @@ import { buildToolDefinitions } from "./code-graph/index.js";
 import type { CodebaseMemoryClient } from "./code-graph/codebase-memory.js";
 import { ToolExecutor } from "./tools/index.js";
 import type { ToolDefinition } from "./types.js";
-import { buildSystemPrompt, type PromptContext } from "./prompt.js";
+import { buildSystemPrompt, withLlmIdentity, type PromptContext } from "./prompt.js";
 import { ContextCompressor, estimateTokens } from "./context-compressor.js";
 import type { HarnessHooks } from "./hooks.js";
 import type { PermissionGuard, PermissionCallback } from "./permissions.js";
@@ -210,8 +210,14 @@ export class AgentLoop {
     if (options.initialMessages && options.initialMessages.length > 0) {
       this.messages = [...options.initialMessages];
     } else {
+      const promptContext = withLlmIdentity(
+        typeof options.promptContext === "object"
+          ? { ...options.promptContext, workspaceRoot: options.promptContext.workspaceRoot || options.workspaceRoot }
+          : { workspaceRoot: options.promptContext ?? options.workspaceRoot },
+        options.config,
+      );
       this.messages = [
-        { role: "system", content: buildSystemPrompt(options.promptContext ?? options.workspaceRoot) },
+        { role: "system", content: buildSystemPrompt(promptContext) },
         ...(options.threadContext || []),
       ];
     }

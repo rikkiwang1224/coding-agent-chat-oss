@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSystemPrompt, mergePromptContextFromEnv } from "../src/prompt.js";
+import { buildSystemPrompt, mergePromptContextFromEnv, withLlmIdentity } from "../src/prompt.js";
 
 describe("buildSystemPrompt", () => {
   it("includes workspace root from string shorthand", () => {
@@ -43,6 +43,29 @@ describe("buildSystemPrompt", () => {
     });
     expect(prompt).toContain("Project-Specific Instructions");
     expect(prompt).toContain("Always run tests after edits.");
+  });
+
+  it("includes identity section with configured provider and model", () => {
+    const prompt = buildSystemPrompt({
+      workspaceRoot: "/tmp/ws",
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+    });
+    expect(prompt).toContain("## Identity");
+    expect(prompt).toContain("Forgelet");
+    expect(prompt).toContain("DeepSeek");
+    expect(prompt).toContain("deepseek-v4-pro");
+    expect(prompt).toContain("Never invent or guess your vendor");
+    expect(prompt).toContain("Forgelet on DeepSeek (deepseek-v4-pro)");
+  });
+
+  it("withLlmIdentity merges config into prompt context", () => {
+    const merged = withLlmIdentity({ workspaceRoot: "/tmp/ws" }, {
+      provider: "deepseek",
+      model: "deepseek-v4-pro",
+    });
+    expect(merged.provider).toBe("deepseek");
+    expect(merged.model).toBe("deepseek-v4-pro");
   });
 
   it("merges prompt extras from env", () => {
