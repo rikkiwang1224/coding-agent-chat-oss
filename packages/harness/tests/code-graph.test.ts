@@ -7,6 +7,7 @@ import {
   normalizeSearchGraphFilePattern,
   sanitizeSearchGraphNamePattern,
   splitAndCleanCodeSearchQuery,
+  TOOLS_HIDDEN_WHEN_GRAPH_ENABLED,
 } from "../src/code-graph/index.js";
 import { TOOL_DEFINITIONS } from "../src/tools/definitions.js";
 import {
@@ -31,7 +32,7 @@ describe("code graph integration", () => {
     const withGraph = buildToolDefinitions(true);
     expect(without).toHaveLength(TOOL_DEFINITIONS.length);
     expect(withGraph).toHaveLength(
-      TOOL_DEFINITIONS.length - 2 + CODE_GRAPH_TOOL_DEFINITIONS.length,
+      TOOL_DEFINITIONS.length - TOOLS_HIDDEN_WHEN_GRAPH_ENABLED.size + CODE_GRAPH_TOOL_DEFINITIONS.length,
     );
     expect(withGraph.map((t) => t.function.name)).toContain("code_graph_architecture");
     expect(withGraph.map((t) => t.function.name)).toContain("code_graph_search");
@@ -59,6 +60,11 @@ describe("code graph integration", () => {
     expect(normalizeSearchGraphFilePattern("purchase-order")).toBe("%purchase-order%");
     expect(normalizeSearchGraphFilePattern("%purchase-order%")).toBe("%purchase-order%");
     expect(normalizeSearchGraphFilePattern(".*purchase-order.*")).toBe("%purchase-order%");
+    // Multi-segment regex: all .* / .+ become %
+    expect(normalizeSearchGraphFilePattern(".*foo.*bar.*")).toBe("%foo%bar%");
+    expect(normalizeSearchGraphFilePattern(".*download.+template.*")).toBe("%download%template%");
+    // Anchored regex
+    expect(normalizeSearchGraphFilePattern("^purchase-order$")).toBe("%purchase-order%");
   });
 
   it("normalizeSearchCodeScope maps module names to globs or path", () => {

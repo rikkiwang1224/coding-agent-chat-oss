@@ -26,7 +26,7 @@ import type { ToolDefinition } from "../types.js";
  * grep_search and list_directory still WORK (executor handles them), they're
  * just not advertised to the model so it won't pick them over graph tools.
  */
-const TOOLS_HIDDEN_WHEN_GRAPH_ENABLED = new Set(["grep_search", "list_directory"]);
+export const TOOLS_HIDDEN_WHEN_GRAPH_ENABLED = new Set(["grep_search", "list_directory"]);
 
 export function buildToolDefinitions(codeGraphEnabled: boolean): ToolDefinition[] {
   if (!codeGraphEnabled) return TOOL_DEFINITIONS;

@@ -16,6 +16,7 @@ export function splitAlternatives(pattern: string): string[] {
 /**
  * search_graph: wrap module names like "purchase-order" as "%purchase-order%".
  * Regex-style ".*foo.*" is converted to "%foo%".
+ * Multi-segment regex like ".*foo.*bar.*" becomes "%foo%bar%".
  */
 export function normalizeSearchGraphFilePattern(pattern: string): string {
   const trimmed = pattern.trim();
@@ -24,10 +25,17 @@ export function normalizeSearchGraphFilePattern(pattern: string): string {
   if (trimmed.includes("|")) {
     return normalizeSearchGraphFilePattern(splitAlternatives(trimmed)[0] ?? trimmed);
   }
-  const globLike = trimmed.match(/^\.\*(.+)\.\*$/);
-  if (globLike) return `%${globLike[1]}%`;
-  if (trimmed.startsWith(".*")) return `%${trimmed.slice(2).replace(/\.\*$/, "")}%`;
-  if (trimmed.endsWith(".*")) return `%${trimmed.slice(0, -2).replace(/^\.\*/, "")}%`;
+  // Strip regex anchors and convert all `.*` / `.+` to `%`
+  if (/\.\*|\.\+/.test(trimmed) || trimmed.startsWith("^") || trimmed.endsWith("$")) {
+    const cleaned = trimmed
+      .replace(/^\^/, "")
+      .replace(/\$$/, "")
+      .replace(/\.\*|\.\+/g, "%");
+    // Collapse consecutive %% and ensure wrapping
+    const collapsed = cleaned.replace(/%{2,}/g, "%");
+    const result = (collapsed.startsWith("%") ? "" : "%") + collapsed + (collapsed.endsWith("%") ? "" : "%");
+    return result;
+  }
   if (!trimmed.includes("*") && !trimmed.includes("?") && !trimmed.includes("^") && !trimmed.includes("$")) {
     return `%${trimmed}%`;
   }

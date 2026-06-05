@@ -298,11 +298,11 @@ export class ToolExecutor {
             `Only read further if you need details from a specific function listed above. ` +
             `If you already found what you need in the shown lines, do NOT read more.`
           : `Use read_file(path, offset=${MAX_OUTPUT_LINES + 1}) only if you need content from the remaining lines.`);
-      return { ok: true, output: numbered.join("\n") + hint };
+      return { ok: true, output: this.truncate(numbered.join("\n") + hint) };
     }
 
     const numbered = lines.map((line, i) => `${String(i + 1).padStart(6)}|${line}`);
-    return { ok: true, output: numbered.join("\n") };
+    return { ok: true, output: this.truncate(numbered.join("\n")) };
   }
 
   private async writeFile(args: Record<string, unknown>): Promise<ToolExecutionResult> {
@@ -756,10 +756,12 @@ export class ToolExecutor {
     const seen = new Set<string>();
     const merged = [...prevResults, ...incomingResults].filter((item) => {
       if (!item || typeof item !== "object") return true;
-      const key =
-        String((item as Record<string, unknown>).qualified_name ?? "") ||
-        String((item as Record<string, unknown>).name ?? "");
-      if (!key || seen.has(key)) return false;
+      const row = item as Record<string, unknown>;
+      // Prefer qualified_name (globally unique); fall back to name+file_path
+      const key = String(row.qualified_name ?? "") ||
+        `${String(row.name ?? "")}@${String(row.file_path ?? "")}`;
+      if (!key || key === "@") return true;
+      if (seen.has(key)) return false;
       seen.add(key);
       return true;
     });
@@ -952,15 +954,8 @@ export class ToolExecutor {
         const lineCount = code.split("\n").length;
         if (lineCount > 100) {
           formatted +=
-            `\n\n[Warning] This snippet is ${lineCount} lines — you used a module-level qualified_name ` +
-            "and got the entire file. For Q&A tasks, search results already told you which " +
-            "function to look at — use that function's qualified_name instead. " +
-            "If you already have enough information to answer, answer NOW.";
-        } else {
-          formatted +=
-            "\n\n[Ready to answer] You now have the function implementation. " +
-            "If the user asked a question (yes/no, where, how, etc.), answer it now. " +
-            "Do NOT read_file the same file, do NOT trace callers, do NOT search again.";
+            `\n\n[Hint] This snippet is ${lineCount} lines — you likely used a module-level qualified_name. ` +
+            "If you only need one function, use its specific qualified_name from the search results.";
         }
       }
     }
@@ -1084,13 +1079,14 @@ function extractFileOutline(hiddenLines: string[], startLineNumber: number): str
     // JS/TS function and method declarations
     /^\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)/,
     /^\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(?/,
-    /^\s*(\w+)\s*\(.*\)\s*\{/,
+    // Method-like at top indent: exclude control-flow keywords
+    /^\s*(?!if|else|for|while|switch|catch|do|return|throw|new|typeof|delete|void|await|yield)\w+\s*\(.*\)\s*\{/,
     // Class and interface
     /^\s*(?:export\s+)?(?:abstract\s+)?(?:class|interface|type|enum)\s+(\w+)/,
     // Vue SFC sections
     /^<(template|script|style)/,
-    // Object method shorthand (common in Vue options API)
-    /^\s{2,6}(\w+)\s*\(.*\)\s*\{/,
+    // Object method shorthand (common in Vue options API) — also exclude control flow
+    /^\s{2,6}(?!if|else|for|while|switch|catch|do|return|throw)\w+\s*\(.*\)\s*\{/,
     // export default / export const
     /^\s*export\s+(default|const|function|class|type|interface|enum)\b/,
     // Vue lifecycle hooks and special methods
@@ -1129,12 +1125,17 @@ function extractFileOutline(hiddenLines: string[], startLineNumber: number): str
  * Expand a single glob pattern containing braces into multiple patterns.
  * e.g. "*.{ts,vue,js}" → ["*.ts", "*.vue", "*.js"]
  * Patterns without braces are returned as-is: ["*.ts"] → ["*.ts"]
+ *
+ * Only supports one level of braces (no nesting like "*.{ts,{js,jsx}}").
+ * Falls back to the original pattern if expansion still contains braces.
  */
 export function expandBraceGlob(pattern: string): string[] {
   const match = pattern.match(/^(.*)\{([^}]+)\}(.*)$/);
   if (!match) return [pattern];
   const [, prefix, alternatives, suffix] = match;
-  return alternatives.split(",").map((alt) => `${prefix}${alt.trim()}${suffix}`);
+  const expanded = alternatives.split(",").map((alt) => `${prefix}${alt.trim()}${suffix}`);
+  if (expanded.some((p) => p.includes("{"))) return [pattern];
+  return expanded;
 }
 
 /** Extract file paths from a unified diff (the `b/...` side of `diff --git`). */
@@ -1262,27 +1263,30 @@ export function buildArchitectureSummary(raw: Record<string, unknown>): string {
  * Groups by top-level → second-level → third-level, counting files in each.
  */
 function buildModuleMap(fileTree: FileTreeNode[]): string {
-  // Collect all directory entries with their child counts
+  // Collect all directory entries — use `children` as initial count only when
+  // there are NO individual file entries (summary mode). When file entries
+  // exist we count them directly to avoid double-counting.
   const dirs = new Map<string, { fileCount: number; subdirs: string[] }>();
+  const hasFileEntries = fileTree.some((n) => n.type === "file");
 
   for (const node of fileTree) {
     if (!node.path || node.type !== "dir") continue;
     const depth = node.path.split("/").length;
-    if (depth > 8) continue; // skip very deep implementation dirs
+    if (depth > 8) continue;
 
-    const childCount = typeof node.children === "number" ? node.children : 0;
-    dirs.set(node.path, { fileCount: childCount, subdirs: [] });
+    const initialCount = hasFileEntries ? 0 : (typeof node.children === "number" ? node.children : 0);
+    dirs.set(node.path, { fileCount: initialCount, subdirs: [] });
   }
 
-  // Count files per directory from file entries
-  for (const node of fileTree) {
-    if (!node.path || node.type !== "file") continue;
-    const parts = node.path.split("/");
-    // Attribute to parent directories up to depth 7
-    for (let d = 1; d < Math.min(parts.length, 8); d++) {
-      const dirPath = parts.slice(0, d).join("/");
-      const entry = dirs.get(dirPath);
-      if (entry) entry.fileCount++;
+  if (hasFileEntries) {
+    for (const node of fileTree) {
+      if (!node.path || node.type !== "file") continue;
+      const parts = node.path.split("/");
+      for (let d = 1; d < Math.min(parts.length, 8); d++) {
+        const dirPath = parts.slice(0, d).join("/");
+        const entry = dirs.get(dirPath);
+        if (entry) entry.fileCount++;
+      }
     }
   }
 
