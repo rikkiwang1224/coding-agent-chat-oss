@@ -142,6 +142,9 @@ const READ_ONLY_TOOLS = new Set([
   "code_graph_search",
   "code_graph_trace",
   "code_graph_impact",
+  "code_graph_semantic_search",
+  "code_graph_code_search",
+  "code_graph_snippet",
 ]);
 
 export class AgentLoop {
@@ -286,10 +289,10 @@ export class AgentLoop {
           this.consecutiveReadOnlyTurns = 0;
           const nudge =
             `[System] You have spent ${this.explorationBudget} consecutive turns ` +
-            `reading/searching without making any edits. Based on your exploration ` +
-            `so far, please attempt a minimal code change now — even if imperfect, ` +
-            `you can iterate after seeing test results. Avoid further reading of ` +
-            `files you have already seen.`;
+            `reading/searching. Based on your exploration so far, please take action: ` +
+            `if the task requires code changes, attempt a minimal edit now — you can iterate after seeing results. ` +
+            `If the task is a question, summarize your findings and answer now. ` +
+            `Do not continue exploring files you have already seen or directories you have already listed.`;
           this.messages.push({ role: "user", content: nudge });
           this.notifyMessagesChanged();
         }

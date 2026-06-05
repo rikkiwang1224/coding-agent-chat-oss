@@ -177,6 +177,51 @@ export class CodebaseMemoryClient {
   async detectChanges(): Promise<CodebaseMemoryCliResult> {
     return this.cli("detect_changes", {});
   }
+
+  /**
+   * Natural-language / keyword search over indexed symbols (BM25 via search_graph).
+   * v0.7 CLI exposes this as search_graph(query=...) — semantic_query is MCP-only.
+   */
+  async semanticQuery(args: {
+    query: string;
+    limit?: number;
+  }): Promise<CodebaseMemoryCliResult> {
+    return this.cli("search_graph", {
+      query: args.query,
+      ...(args.limit !== undefined ? { limit: args.limit } : { limit: 20 }),
+    });
+  }
+
+  /**
+   * Graph-augmented code search (grep-like but only over indexed files).
+   * Returns matches with graph context (symbol name, file, line).
+   * Note: CLI parameter is "pattern", not "query".
+   */
+  async searchCode(args: {
+    query: string;
+    file_pattern?: string;
+    path?: string;
+    limit?: number;
+  }): Promise<CodebaseMemoryCliResult> {
+    return this.cli("search_code", {
+      pattern: args.query,
+      ...(args.file_pattern ? { file_pattern: args.file_pattern } : {}),
+      ...(args.path ? { path: args.path } : {}),
+      ...(args.limit !== undefined ? { limit: args.limit } : { limit: 20 }),
+    });
+  }
+
+  /**
+   * Read the source code of a specific function/method by its qualified name.
+   * Use search_graph or semantic_query first to discover qualified names.
+   */
+  async getCodeSnippet(args: {
+    qualified_name: string;
+  }): Promise<CodebaseMemoryCliResult> {
+    return this.cli("get_code_snippet", {
+      qualified_name: args.qualified_name,
+    });
+  }
 }
 
 function tryParseJson(text: string): unknown | undefined {

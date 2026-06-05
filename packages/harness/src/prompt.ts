@@ -115,45 +115,113 @@ function buildWorkspaceSection(ctx: PromptContext): string {
 }
 
 function buildToolsSection(ctx: PromptContext): string {
-  const base = `## Available Tools
+  const lines = [
+    `- **read_file(path)** — Read file contents. Use BEFORE editing to understand context.`,
+    `- **write_file(path, content)** — Create or completely overwrite a file.`,
+    `- **edit_file(path, old_string, new_string, replace_all?)** — Replace a string in a file. old_string MUST match exactly (including whitespace/indentation). Include enough surrounding lines to ensure a unique match — or pass replace_all=true for renames.`,
+    `- **multi_edit(path, edits[])** — Apply several sequential string replacements to one file atomically. Prefer this over multiple edit_file calls when making related changes to the same file.`,
+    `- **apply_patch(patch, check_only?)** — Apply a unified diff via \`git apply\`. Use for multi-file changes. Pass check_only=true to dry-run.`,
+    `- **bash(command)** — Execute a command in a persistent shell. State (cwd, env vars) persists between calls. Use cd to change directories.`,
+    `- **glob_search(pattern)** — Find files matching a glob pattern.`,
+  ];
 
-- **read_file(path)** — Read file contents. Use BEFORE editing to understand context.
-- **write_file(path, content)** — Create or completely overwrite a file.
-- **edit_file(path, old_string, new_string, replace_all?)** — Replace a string in a file. old_string MUST match exactly (including whitespace/indentation). Include enough surrounding lines to ensure a unique match — or pass replace_all=true for renames.
-- **multi_edit(path, edits[])** — Apply several sequential string replacements to one file atomically. Prefer this over multiple edit_file calls when making related changes to the same file.
-- **apply_patch(patch, check_only?)** — Apply a unified diff via \`git apply\`. Use for multi-file changes. Pass check_only=true to dry-run.
-- **bash(command)** — Execute a command in a persistent shell. State (cwd, env vars) persists between calls. Use cd to change directories.
-- **glob_search(pattern)** — Find files matching a glob pattern.
-- **grep_search(pattern, path?)** — Search file contents with regex.
-- **list_directory(path)** — List directory contents.
-- **todo_write(todos[])** — Maintain a working todo list for the user. Use for tasks with 3+ steps. Pass the full list each call; mark at most one item in_progress at a time.`;
+  if (!ctx.codeGraphEnabled) {
+    lines.push(`- **grep_search(pattern, path?)** — Search file contents with regex.`);
+    lines.push(`- **list_directory(path)** — List directory contents.`);
+  }
 
-  if (!ctx.codeGraphEnabled) return base;
+  lines.push(
+    `- **todo_write(todos[])** — Maintain a working todo list for the user. Use for tasks with 3+ steps. Pass the full list each call; mark at most one item in_progress at a time.`,
+  );
 
-  return `${base}
-- **code_graph_architecture(aspects?)** — Indexed repo overview: languages, packages, entry points, routes, hotspots, clusters. Use first on unfamiliar/large codebases.
-- **code_graph_search(name_pattern?, label?, file_pattern?)** — Find functions/classes/methods by symbol name in the graph (not plain-text grep).
-- **code_graph_trace(function_name, direction?, depth?)** — Callers (inbound) or callees (outbound) of a symbol.
-- **code_graph_impact()** — Map uncommitted git changes to affected symbols; run before declaring done.`;
+  if (ctx.codeGraphEnabled) {
+    lines.push(
+      `- **code_graph_architecture(aspects?)** — Indexed repo overview: module map, key symbols, entry points, routes. Use first on unfamiliar/large codebases.`,
+      `- **code_graph_semantic_search(query)** — BM25 natural-language search over indexed symbols. BEST when you don't know exact names. E.g. "download template xlsx purchase order".`,
+      `- **code_graph_code_search(query, file_pattern?)** — Graph-augmented text search (like grep but with graph context). For route paths, config values, string literals.`,
+      `- **code_graph_search(name_pattern?, label?, file_pattern?)** — Structural search by symbol name regex + file scope.`,
+      `- **code_graph_snippet(qualified_name)** — Read a specific function's source code by qualified name. Much cheaper than read_file for the whole file.`,
+      `- **code_graph_trace(function_name, direction?, depth?)** — Callers (inbound) or callees (outbound) of a symbol.`,
+      `- **code_graph_impact()** — Map uncommitted git changes to affected symbols; run before declaring done.`,
+    );
+  }
+
+  return `## Available Tools\n\n${lines.join("\n")}`;
 }
 
 function buildCodeGraphRoutingSection(): string {
   return `## Tool routing (code graph vs text tools)
 
-The codebase is indexed for structural tools. They complement — do not replace — read_file / grep / glob / bash:
+The codebase is indexed with semantic search, code search, and structural graph. **Prefer graph tools over grep** — they are faster, more precise, and context-aware.
+
+**Step 1 — Orient:** code_graph_architecture to get the module map.
+**Step 2 — Find:** Use the RIGHT search tool for the task:
+  - User describes functionality in natural language? → **code_graph_semantic_search** (best first choice)
+  - Looking for a string/route/config in code? → **code_graph_code_search** (graph-augmented grep)
+  - Know the symbol name? → **code_graph_search** (structural, by name regex)
+**Step 2b — If search returns empty:** broaden the query or try a different search tool. Do NOT fall back to listing directories level by level.
+**Step 3 — Read:** Use **code_graph_snippet**(qualified_name) to read a specific function. Only use read_file when you need the full file (e.g. for editing).
 
 | Goal | Tool |
 |------|------|
-| Orient in an unfamiliar or large repo | **code_graph_architecture** first, then search/read |
-| Find a class, function, or method by name | **code_graph_search** (then **read_file** that path before edit) |
+| Get module map of the repo | **code_graph_architecture** |
+| Find code by natural language description | **code_graph_semantic_search**(query="...") — best for "下载模板", "状态机", etc. |
+| Find route paths, strings, config values in code | **code_graph_code_search**(query="/purchase/order") |
+| Find symbols by name pattern | **code_graph_search**(file_pattern="module", name_pattern="keyword") |
+| Read a specific function's source | **code_graph_snippet**(qualified_name) — from search results |
 | Who calls this / what does it call | **code_graph_trace** |
-| Error messages, strings, configs, comments in files | **grep_search** |
 | Find files by path pattern | **glob_search** |
-| Exact file contents for editing | **read_file** (required before edit_file) |
-| Run tests, git, builds | **bash** |
-| Before stopping — missing symmetric fixes? | **code_graph_search** / **code_graph_trace**, then **code_graph_impact** |
+| Full file contents for editing | **read_file** (required before edit_file) |
+| Before stopping — blast radius check | **code_graph_trace** then **code_graph_impact** |
 
-Do not use grep_search to enumerate all methods in a class when code_graph_search can do it. Do not skip read_file after graph tools — the graph gives locations, not editable source text.`;
+Important:
+- **code_graph_semantic_search** is the preferred first step when you don't know exact symbol names — it understands natural language.
+- **code_graph_code_search** replaces grep_search — it only searches indexed files and returns graph context.
+- **code_graph_snippet** reads just one function body — much cheaper than read_file on a 500+ line file.
+- To trace who calls a function: **code_graph_trace**(function_name, direction="inbound") — do NOT grep for the function name across the repo.
+- Use **read_file** only when you need the full file for editing or when graph tools are unavailable.
+- After code_graph_architecture, **extract the relevant module path** and use it to scope subsequent searches.
+
+**Stopping rules — do NOT over-search:**
+- For yes/no questions (e.g. "is X configured in frontend?"): once you find the relevant code (function definition + implementation), answer immediately. Do NOT exhaustively trace all callers or read all related files.
+- For explanation tasks: once you have enough evidence to explain the mechanism, stop and summarize. You do not need to read every file in the module.
+- If you found the answer via semantic_search + snippet, you are DONE. Do not re-verify with grep.
+
+### Example trajectory: answering a question about code
+
+User asks: "下载模板的逻辑在哪里?"
+
+Turn 1: code_graph_semantic_search(query="download template xlsx")
+→ Result:
+  utils/downloadFile.js:18: downloadTemplate (qualified_name: "project.utils.downloadFile.downloadTemplate")
+  views/pr-list.vue:245: handleDownLoadASNTemplate (qualified_name: "project.views.pr-list.handleDownLoadASNTemplate")
+
+Turn 2: code_graph_snippet(qualified_name="project.utils.downloadFile.downloadTemplate")  ← ONLY snippet, no parallel search
+→ Result:
+  18| export function downloadTemplate(baseUrl, fileName) {
+  19|   window.open(baseUrl + fileName);
+  20| }
+
+Turn 3: Answer the question. DONE. Total: 2 tool calls.
+
+Key lessons from this example:
+- semantic_search found the function even though "下载模板" ≠ "downloadTemplate"
+- snippet gave the implementation — no need for read_file on the full 500-line file
+- Turn 2 calls ONLY snippet — do NOT send parallel searches alongside snippet
+- Do NOT continue searching after you have the snippet. Do NOT verify with grep.
+- Do NOT trace callers/callees unless the user asked "who calls this?"
+- Do NOT read_file a file you already got via snippet — snippet IS the code.
+- 2-3 tool calls is the ideal for a question task. If you are past 5, you are over-exploring.
+
+**Tool call budget for question/explanation tasks:**
+- When the user asks a QUESTION (not requesting code changes), your budget is **5 tool calls**.
+- **CRITICAL: call snippet ALONE, never in parallel with other searches.** When you call code_graph_snippet, it MUST be the only tool call in that turn. Read the snippet result first, then decide if you need more. If you send snippet + search in parallel, you will waste the search and get distracted by empty results.
+- After getting a snippet that answers the question, STOP and answer. Do not continue to:
+  - read_file the same file the snippet came from
+  - trace who calls the function (unless asked)
+  - search for the route/page that uses the function (unless asked)
+  - read large vue/component files to "confirm" what you already know
+- Every read_file on a 500+ line file costs the same as ~5 snippets. Prefer snippet.`;
 }
 
 function buildRulesSection(ctx: PromptContext): string {
@@ -171,7 +239,7 @@ function buildRulesSection(ctx: PromptContext): string {
 4. **Verify after edit** — Run related tests or typechecks after changes. If tests fail, fix your source code — never modify existing test assertions or expected values to make them pass. You may add new test functions if useful, but never alter or delete existing ones.
 4b. **Trace before fix** — When fixing a failing test or bug, trace the test's call chain (code_graph_trace if available, otherwise read the test and follow the imports) to understand what the test asserts before writing any fix. This prevents fixing the wrong location or over-fixing.
 4c. **Never modify vendored/third-party code** — Directories like \`vendor/\`, \`vendored/\`, \`third_party/\`, \`_vendor/\`, or bundled dependency packages must not be edited. Fix at the project's own source layer.
-${structuralRule}${stopNum}. **Stop when done** — Once the task is accomplished and verified, provide a brief summary and stop.
+${structuralRule}${stopNum}. **Stop when done** — Once the task is accomplished and verified, provide a brief summary and stop. For questions: answer as soon as you have sufficient evidence. Do not keep searching "just to be sure."
 ${pathNum}. **Relative paths** — Always use paths relative to the workspace root.`;
 }
 
@@ -188,19 +256,21 @@ function buildWorkflowSection(ctx: PromptContext): string {
       return `## Workflow (Debugging)
 
 1. Read the failing test or error message to understand symptoms
-2. Trace the code path — ${graphLocate}use code_graph_trace for call chains; grep_search for error strings in logs
-3. Fix the root cause (not the symptom)
-4. Run the test/command to verify the fix
-5. Report what you found and fixed${graphFinish}`;
+2. Orient — code_graph_architecture to identify which module is involved
+3. Trace the code path — code_graph_search(file_pattern="<module>") to find the symbol, then code_graph_trace for call chains; code_graph_code_search scoped to the module for error strings
+4. Fix the root cause (not the symptom)
+5. Run the test/command to verify the fix
+6. Report what you found and fixed${graphFinish}`;
 
     case "implement":
       return `## Workflow (Implementation)
 
-1. ${ctx.codeGraphEnabled ? "code_graph_architecture or " : ""}read existing code to understand patterns, conventions, and interfaces
-2. Check for README or documentation describing the expected behavior
-3. Implement the feature following existing patterns
-4. Run tests if they exist to verify
-5. Report what you implemented${graphFinish}`;
+1. code_graph_architecture to get the module map, then identify the target module
+2. code_graph_search(file_pattern="<module>") to find existing patterns and interfaces in the module
+3. Read the relevant files to understand conventions
+4. Implement the feature following existing patterns
+5. Run tests if they exist to verify
+6. Report what you implemented${graphFinish}`;
 
     case "refactor":
       return `## Workflow (Refactoring)
@@ -226,12 +296,15 @@ function buildWorkflowSection(ctx: PromptContext): string {
         ? `## Workflow
 
 For most tasks, follow this pattern:
-1. Understand the request — if the repo is unfamiliar, start with code_graph_architecture
-2. Locate symbols with code_graph_search (or grep_search for plain text), then read_file before any edit
-3. Make the necessary changes (edit_file or write_file)
-4. After edits to a method, code_graph_search/trace for symmetric or related symbols; fix those too
-5. Run related tests or typechecks — fix failures in source, not existing tests
-6. code_graph_impact, then stop — report what you did`
+1. **Orient** — code_graph_architecture to get the module map
+2. **Narrow** — from the module map, identify the relevant module. Use code_graph_search(file_pattern="<module>", name_pattern="<keyword>") or code_graph_code_search(query="<text>", file_pattern="<module>") to find symbols
+3. **Read** — read_file the target files before any edit
+4. **Edit** — make changes (edit_file or write_file)
+5. **Check related** — code_graph_search/trace for symmetric or related symbols; fix those too
+6. **Verify** — run related tests or typechecks — fix failures in source, not existing tests
+7. **Impact** — code_graph_impact, then stop — report what you did
+
+Key: steps 1→2 must be connected. Extract the module path from step 1 and use it to scope step 2. Never broad-grep the entire repo when you know the module.`
         : `## Workflow
 
 For most tasks, follow this pattern:
