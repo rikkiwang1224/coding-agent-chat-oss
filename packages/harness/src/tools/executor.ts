@@ -824,7 +824,8 @@ export class ToolExecutor {
           : "both",
       depth,
     });
-    return { ok: result.ok, output: this.truncate(result.output) };
+    const formatted = result.ok ? formatTraceResult(result.parsed, result.output) : result.output;
+    return { ok: result.ok, output: this.truncate(formatted) };
   }
 
   private async codeGraphImpact(): Promise<ToolExecutionResult> {
@@ -832,7 +833,8 @@ export class ToolExecutor {
     const client = this.codeGraph;
 
     const result = await client.detectChanges();
-    return { ok: result.ok, output: this.truncate(result.output) };
+    const formatted = result.ok ? formatImpactResult(result.parsed, result.output) : result.output;
+    return { ok: result.ok, output: this.truncate(formatted) };
   }
 
   private async codeGraphSemanticSearch(args: Record<string, unknown>): Promise<ToolExecutionResult> {
@@ -1592,6 +1594,82 @@ export function formatCodeSearchResults(parsed: unknown, raw: string): string {
 
   const header = `Found ${total} match(es):`;
   return [header, ...lines].join("\n");
+}
+
+interface TraceEdge {
+  name?: string;
+  qualified_name?: string;
+  hop?: number;
+}
+
+/**
+ * Format trace_call_path results into a compact call list instead of raw JSON:
+ *   Trace foo (both):
+ *     callers (1):
+ *       [hop 1] bar  [pkg.mod.Bar.bar]
+ */
+export function formatTraceResult(parsed: unknown, raw: string): string {
+  if (!parsed || typeof parsed !== "object") return raw;
+  const obj = parsed as Record<string, unknown>;
+  const fn = typeof obj.function === "string" ? obj.function : "?";
+  const direction = typeof obj.direction === "string" ? obj.direction : "both";
+
+  const renderEdges = (label: string, edges: unknown): string[] => {
+    if (!Array.isArray(edges) || edges.length === 0) return [];
+    const lines = (edges as TraceEdge[]).map((e) => {
+      const hop = typeof e.hop === "number" ? `[hop ${e.hop}] ` : "";
+      const qn = e.qualified_name ? `  [${e.qualified_name}]` : "";
+      return `    ${hop}${e.name ?? "?"}${qn}`;
+    });
+    return [`  ${label} (${edges.length}):`, ...lines];
+  };
+
+  const callers = renderEdges("callers", obj.callers);
+  const callees = renderEdges("callees", obj.callees);
+  if (callers.length === 0 && callees.length === 0) {
+    return `Trace ${fn} (${direction}): no call relationships found.`;
+  }
+  return [`Trace ${fn} (${direction}):`, ...callers, ...callees].join("\n");
+}
+
+interface ImpactSymbol {
+  name?: string;
+  label?: string;
+  file?: string;
+}
+
+/**
+ * Format detect_changes (impact) results into a compact blast-radius summary
+ * instead of raw JSON.
+ */
+export function formatImpactResult(parsed: unknown, raw: string): string {
+  if (!parsed || typeof parsed !== "object") return raw;
+  const obj = parsed as Record<string, unknown>;
+  const changedFiles = Array.isArray(obj.changed_files) ? (obj.changed_files as string[]) : [];
+  if (changedFiles.length === 0) {
+    return "Impact: no uncommitted changes detected.";
+  }
+  const depth = typeof obj.depth === "number" ? ` (depth ${obj.depth})` : "";
+  const header = `Impact${depth}: ${changedFiles.length} changed file(s):`;
+  const fileLines = changedFiles.map((f) => `  ${f}`);
+
+  const symbols = Array.isArray(obj.impacted_symbols)
+    ? (obj.impacted_symbols as ImpactSymbol[])
+    : [];
+  const out = [header, ...fileLines];
+  if (symbols.length > 0) {
+    const shown = symbols.slice(0, 30);
+    out.push(`Impacted symbols (${symbols.length}):`);
+    for (const s of shown) {
+      const label = s.label ? `  (${s.label})` : "";
+      const file = s.file ? `  ${s.file}` : "";
+      out.push(`  ${s.name ?? "?"}${label}${file}`);
+    }
+    if (symbols.length > shown.length) {
+      out.push(`  ... and ${symbols.length - shown.length} more`);
+    }
+  }
+  return out.join("\n");
 }
 
 interface SnippetResultPayload {
