@@ -32,10 +32,15 @@ export class ShellSession {
 
     this.buffer = "";
 
+    // `detached: true` makes the shell a process-group leader so we can kill
+    // the entire job tree (the shell *and* any child like `pytest`) on timeout
+    // or abort. Without this, a non-interactive bash ignores Ctrl-C from stdin
+    // and a runaway command keeps running, blocking every subsequent command.
     const proc = spawn("bash", ["--norc", "--noprofile"], {
       cwd: this.workspaceRoot,
       env: this.env,
       stdio: ["pipe", "pipe", "pipe"],
+      detached: true,
     });
 
     proc.stdout!.on("data", (chunk: Buffer) => {
@@ -139,10 +144,24 @@ export class ShellSession {
       const timer = setTimeout(() => {
         if (tryResolveFromBuffer()) return;
 
-        // Interrupt the foreground job without tearing down the shell.
-        this.writeRaw("\x03");
+        // A non-interactive bash (no TTY/job control) ignores `\x03` from
+        // stdin, so the foreground job would keep running and block every
+        // later command until it too timed out. Kill the whole process group
+        // and reset the shell; the next execute() spawns a fresh one.
         const output = this.cleanOutput(this.buffer.slice(startIdx), marker);
-        finish({ exitCode: 124, output: output + "\n[command timed out]" });
+        const proc = this.process;
+        if (proc) this.killProcessTree(proc, "SIGKILL");
+        this.process = null;
+        this.buffer = "";
+        const seconds = Math.round(timeoutMs / 1000);
+        finish({
+          exitCode: 124,
+          output:
+            output +
+            `\n[command timed out after ${seconds}s and was terminated. ` +
+            `Narrow the scope (e.g. run a single test file or test case) ` +
+            `or pass a larger timeout_ms.]`,
+        });
       }, timeoutMs);
 
       const check = setInterval(() => {
@@ -152,11 +171,12 @@ export class ShellSession {
       if (signal) {
         abortHandler = (): void => {
           // Non-interactive bash (no TTY, no job control) ignores `\x03` from
-          // stdin, so we must signal the process directly. Killing the shell
-          // is the right semantics for "user aborted the agent run": the next
-          // tool call (if any) will spawn a fresh shell via ensureStarted().
+          // stdin, so we must signal the process directly. Killing the whole
+          // group (shell + any child job) is the right semantics for "user
+          // aborted the agent run": the next tool call (if any) will spawn a
+          // fresh shell via ensureStarted().
           if (this.process && this.process.exitCode === null) {
-            this.process.kill("SIGTERM");
+            this.killProcessTree(this.process, "SIGTERM");
           }
           this.process = null;
           this.buffer = "";
@@ -205,10 +225,29 @@ printf '\\n${marker}:%s\\n' "$__ec"
 
   destroy(): void {
     if (this.process && this.process.exitCode === null) {
-      this.process.kill("SIGTERM");
+      this.killProcessTree(this.process, "SIGTERM");
     }
     this.process = null;
     this.buffer = "";
+  }
+
+  /**
+   * Kill the shell and every process it spawned. Because the shell is started
+   * as a process-group leader (`detached: true`), `process.kill(-pid)` signals
+   * the whole group. Falls back to killing just the shell if the group send
+   * fails (e.g. it already exited).
+   */
+  private killProcessTree(proc: ChildProcess, signal: NodeJS.Signals): void {
+    if (typeof proc.pid !== "number") return;
+    try {
+      process.kill(-proc.pid, signal);
+    } catch {
+      try {
+        proc.kill(signal);
+      } catch {
+        // already exited — nothing to clean up
+      }
+    }
   }
 }
 

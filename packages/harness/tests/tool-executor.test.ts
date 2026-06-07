@@ -191,6 +191,23 @@ describe("bash", () => {
     expect(result.output).toContain("timed out");
   });
 
+  it("kills the runaway job on timeout so it does not block the next command", async () => {
+    const timedOut = await executor.execute("bash", {
+      command: "echo start && sleep 30",
+      timeout_ms: 500,
+    });
+    expect(timedOut.ok).toBe(false);
+    expect(timedOut.output).toMatch(/timed out after 1s and was terminated/);
+
+    // The previous command's `sleep 30` must be dead; this should return fast,
+    // not wait ~30s for the runaway job to finish.
+    const start = Date.now();
+    const next = await executor.execute("bash", { command: "echo SECOND", timeout_ms: 8000 });
+    expect(next.ok).toBe(true);
+    expect(next.output).toContain("SECOND");
+    expect(Date.now() - start).toBeLessThan(3000);
+  });
+
   it("returns empty command error", async () => {
     const result = await executor.execute("bash", { command: "" });
     expect(result.ok).toBe(false);
