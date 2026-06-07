@@ -9,7 +9,14 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEvalEnv } from "../load-env.js";
-import { runSweBenchAgent } from "./agent-task.js";
+import { isBatchFatalApiStatus, runSweBenchAgent } from "./agent-task.js";
+
+/**
+ * Exit code signalling the batch driver that the run failed on an exhausted
+ * account / bad credentials (402/401/403). Distinct from `timeout`'s 124 and
+ * docker's 125-127 so docker-batch.sh can fast-abort and stay resume-safe.
+ */
+const EXIT_API_FATAL = 75;
 import { SweBenchAgentTerminal } from "./agent-terminal.js";
 import { resolveLlmConfigFromEnv } from "./llm-config.js";
 import type { SweBenchInstance } from "./types.js";
@@ -63,7 +70,17 @@ async function main(): Promise<number> {
     emit: (event) => terminal.handle(event),
   });
 
+  // Always persist whatever patch the agent produced before failing, so
+  // partial work is never silently discarded.
   await writeFile(patchOut, result.modelPatch);
+
+  if (isBatchFatalApiStatus(result.apiErrorStatus)) {
+    process.stderr.write(
+      `Fatal LLM API error ${result.apiErrorStatus} (account exhausted or invalid credentials): ` +
+        `${result.apiErrorMessage ?? ""}\n`,
+    );
+    return EXIT_API_FATAL;
+  }
   return 0;
 }
 

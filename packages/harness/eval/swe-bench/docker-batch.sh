@@ -188,13 +188,16 @@ for i in $(seq 0 $((TOTAL - 1))); do
         fi
 
         cd /testbed
+        agent_rc=0
         timeout ${PER_INSTANCE_TIMEOUT} node /forgelet/node_modules/tsx/dist/cli.mjs \
           /forgelet/packages/harness/eval/swe-bench/docker-agent.ts \
           --workspace /testbed \
           --instance /work/instance.json \
           --patch-out /work/agent.patch \
           ${TRACE_FLAG} \
-          > /work/agent.log 2>&1 || echo "agent exit=$?" >> /work/agent.log
+          > /work/agent.log 2>&1 || agent_rc=\$?
+        echo \"agent exit=\$agent_rc\" >> /work/agent.log
+        echo \"\$agent_rc\" > /work/agent.exit
       " 2>&1 | tail -3 || STATUS="FAIL_RUN"
   fi
 
@@ -212,6 +215,22 @@ for i in $(seq 0 $((TOTAL - 1))); do
     PATCH_LINES=$(wc -l < "$WORK/agent.patch")
   fi
 
+  # Fast-abort on exhausted account / bad credentials (docker-agent.ts exits
+  # 75). Continuing would burn every remaining instance against the same dead
+  # account. Do NOT record this instance as done/predicted so a rerun resumes
+  # exactly here once credits are topped up.
+  AGENT_RC=0
+  [ -f "$WORK/agent.exit" ] && AGENT_RC=$(cat "$WORK/agent.exit" 2>/dev/null || echo 0)
+  if [ "$AGENT_RC" = "75" ]; then
+    printf '%s\t%s\t%d\t%d\n' "$INST_ID" "FAIL_API" "$PATCH_LINES" "$ELAPSED" >> "$SUMMARY"
+    echo ""
+    echo "✗ $INST_ID — fatal LLM API error (insufficient balance / invalid credentials)."
+    echo "  Aborting batch WITHOUT marking this instance done. Top up credits or fix the"
+    echo "  API key, then rerun the same command to resume (already-done instances skip)."
+    API_ABORT=1
+    break
+  fi
+
   jq -nc --arg id "$INST_ID" --arg model "$MODEL_NAME" --rawfile p "$WORK/agent.patch" \
     '{instance_id:$id, model_name_or_path:$model, model_patch:$p}' >> "$PRED_FILE"
 
@@ -224,6 +243,13 @@ for i in $(seq 0 $((TOTAL - 1))); do
 
   cleanup_images
 done
+
+if [ "${API_ABORT:-0}" = "1" ]; then
+  echo ""
+  echo "=== batch ABORTED after $((($(date +%s) - BATCH_START) / 60))m due to LLM API failure ==="
+  echo "predictions so far: $PRED_FILE ($(wc -l < "$PRED_FILE") lines)"
+  exit 1
+fi
 
 echo ""
 echo "=== batch complete in $((($(date +%s) - BATCH_START) / 60))m ==="

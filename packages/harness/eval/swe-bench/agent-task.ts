@@ -24,6 +24,22 @@ export interface RunSweBenchAgentResult {
   turnCount: number;
   durationMs: number;
   tracePath?: string;
+  /**
+   * Set when the run aborted on an LLM API error (e.g. 402 Insufficient
+   * Balance, 401/403 auth). Lets the batch driver fast-abort instead of
+   * burning every remaining instance against an exhausted account.
+   */
+  apiErrorStatus?: number;
+  apiErrorMessage?: string;
+}
+
+/**
+ * Status codes that mean every subsequent instance in a batch will also fail
+ * (billing exhausted or bad credentials), so the batch should stop rather than
+ * grind through the rest producing empty patches.
+ */
+export function isBatchFatalApiStatus(status: number | undefined): boolean {
+  return status === 401 || status === 402 || status === 403;
 }
 
 export async function runSweBenchAgent(
@@ -57,6 +73,8 @@ export async function runSweBenchAgent(
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
 
   const emit = options.emit ?? (() => {});
+  let apiErrorStatus: number | undefined;
+  let apiErrorMessage: string | undefined;
 
   try {
     await engine.runTask(
@@ -67,6 +85,14 @@ export async function runSweBenchAgent(
       },
       (event) => {
         if (event.type === "tool.called") turnCount++;
+        if (event.type === "agent.error") {
+          const msg = String((event.payload as { error?: string })?.error ?? "");
+          const match = msg.match(/LLM API error (\d+)/);
+          if (match) {
+            apiErrorStatus = Number(match[1]);
+            apiErrorMessage = msg;
+          }
+        }
         emit(event);
       },
     );
@@ -94,6 +120,8 @@ export async function runSweBenchAgent(
     turnCount,
     durationMs: Date.now() - startTime,
     tracePath,
+    apiErrorStatus,
+    apiErrorMessage,
   };
 }
 
