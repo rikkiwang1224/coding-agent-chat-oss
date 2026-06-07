@@ -127,7 +127,7 @@ export interface AgentLoopOptions {
   codeGraph?: CodebaseMemoryClient;
 }
 
-const DEFAULT_MAX_TURNS = 50;
+const DEFAULT_MAX_TURNS = 75;
 const DEFAULT_REASON_ROUNDS = 2;
 const DEFAULT_EXPLORATION_BUDGET = 15;
 const MAX_EXPLORATION_NUDGES = 2;

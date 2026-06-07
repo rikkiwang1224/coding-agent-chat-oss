@@ -74,7 +74,7 @@ export class PlanExecutor {
     this.workspaceRoot = options.workspaceRoot;
     this.promptContext = options.promptContext;
     this.maxTurnsPerStep = options.maxTurnsPerStep ?? 10;
-    this.maxTotalTurns = options.maxTotalTurns ?? 50;
+    this.maxTotalTurns = options.maxTotalTurns ?? 75;
     this.signal = options.signal;
     this.callbacks = options.callbacks;
     this.client = new LlmClient(options.config);

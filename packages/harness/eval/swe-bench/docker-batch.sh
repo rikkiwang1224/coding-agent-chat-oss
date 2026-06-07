@@ -15,6 +15,7 @@
 # Tunables (env vars):
 #   KEEP_IMAGES          — LRU keep N swebench/sweb.eval.* images (default 15)
 #   PER_INSTANCE_TIMEOUT — per-instance wall clock seconds (default 600)
+#   FORGELET_MAX_TURNS   — agent tool-call budget per instance (default 75)
 #   MODEL_NAME           — predictions.jsonl model_name_or_path (default forgelet-docker)
 #   FORGELET_SAVE_TRACE  — 0/off → no JSONL; default ON → ~/.forgelet/traces/swe-bench/eval-<runId>/
 #   FORGELET_TRACE_RUN_ID — trace run id (default: basename of <output_dir>)
@@ -45,6 +46,7 @@ touch "$DONE_FILE" "$PRED_FILE" "$SUMMARY"
 
 KEEP_IMAGES="${KEEP_IMAGES:-15}"
 PER_INSTANCE_TIMEOUT="${PER_INSTANCE_TIMEOUT:-600}"
+FORGELET_MAX_TURNS="${FORGELET_MAX_TURNS:-75}"
 MODEL_NAME="${MODEL_NAME:-forgelet-docker}"
 # Reason-as-Sensor (independent reviewer pass before declaring done).
 #   FORGELET_REASON=0 → off (baseline)
@@ -116,7 +118,7 @@ cleanup_images() {
 TOTAL=$(jq 'length' "$INSTANCES_JSON")
 BATCH_START=$(date +%s)
 echo "=== batch: $TOTAL instances → $OUT_DIR ==="
-echo "=== keep-images=$KEEP_IMAGES, per-instance timeout=${PER_INSTANCE_TIMEOUT}s, reason=$FORGELET_REASON, verify=$FORGELET_VERIFY, trace=$SAVE_TRACE (runId=$TRACE_RUN_ID), code_graph=$CODE_GRAPH_STATUS ==="
+echo "=== keep-images=$KEEP_IMAGES, per-instance timeout=${PER_INSTANCE_TIMEOUT}s, max-turns=$FORGELET_MAX_TURNS, reason=$FORGELET_REASON, verify=$FORGELET_VERIFY, trace=$SAVE_TRACE (runId=$TRACE_RUN_ID), code_graph=$CODE_GRAPH_STATUS ==="
 
 for i in $(seq 0 $((TOTAL - 1))); do
   INST_ID=$(jq -r ".[$i].instance_id" "$INSTANCES_JSON")
@@ -161,6 +163,7 @@ for i in $(seq 0 $((TOTAL - 1))); do
       -e FORGELET_VERIFY="$FORGELET_VERIFY" \
       -e FORGELET_VERIFY_TIMEOUT="$FORGELET_VERIFY_TIMEOUT" \
       -e FORGELET_VERIFY_REPO="$REPO" \
+      -e FORGELET_MAX_TURNS="$FORGELET_MAX_TURNS" \
       "${TRACE_ENV[@]}" \
       "${CODE_GRAPH_ENV[@]}" \
       "$IMG" \

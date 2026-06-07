@@ -490,7 +490,7 @@ RUN=lite-mac-debug
 pnpm --filter @forgelet/harness eval:swe -- \
   --instances ~/.forgelet/runs/swe-bench/lite-50/instances.json \
   --output ~/.forgelet/runs/swe-bench/$RUN \
-  --skip-eval --max-turns 50 --timeout-s 600 --run-id $RUN
+  --skip-eval --max-turns 75 --timeout-s 600 --run-id $RUN
 
 # 把 predictions.jsonl scp 到 ECS 后走 §1.5 ECS 评分（不要走 sb-cli）
 scp ~/.forgelet/runs/swe-bench/$RUN/predictions.jsonl ubuntu@$ECS_IP:~/swe-batch/

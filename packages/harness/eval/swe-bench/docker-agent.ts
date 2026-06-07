@@ -38,7 +38,7 @@ async function main(): Promise<number> {
   const workspaceRoot = getArg("workspace") || "/testbed";
   const instancePath = getArg("instance") || "/work/instance.json";
   const patchOut = getArg("patch-out") || "/work/agent.patch";
-  const maxTurns = Number(process.env.FORGELET_MAX_TURNS || getArg("max-turns") || "50");
+  const maxTurns = Number(process.env.FORGELET_MAX_TURNS || getArg("max-turns") || "75");
   const timeoutMs =
     Number(process.env.FORGELET_TIMEOUT_S || getArg("timeout-s") || "600") * 1000;
   const traceRunId = process.env.FORGELET_TRACE_RUN_ID?.trim();
