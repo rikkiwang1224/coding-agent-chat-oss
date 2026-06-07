@@ -10,7 +10,7 @@ import { buildToolDefinitions } from "./code-graph/index.js";
 import type { CodebaseMemoryClient } from "./code-graph/codebase-memory.js";
 import { ToolExecutor } from "./tools/index.js";
 import type { ToolDefinition } from "./types.js";
-import { buildSystemPrompt, type PromptContext } from "./prompt.js";
+import { buildSystemPrompt, withLlmIdentity, type PromptContext } from "./prompt.js";
 import { ContextCompressor, estimateTokens } from "./context-compressor.js";
 import type { HarnessHooks } from "./hooks.js";
 import type { PermissionGuard, PermissionCallback } from "./permissions.js";
@@ -142,6 +142,9 @@ const READ_ONLY_TOOLS = new Set([
   "code_graph_search",
   "code_graph_trace",
   "code_graph_impact",
+  "code_graph_semantic_search",
+  "code_graph_code_search",
+  "code_graph_snippet",
 ]);
 
 export class AgentLoop {
@@ -207,8 +210,14 @@ export class AgentLoop {
     if (options.initialMessages && options.initialMessages.length > 0) {
       this.messages = [...options.initialMessages];
     } else {
+      const promptContext = withLlmIdentity(
+        typeof options.promptContext === "object"
+          ? { ...options.promptContext, workspaceRoot: options.promptContext.workspaceRoot || options.workspaceRoot }
+          : { workspaceRoot: options.promptContext ?? options.workspaceRoot },
+        options.config,
+      );
       this.messages = [
-        { role: "system", content: buildSystemPrompt(options.promptContext ?? options.workspaceRoot) },
+        { role: "system", content: buildSystemPrompt(promptContext) },
         ...(options.threadContext || []),
       ];
     }
@@ -286,10 +295,10 @@ export class AgentLoop {
           this.consecutiveReadOnlyTurns = 0;
           const nudge =
             `[System] You have spent ${this.explorationBudget} consecutive turns ` +
-            `reading/searching without making any edits. Based on your exploration ` +
-            `so far, please attempt a minimal code change now — even if imperfect, ` +
-            `you can iterate after seeing test results. Avoid further reading of ` +
-            `files you have already seen.`;
+            `reading/searching. Based on your exploration so far, please take action: ` +
+            `if the task requires code changes, attempt a minimal edit now — you can iterate after seeing results. ` +
+            `If the task is a question, summarize your findings and answer now. ` +
+            `Do not continue exploring files you have already seen or directories you have already listed.`;
           this.messages.push({ role: "user", content: nudge });
           this.notifyMessagesChanged();
         }

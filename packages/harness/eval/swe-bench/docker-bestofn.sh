@@ -84,7 +84,7 @@ for i in $(seq 0 $((TOTAL - 1))); do
   REPO=$(instance_to_repo "$INST_ID")
   WORK="$LOG_DIR/$INST_ID"
   mkdir -p "$WORK"
-  jq -r ".[$i].problem_statement" "$INSTANCES_JSON" > "$WORK/prompt.txt"
+  jq ".[$i]" "$INSTANCES_JSON" > "$WORK/instance.json"
 
   echo ""
   echo "=========================================="
@@ -121,18 +121,19 @@ for i in $(seq 0 $((TOTAL - 1))); do
         conda activate testbed
         cd /testbed
         BASE=$(git rev-parse HEAD)
-        PROMPT="$(cat /work/prompt.txt)"
         TSX=/forgelet/node_modules/tsx/dist/cli.mjs
+        AGENT=/forgelet/packages/harness/eval/swe-bench/docker-agent.ts
 
         for k in $(seq 1 "$BEST_OF_N"); do
           echo "=== sample $k/$BEST_OF_N (temp=$FORGELET_TEMPERATURE) ==="
           git reset --hard "$BASE" -q && git clean -fdq
-          # Each sample is an independent baseline agent run (verify/reason OFF)
-          # so Best-of-N effect is isolated. --no-trace keeps logs small.
-          timeout "$PER_SAMPLE_TIMEOUT" node "$TSX" /forgelet/apps/cli/src/main.ts \
-            -c /testbed -y --no-trace "$PROMPT" > "/work/cand_${k}.log" 2>&1 \
+          timeout "$PER_SAMPLE_TIMEOUT" node "$TSX" "$AGENT" \
+            --workspace /testbed \
+            --instance /work/instance.json \
+            --patch-out "/work/candidate_${k}.patch" \
+            --no-trace \
+            > "/work/cand_${k}.log" 2>&1 \
             || echo "sample $k agent exit=$?" >> "/work/cand_${k}.log"
-          git diff > "/work/candidate_${k}.patch"
           echo "sample $k patch_lines=$(wc -l < /work/candidate_${k}.patch)"
         done
 

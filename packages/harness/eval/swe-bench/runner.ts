@@ -1,11 +1,6 @@
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { HarnessEngine } from "../../src/harness-engine.js";
-import { SessionStore } from "../../src/session-store.js";
-import type { ReasonHookConfig } from "../../src/agent-loop.js";
-import type { LlmConfig } from "../../src/types.js";
-import { buildSweBenchPrompt } from "./prompt.js";
-import { extractModelPatch } from "./patch.js";
+import { runSweBenchAgent } from "./agent-task.js";
 import { createInstanceWorkspace, ensureRepoCache, removeWorktree } from "./workspace.js";
 import type {
   SweBenchInstance,
@@ -14,6 +9,7 @@ import type {
   SweBenchRunReport,
   SweBenchInstanceResult,
 } from "./types.js";
+import type { LlmConfig } from "../../src/types.js";
 
 export async function loadInstancesFromJson(filePath: string): Promise<SweBenchInstance[]> {
   const raw = (await readFile(filePath, "utf8")).trim();
@@ -79,12 +75,8 @@ async function runSingleInstance(
   worktreesDir: string,
   predictionsPath: string,
 ): Promise<SweBenchInstanceResult> {
-  const startTime = Date.now();
-  let turnCount = 0;
-  let tracePath: string | undefined;
   let workspaceDir: string | undefined;
   const cachePath = path.join(options.reposCacheDir, instance.repo.replace("/", "__"));
-  const sessionId = `swe-${instance.instance_id}`;
 
   try {
     workspaceDir = await createInstanceWorkspace(
@@ -93,77 +85,33 @@ async function runSingleInstance(
       worktreesDir,
     );
 
-    const traceEnabled = options.saveTraces !== false;
-    const reasonHook = buildReasonHook(instance, workspaceDir);
-    const engine = new HarnessEngine({
+    const agentResult = await runSweBenchAgent({
       workspaceRoot: workspaceDir,
+      instance,
       config: options.config,
       maxTurns: options.maxTurns,
-      sessionStore: SessionStore.forWorkspace(workspaceDir),
-      trace: traceEnabled
-        ? {
-            enabled: true,
-            runKind: "swe-bench",
-            runId: options.traceRunId,
-            instanceId: instance.instance_id,
-            workspaceRoot: workspaceDir,
-          }
-        : undefined,
-      reason: reasonHook,
-      protectedPathPatterns: [
-        "test_*",
-        "*_test.py",
-        "tests/",
-        "testing/",
-      ],
+      timeoutMs: options.timeoutS * 1000,
+      traceRunId: options.traceRunId,
+      saveTraces: options.saveTraces !== false,
     });
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), options.timeoutS * 1000);
-
-    try {
-      await engine.runTask(
-        {
-          sessionId,
-          prompt: buildSweBenchPrompt(instance),
-          signal: controller.signal,
-        },
-        (event) => {
-          if (event.type === "tool.called") turnCount++;
-        },
-      );
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      if (!message.includes("abort") && !message.includes("cancel")) {
-        // Still extract patch after non-fatal errors
-      }
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    if (traceEnabled) {
-      const { resolveSweBenchTraceInstancePath } = await import("@forgelet/storage-core");
-      tracePath = resolveSweBenchTraceInstancePath(options.traceRunId, instance.instance_id);
-    }
-
-    const modelPatch = await extractModelPatch(workspaceDir);
     const prediction: SweBenchPrediction = {
       instance_id: instance.instance_id,
       model_name_or_path: options.modelName,
-      model_patch: modelPatch,
+      model_patch: agentResult.modelPatch,
     };
 
     await appendFile(predictionsPath, `${JSON.stringify(prediction)}\n`);
 
     return {
       instance_id: instance.instance_id,
-      success: modelPatch.length > 0,
-      durationMs: Date.now() - startTime,
-      turnCount,
-      patchLength: modelPatch.length,
-      error: modelPatch.length === 0 ? "Empty patch (no git diff)" : undefined,
+      success: agentResult.modelPatch.length > 0,
+      durationMs: agentResult.durationMs,
+      turnCount: agentResult.turnCount,
+      patchLength: agentResult.modelPatch.length,
+      error: agentResult.modelPatch.length === 0 ? "Empty patch (no git diff)" : undefined,
       workspaceDir,
-      tracePath,
+      tracePath: agentResult.tracePath,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -174,6 +122,7 @@ async function runSingleInstance(
     };
     await appendFile(predictionsPath, `${JSON.stringify(emptyPrediction)}\n`);
 
+    let tracePath: string | undefined;
     if (options.saveTraces !== false) {
       const { resolveSweBenchTraceInstancePath } = await import("@forgelet/storage-core");
       tracePath = resolveSweBenchTraceInstancePath(options.traceRunId, instance.instance_id);
@@ -182,8 +131,8 @@ async function runSingleInstance(
     return {
       instance_id: instance.instance_id,
       success: false,
-      durationMs: Date.now() - startTime,
-      turnCount,
+      durationMs: 0,
+      turnCount: 0,
       patchLength: 0,
       error: message,
       workspaceDir,
@@ -227,41 +176,6 @@ export async function filterPendingInstances(
   } catch {
     return instances;
   }
-}
-
-/**
- * Build the Reason-as-Sensor hook for a SWE-bench instance. Gated by the
- * `FORGELET_REASON` env var:
- *   - "0" / unset → disabled (sensor never runs)
- *   - "1" / "on"  → enabled, default 2 rounds
- *   - numeric N   → enabled, N rounds (1..5)
- *
- * The sensor sees the original issue text + hints + the live `git diff` of
- * the worktree, plus a structured digest of recent tool calls.
- */
-function buildReasonHook(
-  instance: SweBenchInstance,
-  workspaceDir: string,
-): ReasonHookConfig | undefined {
-  const raw = (process.env.FORGELET_REASON || "").trim().toLowerCase();
-  if (!raw || raw === "0" || raw === "off" || raw === "false") return undefined;
-
-  let maxRounds = 2;
-  if (raw !== "1" && raw !== "on" && raw !== "true") {
-    const n = Number.parseInt(raw, 10);
-    if (Number.isFinite(n) && n >= 1 && n <= 5) maxRounds = n;
-  }
-
-  const issueText = instance.hints_text?.trim()
-    ? `${instance.problem_statement.trim()}\n\n## Hints from issue discussion\n${instance.hints_text.trim()}`
-    : instance.problem_statement.trim();
-
-  return {
-    enabled: true,
-    issueText,
-    maxRounds,
-    getCurrentDiff: () => extractModelPatch(workspaceDir),
-  };
 }
 
 export type { LlmConfig };

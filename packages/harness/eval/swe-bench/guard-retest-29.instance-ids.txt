@@ -1,0 +1,31 @@
+# Guard A/B retest: Lite 1-300 unresolved instances that modified test files (patch and/or trace).
+# Core 15 (formal C class) + extended 14 (trace/patch evidence, not in C).
+astropy__astropy-14182
+django__django-11019
+django__django-12747
+django__django-13220
+django__django-13448
+django__django-14730
+django__django-15061
+django__django-15213
+django__django-15400
+django__django-15695
+django__django-15819
+django__django-16408
+matplotlib__matplotlib-23987
+pallets__flask-4992
+pallets__flask-5063
+pydata__xarray-3364
+pytest-dev__pytest-5103
+pytest-dev__pytest-5413
+pytest-dev__pytest-8906
+sphinx-doc__sphinx-10325
+sphinx-doc__sphinx-10451
+sphinx-doc__sphinx-8282
+sphinx-doc__sphinx-8435
+sympy__sympy-13043
+sympy__sympy-13773
+sympy__sympy-14317
+sympy__sympy-16281
+sympy__sympy-19254
+sympy__sympy-22840
