@@ -138,13 +138,11 @@ const READ_ONLY_TOOLS = new Set([
   "list_directory",
   "glob_search",
   "todo_write",
-  "code_graph_architecture",
-  "code_graph_search",
-  "code_graph_trace",
-  "code_graph_impact",
-  "code_graph_semantic_search",
-  "code_graph_code_search",
-  "code_graph_snippet",
+  "codebase_overview",
+  "symbol_search",
+  "call_trace",
+  "change_impact",
+  "text_search",
 ]);
 
 export class AgentLoop {

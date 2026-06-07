@@ -191,26 +191,20 @@ export class ToolExecutor {
         case "list_directory":
           result = await this.listDirectory(args);
           break;
-        case "code_graph_architecture":
+        case "codebase_overview":
           result = await this.codeGraphArchitecture(args);
           break;
-        case "code_graph_search":
+        case "symbol_search":
           result = await this.codeGraphSearch(args);
           break;
-        case "code_graph_trace":
+        case "call_trace":
           result = await this.codeGraphTrace(args);
           break;
-        case "code_graph_impact":
+        case "change_impact":
           result = await this.codeGraphImpact();
           break;
-        case "code_graph_semantic_search":
-          result = await this.codeGraphSemanticSearch(args);
-          break;
-        case "code_graph_code_search":
+        case "text_search":
           result = await this.codeGraphCodeSearch(args);
-          break;
-        case "code_graph_snippet":
-          result = await this.codeGraphSnippet(args);
           break;
         default:
           result = { ok: false, output: `Unknown tool: ${toolName}` };
@@ -264,6 +258,12 @@ export class ToolExecutor {
   }
 
   private async readFile(args: Record<string, unknown>): Promise<ToolExecutionResult> {
+    // Mode 2: qualified_name → delegate to code graph snippet
+    const qualifiedName = typeof args.qualified_name === "string" ? args.qualified_name.trim() : "";
+    if (qualifiedName) {
+      return this.codeGraphSnippet({ qualified_name: qualifiedName });
+    }
+
     const filePath = this.resolvePath(String(args.path || ""));
 
     // Reading a directory used to throw EISDIR and waste a turn. Return a
@@ -749,12 +749,17 @@ export class ToolExecutor {
       if (filePatterns.length === 1) {
         if (result.parsed && typeof result.parsed === "object") {
           const parsed = result.parsed as Record<string, unknown>;
-          if (parsed.total === 0 && rawFilePattern) {
+          if (parsed.total === 0) {
+            // Auto-fallback to BM25 semantic search before returning empty.
+            const semanticResult = await this.semanticFallback(namePattern, limit);
+            if (semanticResult) return semanticResult;
+
             return {
               ok: true,
               output: this.truncate(
-                `No symbols found for name_pattern="${namePattern}" scoped to "${rawFilePattern}" (normalized: "${filePattern}"). ` +
-                  `Try code_graph_semantic_search or code_graph_code_search instead.`,
+                `No symbols found for name_pattern="${namePattern}"` +
+                  (rawFilePattern ? ` scoped to "${rawFilePattern}" (normalized: "${filePattern}").` : ".") +
+                  ` Try text_search instead.`,
               ),
             };
           }
@@ -765,10 +770,75 @@ export class ToolExecutor {
       mergedParsed = this.mergeSearchGraphParsed(mergedParsed, result.parsed);
     }
 
+    // Multi-pattern merge: check if ALL results are empty → try semantic fallback
+    if (mergedParsed) {
+      const results = Array.isArray(mergedParsed.results) ? mergedParsed.results : [];
+      if (results.length === 0) {
+        const semanticResult = await this.semanticFallback(namePattern, limit);
+        if (semanticResult) return semanticResult;
+      }
+    }
+
     const formatted = mergedParsed
       ? formatGraphSearchResults(mergedParsed, lastRaw) + this.snippetNextStepHint(mergedParsed)
       : lastRaw;
     return { ok: anyOk, output: this.truncate(formatted) };
+  }
+
+  /**
+   * BM25 semantic fallback for code_graph_search: extract keywords from the
+   * name_pattern regex and run a natural-language search. Returns undefined
+   * when the fallback also finds nothing (caller shows the original "no results").
+   */
+  private async semanticFallback(
+    namePattern: string,
+    limit: number,
+  ): Promise<ToolExecutionResult | undefined> {
+    if (!this.codeGraph) return undefined;
+    // Convert regex-style name_pattern to keyword query:
+    //   "download.*template|downloadTmp" → "download template downloadTmp"
+    const keywords = namePattern
+      .replace(/\.\*|\.\+/g, " ")
+      .replace(/[\\^$()[\]{}+?|]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!keywords || keywords === ".*" || keywords.length < 2) return undefined;
+
+    const result = await this.codeGraph.semanticQuery({ query: keywords, limit });
+    if (!result.ok) {
+      // Older binaries may lack semantic_query; try searchCode as a last resort.
+      if (result.output.includes("unknown tool")) {
+        const codeFallback = await this.codeGraph.searchCode({ query: keywords, limit });
+        if (codeFallback.ok) {
+          const formatted = formatCodeSearchResults(codeFallback.parsed, codeFallback.output);
+          if (!formatted.includes("No matches found")) {
+            return {
+              ok: true,
+              output: this.truncate(
+                `[Structural search found nothing — showing BM25 keyword results for "${keywords}"]\n${formatted}`,
+              ),
+            };
+          }
+        }
+      }
+      return undefined;
+    }
+
+    if (result.parsed && typeof result.parsed === "object") {
+      const parsed = result.parsed as Record<string, unknown>;
+      const results = Array.isArray(parsed.results) ? parsed.results : [];
+      if (results.length === 0) return undefined;
+    }
+
+    const formatted =
+      formatGraphSearchResults(result.parsed, result.output) +
+      (result.ok ? this.snippetNextStepHint(result.parsed) : "");
+    return {
+      ok: true,
+      output: this.truncate(
+        `[Structural search found nothing — showing BM25 keyword results for "${keywords}"]\n${formatted}`,
+      ),
+    };
   }
 
   private mergeSearchGraphParsed(
@@ -837,44 +907,10 @@ export class ToolExecutor {
     return { ok: result.ok, output: this.truncate(formatted) };
   }
 
-  private async codeGraphSemanticSearch(args: Record<string, unknown>): Promise<ToolExecutionResult> {
-    if (!this.codeGraph) return this.codeGraphUnavailable();
-    const query = String(args.query ?? "").trim();
-    if (!query) return { ok: false, output: "query is required" };
-
-    const limit =
-      typeof args.limit === "number" && Number.isFinite(args.limit)
-        ? Math.min(Math.max(1, args.limit), 50)
-        : 20;
-
-    const result = await this.codeGraph.semanticQuery({ query, limit });
-    // Graceful degradation: older binaries may lack semantic_query.
-    if (!result.ok && result.output.includes("unknown tool")) {
-      const fallback = await this.codeGraph.searchCode({ query, limit });
-      if (!fallback.ok && fallback.output.includes("unknown tool")) {
-        return {
-          ok: false,
-          output:
-            "Natural-language graph search is not available in this version of codebase-memory-mcp. " +
-            "Use code_graph_search or code_graph_code_search instead. " +
-            "Upgrade codebase-memory-mcp to v0.7.0+.",
-        };
-      }
-      return { ok: fallback.ok, output: this.truncate(formatCodeSearchResults(fallback.parsed, fallback.output)) };
-    }
-
-    // Format results in grep-like style and append a snippet hint when we
-    // have qualified names — steers the model toward the ideal 2-step path.
-    const output =
-      formatGraphSearchResults(result.parsed, result.output) +
-      (result.ok ? this.snippetNextStepHint(result.parsed) : "");
-    return { ok: result.ok, output: this.truncate(output) };
-  }
-
   /**
-   * Build the "[Next step] code_graph_snippet(qualified_name=…)" steer from a
-   * search payload, so both code_graph_search and code_graph_semantic_search
-   * push the model down the cheap search→snippet path instead of re-searching.
+   * Build the "[Next step] read_file(qualified_name=…)" steer from a search
+   * payload, pushing the model down the cheap search→read path instead of
+   * re-searching.
    */
   private snippetNextStepHint(parsed: unknown): string {
     if (!parsed || typeof parsed !== "object") return "";
@@ -887,7 +923,7 @@ export class ToolExecutor {
     if (!withQName) return "";
     const qn = String((withQName as Record<string, unknown>).qualified_name);
     return (
-      `\n\n[Next step] Use code_graph_snippet(qualified_name="${qn}") to read the source. ` +
+      `\n\n[Next step] Use read_file(qualified_name="${qn}") to read the source. ` +
       `Copy the exact [qualified_name] from a result above — do NOT re-run the same search.`
     );
   }
@@ -934,9 +970,24 @@ export class ToolExecutor {
         lastRaw = result.output;
         if (queries.length === 1 && scopes.length === 1) {
           const formatted = formatCodeSearchResults(result.parsed, result.output);
+          if (!formatted.includes("No matches found")) {
+            return { ok: true, output: this.truncate(formatted) };
+          }
+          // Primary search returned empty — try auto-recovery before giving up.
+          const recovered = await this.codeSearchAutoRecover(rawQuery, rawFilePattern, limit);
+          if (recovered) return recovered;
           return { ok: true, output: this.truncate(formatted) };
         }
         mergedParsed = this.mergeSearchCodeParsed(mergedParsed, result.parsed);
+      }
+    }
+
+    // Multi-query/scope merge: check if ALL results are empty
+    if (mergedParsed) {
+      const results = Array.isArray(mergedParsed.results) ? mergedParsed.results : [];
+      if (results.length === 0) {
+        const recovered = await this.codeSearchAutoRecover(rawQuery, rawFilePattern, limit);
+        if (recovered) return recovered;
       }
     }
 
@@ -944,6 +995,54 @@ export class ToolExecutor {
       ? formatCodeSearchResults(mergedParsed, lastRaw)
       : lastRaw;
     return { ok: true, output: this.truncate(formatted) };
+  }
+
+  /**
+   * Auto-recovery for code_graph_code_search when primary search returns empty.
+   *
+   * Strategy (tried in order):
+   * 1. If file_pattern was specified, retry WITHOUT file_pattern (scope was too narrow)
+   * 2. Fall back to grep (handles regex patterns that CBM's literal search can't)
+   */
+  private async codeSearchAutoRecover(
+    rawQuery: string,
+    rawFilePattern: string | undefined,
+    limit: number,
+  ): Promise<ToolExecutionResult | undefined> {
+    // Strategy 1: broaden scope — retry without file_pattern
+    if (rawFilePattern && this.codeGraph) {
+      const queries = rawQuery.includes("|") ? splitAndCleanCodeSearchQuery(rawQuery) : [rawQuery];
+      for (const query of queries) {
+        const broader = await this.codeGraph.searchCode({ query, limit });
+        if (broader.ok) {
+          const formatted = formatCodeSearchResults(broader.parsed, broader.output);
+          if (!formatted.includes("No matches found")) {
+            return {
+              ok: true,
+              output: this.truncate(
+                `[No results with file_pattern="${rawFilePattern}" — broadened to full project]\n${formatted}`,
+              ),
+            };
+          }
+        }
+      }
+    }
+
+    // Strategy 2: fall back to grep (handles regex that CBM literal search misses)
+    const grepResult = await this.grepSearch({
+      pattern: rawQuery,
+      path: rawFilePattern ?? undefined,
+    });
+    if (grepResult.ok && !grepResult.output.toLowerCase().includes("no matches")) {
+      return {
+        ok: true,
+        output: this.truncate(
+          `[Graph search found nothing — falling back to grep]\n${grepResult.output}`,
+        ),
+      };
+    }
+
+    return undefined;
   }
 
   private mergeSearchCodeParsed(
@@ -1055,7 +1154,7 @@ export class ToolExecutor {
       ok: false,
       output: this.truncate(
         `No symbol matched qualified_name="${qualifiedName}". ` +
-          `Candidates for "${leaf}" (copy an exact [qualified_name] into code_graph_snippet):\n${list}`,
+          `Candidates for "${leaf}" (copy an exact [qualified_name] into read_file):\n${list}`,
       ),
     };
   }
@@ -1312,14 +1411,14 @@ export function buildArchitectureSummary(raw: Record<string, unknown>): string {
       .map((m) => `  "${m.name}"  →  ${m.path}  (${m.fileCount} symbols)`)
       .join("\n");
     sections.push(
-      `## Detected business modules\nUse these as file_pattern in code_graph_search:\n${moduleList}`,
+      `## Detected business modules\nUse these as file_pattern in symbol_search:\n${moduleList}`,
     );
   } else if (!fileTree?.length) {
     // file_tree missing — likely caused by using filtered aspects instead of "all"
     sections.push(
       `## ⚠ Module map unavailable\n` +
       `The file_tree was not included in this response — likely because aspects was not ["all"]. ` +
-      `Re-run code_graph_architecture(aspects=["all"]) to get the module map needed to scope searches. ` +
+      `Re-run codebase_overview(aspects=["all"]) to get the module map needed to scope searches. ` +
       `Without the module map, you will need to use glob_search or list_directory to find relevant modules.`,
     );
   }
@@ -1360,9 +1459,9 @@ export function buildArchitectureSummary(raw: Record<string, unknown>): string {
 
   // --- 7. Actionable hints ----------------------------------------------
   const hints: string[] = [
-    `To explore a specific module: code_graph_search(file_pattern="<module-name>", name_pattern="<keyword>")`,
-    `To find status/config in a module: code_graph_search(file_pattern="<module-name>", name_pattern="status|config|enum")`,
-    `To search text in a module: code_graph_code_search(query="<text>", file_pattern="<module-name>")`,
+    `To explore a specific module: symbol_search(file_pattern="<module-name>", name_pattern="<keyword>")`,
+    `To find status/config in a module: symbol_search(file_pattern="<module-name>", name_pattern="status|config|enum")`,
+    `To search text in a module: text_search(query="<text>", file_pattern="<module-name>")`,
   ];
   sections.push(`## Next steps\n${hints.join("\n")}`);
 

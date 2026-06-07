@@ -25,7 +25,7 @@ async function withExecutor(
   }
 }
 
-describe("code_graph_snippet recovery (P3)", () => {
+describe("read_file(qualified_name) snippet recovery", () => {
   it("auto-resolves a unique match when the qualified_name misses", async () => {
     let snippetCalls = 0;
     const stub: Partial<CodebaseMemoryClient> = {
@@ -41,7 +41,7 @@ describe("code_graph_snippet recovery (P3)", () => {
       },
     };
     await withExecutor(stub, async (ex) => {
-      const r = await ex.execute("code_graph_snippet", { qualified_name: "wrong.guess.prepare" });
+      const r = await ex.execute("read_file", { qualified_name: "wrong.guess.prepare" });
       expect(r.ok).toBe(true);
       expect(r.output).toContain("Auto-resolved");
       expect(r.output).toContain("def prepare");
@@ -65,7 +65,7 @@ describe("code_graph_snippet recovery (P3)", () => {
       },
     };
     await withExecutor(stub, async (ex) => {
-      const r = await ex.execute("code_graph_snippet", { qualified_name: "pkg.get" });
+      const r = await ex.execute("read_file", { qualified_name: "pkg.get" });
       expect(r.ok).toBe(false);
       expect(r.output).toContain("Candidates for \"get\"");
       expect(r.output).toContain("pkg.a.A.get");
@@ -83,23 +83,23 @@ describe("code_graph_snippet recovery (P3)", () => {
       },
     };
     await withExecutor(stub, async (ex) => {
-      const r = await ex.execute("code_graph_snippet", { qualified_name: "pkg.nonexistent" });
+      const r = await ex.execute("read_file", { qualified_name: "pkg.nonexistent" });
       expect(r.ok).toBe(false);
       expect(r.output).toMatch(/symbol not found|search_graph/i);
     });
   });
 
-  it("code_graph_search appends a snippet next-step hint", async () => {
+  it("symbol_search appends a read_file next-step hint", async () => {
     const stub: Partial<CodebaseMemoryClient> = {
       async searchGraph() {
         return ok({ total: 1, results: [{ name: "prepare", qualified_name: "pkg.models.Request.prepare", file_path: "models.py", line: 10 }] });
       },
     };
     await withExecutor(stub, async (ex) => {
-      const r = await ex.execute("code_graph_search", { name_pattern: "prepare" });
+      const r = await ex.execute("symbol_search", { name_pattern: "prepare" });
       expect(r.ok).toBe(true);
       expect(r.output).toContain("[Next step]");
-      expect(r.output).toContain('code_graph_snippet(qualified_name="pkg.models.Request.prepare")');
+      expect(r.output).toContain('read_file(qualified_name="pkg.models.Request.prepare")');
     });
   });
 });

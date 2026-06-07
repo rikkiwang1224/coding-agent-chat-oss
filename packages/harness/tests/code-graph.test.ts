@@ -34,11 +34,20 @@ describe("code graph integration", () => {
     expect(withGraph).toHaveLength(
       TOOL_DEFINITIONS.length - TOOLS_HIDDEN_WHEN_GRAPH_ENABLED.size + CODE_GRAPH_TOOL_DEFINITIONS.length,
     );
-    expect(withGraph.map((t) => t.function.name)).toContain("code_graph_architecture");
-    expect(withGraph.map((t) => t.function.name)).toContain("code_graph_search");
-    expect(withGraph.map((t) => t.function.name)).toContain("code_graph_semantic_search");
-    expect(withGraph.map((t) => t.function.name)).toContain("code_graph_code_search");
-    expect(withGraph.map((t) => t.function.name)).toContain("code_graph_snippet");
+    expect(withGraph.map((t) => t.function.name)).toContain("codebase_overview");
+    expect(withGraph.map((t) => t.function.name)).toContain("symbol_search");
+    expect(withGraph.map((t) => t.function.name)).toContain("text_search");
+    expect(withGraph.map((t) => t.function.name)).toContain("call_trace");
+    expect(withGraph.map((t) => t.function.name)).toContain("change_impact");
+    // Legacy names no longer registered as tool definitions
+    expect(withGraph.map((t) => t.function.name)).not.toContain("code_graph_architecture");
+    expect(withGraph.map((t) => t.function.name)).not.toContain("code_graph_search");
+    expect(withGraph.map((t) => t.function.name)).not.toContain("code_graph_code_search");
+    expect(withGraph.map((t) => t.function.name)).not.toContain("code_graph_snippet");
+    expect(withGraph.map((t) => t.function.name)).not.toContain("code_graph_semantic_search");
+    // read_file should have qualified_name parameter
+    const readFileDef = withGraph.find((t) => t.function.name === "read_file");
+    expect(readFileDef?.function.parameters.properties).toHaveProperty("qualified_name");
   });
 
   it("buildSystemPrompt includes code graph tools and routing when enabled", () => {
@@ -46,14 +55,19 @@ describe("code graph integration", () => {
       workspaceRoot: "/tmp/ws",
       codeGraphEnabled: true,
     });
-    expect(prompt).toContain("code_graph_architecture");
-    expect(prompt).toContain("code_graph_search");
-    expect(prompt).toContain("code_graph_semantic_search");
-    expect(prompt).toContain("code_graph_code_search");
-    expect(prompt).toContain("code_graph_snippet");
-    expect(prompt).toContain("Tool routing");
+    expect(prompt).toContain("codebase_overview");
+    expect(prompt).toContain("symbol_search");
+    expect(prompt).toContain("text_search");
+    expect(prompt).toContain("call_trace");
+    expect(prompt).toContain("change_impact");
+    expect(prompt).toContain("qualified_name");
+    // No legacy code_graph_* names in prompt
+    expect(prompt).not.toContain("code_graph_");
+    expect(prompt).toContain("Search tool routing");
+    expect(prompt).toContain("3 orthogonal search tools");
     expect(prompt).toContain("Structural completeness");
     expect(prompt).toContain("Finish with impact");
+    expect(prompt).toContain("BM25");
   });
 
   it("normalizeSearchGraphFilePattern wraps module names for SQL LIKE", () => {
@@ -122,9 +136,9 @@ describe("code graph integration", () => {
       codeGraphEnabled: true,
     });
     expect(prompt).toContain("Example trajectory");
-    expect(prompt).toContain("code_graph_semantic_search(query=");
-    expect(prompt).toContain("code_graph_snippet(qualified_name=");
-    expect(prompt).toContain("2-3 tool calls is the ideal");
+    expect(prompt).toContain("symbol_search(name_pattern=");
+    expect(prompt).toContain('read_file(qualified_name=');
+    expect(prompt).toContain("2 tool calls");
   });
 });
 

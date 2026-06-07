@@ -5,11 +5,11 @@ export const CODE_GRAPH_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "code_graph_architecture",
+      name: "codebase_overview",
       description:
         "Get a module map of the indexed codebase: business modules with file counts, key symbols, entry points, routes. " +
-        "Returns a 'Detected business modules' section listing module names you can pass as file_pattern to code_graph_search. " +
-        "ALWAYS use this first on an unfamiliar repo, then extract the relevant module name and use code_graph_search(file_pattern=<module>) to narrow down.",
+        "Returns a 'Detected business modules' section listing module names you can pass as file_pattern to symbol_search. " +
+        "ALWAYS use this first on an unfamiliar repo, then extract the relevant module name and use symbol_search(file_pattern=<module>) to narrow down.",
       parameters: {
         type: "object",
         properties: {
@@ -27,14 +27,16 @@ export const CODE_GRAPH_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "code_graph_search",
+      name: "symbol_search",
       description:
-        "Search the indexed codebase graph for functions, classes, methods, and variables by SYMBOL NAME and file location. " +
-        "Best used AFTER code_graph_architecture: take a module name from the module map and pass it as file_pattern to scope your search. " +
+        "Search the indexed codebase for functions, classes, methods, and variables by SYMBOL NAME and file location. " +
+        "Also handles natural language queries: when structural search yields no results it automatically falls back to BM25 keyword matching. " +
+        "Best used AFTER codebase_overview: take a module name from the module map and pass it as file_pattern to scope your search. " +
         "name_pattern matches symbol names (function/variable/class names), NOT file paths, route strings, or URL patterns. " +
-        "For route/URL lookup (e.g. '/purchase/order/pending'), use grep_search instead. " +
-        "Examples: code_graph_search(file_pattern=\"purchase-request\", name_pattern=\"status|Status\") to find status definitions. " +
-        "code_graph_search(file_pattern=\"purchase-order\", label=\"File\") to list all files in the module. " +
+        "For route/URL lookup (e.g. '/purchase/order/pending'), use text_search instead. " +
+        "Examples: symbol_search(file_pattern=\"purchase-request\", name_pattern=\"status|Status\") to find status definitions. " +
+        "symbol_search(file_pattern=\"purchase-order\", label=\"File\") to list all files in the module. " +
+        "symbol_search(name_pattern=\"download template xlsx\") for natural language when you don't know exact symbol names. " +
         "After results, read_file the file_path before editing.",
       parameters: {
         type: "object",
@@ -42,7 +44,7 @@ export const CODE_GRAPH_TOOL_DEFINITIONS: ToolDefinition[] = [
           name_pattern: {
             type: "string",
             description:
-              'Regex matched against symbol names (default ".*"). Example: "transform", "Status", "config"',
+              'Regex matched against symbol names (default ".*"). Also accepts natural language keywords — BM25 fallback kicks in automatically. Example: "transform", "Status", "download template xlsx"',
           },
           label: {
             type: "string",
@@ -65,7 +67,7 @@ export const CODE_GRAPH_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "code_graph_trace",
+      name: "call_trace",
       description:
         "Trace call relationships for a function or method: who calls it (inbound), what it calls (outbound), or both. " +
         "Use after locating a symbol to understand impact before and after your edit.",
@@ -93,7 +95,7 @@ export const CODE_GRAPH_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "code_graph_impact",
+      name: "change_impact",
       description:
         "Analyze uncommitted git changes: map modified files to affected symbols and blast radius. " +
         "Use before declaring done to see if related methods still need the same fix.",
@@ -107,43 +109,19 @@ export const CODE_GRAPH_TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     type: "function",
     function: {
-      name: "code_graph_semantic_search",
-      description:
-        "BM25 keyword search across indexed symbols using natural language (search_graph query=). " +
-        "Best for finding code when you don't know exact symbol names. " +
-        "Example: code_graph_semantic_search(query=\"download template for purchase order xlsx\") " +
-        "finds functions like handleDownLoadASNTemplate, onDownTmp even when names don't match your terms. " +
-        "Use this BEFORE grep_search when the user describes functionality in natural language.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "Natural language description of what you're looking for.",
-          },
-          limit: {
-            type: "integer",
-            description: "Max results (default 20).",
-          },
-        },
-        required: ["query"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "code_graph_code_search",
+      name: "text_search",
       description:
         "Graph-augmented text search over indexed files. Like grep but only searches indexed project files " +
         "(skips node_modules, dist, etc.) and returns results with graph context (which function/class the match is in). " +
-        "Use for finding string literals, route paths, config values, or comments.",
+        "Use for finding string literals, route paths, config values, error messages, or comments. " +
+        "Supports regex patterns — if text search yields no results, automatically retries with regex. " +
+        "If file_pattern is too narrow and yields nothing, automatically broadens the scope.",
       parameters: {
         type: "object",
         properties: {
           query: {
             type: "string",
-            description: "Text to search for in source code.",
+            description: "Text or regex pattern to search for in source code.",
           },
           file_pattern: {
             type: "string",
@@ -156,26 +134,6 @@ export const CODE_GRAPH_TOOL_DEFINITIONS: ToolDefinition[] = [
           },
         },
         required: ["query"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "code_graph_snippet",
-      description:
-        "Read the source code of a specific function or method by its qualified name. " +
-        "Returns ONLY the function body — much cheaper than read_file for the whole file. " +
-        "Use search_graph or semantic_search first to find the qualified_name, then call this to read the implementation.",
-      parameters: {
-        type: "object",
-        properties: {
-          qualified_name: {
-            type: "string",
-            description: "Qualified name of the symbol (from search_graph or semantic_search results).",
-          },
-        },
-        required: ["qualified_name"],
       },
     },
   },
