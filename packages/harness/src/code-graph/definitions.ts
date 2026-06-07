@@ -12,14 +12,7 @@ export const CODE_GRAPH_TOOL_DEFINITIONS: ToolDefinition[] = [
         "ALWAYS use this first on an unfamiliar repo, then extract the relevant module name and use symbol_search(file_pattern=<module>) to narrow down.",
       parameters: {
         type: "object",
-        properties: {
-          aspects: {
-            type: "array",
-            items: { type: "string" },
-            description:
-              'Sections to include. Almost always use ["all"] (the default) — this returns the module map needed to scope subsequent searches. Only use specific aspects like ["entry_points","routes"] if you have already seen the full module map in this session.',
-          },
-        },
+        properties: {},
         required: [],
       },
     },

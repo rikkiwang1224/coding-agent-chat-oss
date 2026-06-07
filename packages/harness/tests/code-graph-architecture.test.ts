@@ -55,13 +55,15 @@ describe("buildArchitectureSummary — module detection", () => {
     };
     const out = buildArchitectureSummary(raw);
     expect(out).toContain("## Detected business modules");
-    expect(out).toMatch(/"purchase-order"/);
-    expect(out).toMatch(/"purchase-request"/);
-    expect(out).not.toMatch(/"tests"/);
+    // Full paths are used as file_pattern values (e.g. "src/purchase-order")
+    expect(out).toMatch(/"src\/purchase-order"/);
+    expect(out).toMatch(/"src\/purchase-request"/);
+    expect(out).not.toMatch(/"src\/tests"/);
   });
 
-  it("warns when neither packages nor file_tree are available", () => {
+  it("still produces a valid summary when neither packages nor file_tree are available", () => {
     const out = buildArchitectureSummary({ total_nodes: 1 });
-    expect(out).toContain("Module map unavailable");
+    expect(out).toContain("Project overview");
+    expect(out).not.toContain("Detected business modules");
   });
 });

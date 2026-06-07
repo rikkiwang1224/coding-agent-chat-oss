@@ -695,16 +695,12 @@ export class ToolExecutor {
     };
   }
 
-  private async codeGraphArchitecture(args: Record<string, unknown>): Promise<ToolExecutionResult> {
+  private async codeGraphArchitecture(_args: Record<string, unknown>): Promise<ToolExecutionResult> {
     if (!this.codeGraph) return this.codeGraphUnavailable();
-    const client = this.codeGraph;
 
-    let aspects: string[] | undefined;
-    if (Array.isArray(args.aspects)) {
-      aspects = args.aspects.map((a) => String(a).trim()).filter(Boolean);
-    }
-
-    const result = await client.getArchitecture(aspects?.length ? { aspects } : undefined);
+    // Always request all aspects — the summary is already compact, and
+    // module detection (the primary value) requires file_tree + packages.
+    const result = await this.codeGraph.getArchitecture({ aspects: ["all"] });
     if (!result.ok || !result.parsed) {
       return { ok: result.ok, output: this.truncate(result.output) };
     }
@@ -1400,26 +1396,31 @@ export function buildArchitectureSummary(raw: Record<string, unknown>): string {
   }
 
   // --- 3. Business modules (auto-detected) ------------------------------
-  // Prefer the indexer's own `packages` ranking (works for any language,
-  // incl. snake_case Python packages). Fall back to the file_tree heuristic
-  // only when `packages` is absent.
+  // Use both detection strategies and pick the one with better granularity.
+  // Package-based detection is language-agnostic (good for Python), while
+  // fileTree-based detection handles monorepos with deep nesting better.
   const packageModules = detectModulesFromPackages(raw.packages);
+  const treeModules = detectBusinessModules(fileTree);
+
+  // Prefer whichever yields more fine-grained results. If package detection
+  // returned only oversized modules (all > MAX_MODULE_SYMBOLS), the tree
+  // detection likely found better sub-modules.
+  const allPackagesOversized =
+    packageModules.length > 0 && packageModules.every((m) => m.fileCount > MAX_MODULE_SYMBOLS);
   const businessModules =
-    packageModules.length > 0 ? packageModules : detectBusinessModules(fileTree);
+    packageModules.length > 0 && !allPackagesOversized
+      ? packageModules
+      : treeModules.length > 0
+        ? treeModules
+        : packageModules; // fallback: even oversized is better than nothing
+
   if (businessModules.length > 0) {
+    const unit = businessModules === packageModules ? "symbols" : "files";
     const moduleList = businessModules
-      .map((m) => `  "${m.name}"  →  ${m.path}  (${m.fileCount} symbols)`)
+      .map((m) => `  "${m.name}"  →  ${m.path}  (${m.fileCount} ${unit})`)
       .join("\n");
     sections.push(
       `## Detected business modules\nUse these as file_pattern in symbol_search:\n${moduleList}`,
-    );
-  } else if (!fileTree?.length) {
-    // file_tree missing — likely caused by using filtered aspects instead of "all"
-    sections.push(
-      `## ⚠ Module map unavailable\n` +
-      `The file_tree was not included in this response — likely because aspects was not ["all"]. ` +
-      `Re-run codebase_overview(aspects=["all"]) to get the module map needed to scope searches. ` +
-      `Without the module map, you will need to use glob_search or list_directory to find relevant modules.`,
     );
   }
 
@@ -1541,63 +1542,231 @@ function isTestLikeName(name: string): boolean {
 }
 
 /**
+ * When a module exceeds this symbol count, it's considered too coarse and
+ * should be decomposed into sub-modules (if possible).
+ */
+const MAX_MODULE_SYMBOLS = 150;
+const MIN_MODULE_SYMBOLS = 3;
+
+/**
  * Preferred module detection: use the indexer's own `packages` ranking. This
  * is language-agnostic and works for snake_case Python packages (django,
  * sympy, …) where the old kebab-case file_tree heuristic produced nothing.
  * Filters out test packages and build/infra noise, ranks by symbol count.
+ *
+ * Oversized packages (> MAX_MODULE_SYMBOLS) are automatically decomposed:
+ * if sub-packages exist in the list (e.g. "django.db" under "django"), the
+ * sub-packages replace the parent so that the agent gets narrower scopes.
  */
 function detectModulesFromPackages(
   packages: unknown,
 ): { name: string; path: string; fileCount: number }[] {
   if (!Array.isArray(packages)) return [];
-  const modules: { name: string; path: string; fileCount: number }[] = [];
+
+  // First pass: collect all valid packages
+  const all: { name: string; count: number }[] = [];
   const seen = new Set<string>();
   for (const entry of packages as PackageEntry[]) {
     const name = typeof entry?.name === "string" ? entry.name.trim() : "";
     if (!name || seen.has(name)) continue;
     if (isTestLikeName(name) || NON_BUSINESS_NAME.test(name)) continue;
-    // Require a real identifier-ish name (skip parsed config files, etc.).
-    if (!/^[A-Za-z_][\w.-]*$/.test(name)) continue;
+    if (!/^[A-Za-z_][\w./-]*$/.test(name)) continue;
     const count = typeof entry?.node_count === "number" ? entry.node_count : 0;
-    if (count < 3) continue;
+    if (count < MIN_MODULE_SYMBOLS) continue;
     seen.add(name);
-    // `name` doubles as a file_pattern (matched as a path substring).
-    modules.push({ name, path: name, fileCount: count });
+    all.push({ name, count });
   }
-  return modules.sort((a, b) => b.fileCount - a.fileCount).slice(0, 15);
+
+  // Second pass: hierarchical decomposition of oversized packages.
+  // Only take DIRECT sub-packages when decomposing (not grandchildren),
+  // then recurse so deeply nested packages also get decomposed.
+  const modules: { name: string; path: string; fileCount: number }[] = [];
+  const consumed = new Set<string>();
+
+  function directChildren(parentName: string): typeof all {
+    const prefix = parentName + ".";
+    const altPrefix = parentName + "/";
+    return all.filter((s) => {
+      if (s.name === parentName || consumed.has(s.name)) return false;
+      if (!s.name.startsWith(prefix) && !s.name.startsWith(altPrefix)) return false;
+      // Must be a direct child: no further separators after the prefix
+      const rest = s.name.startsWith(prefix)
+        ? s.name.slice(prefix.length)
+        : s.name.slice(altPrefix.length);
+      return !rest.includes(".") && !rest.includes("/");
+    });
+  }
+
+  function decompose(pkg: { name: string; count: number }): void {
+    if (consumed.has(pkg.name)) return;
+    consumed.add(pkg.name);
+
+    if (pkg.count > MAX_MODULE_SYMBOLS) {
+      const kids = directChildren(pkg.name);
+      if (kids.length > 0) {
+        for (const kid of kids) decompose(kid);
+        return;
+      }
+    }
+
+    modules.push({ name: pkg.name, path: pkg.name, fileCount: pkg.count });
+  }
+
+  for (const pkg of all) decompose(pkg);
+
+  return modules.sort((a, b) => b.fileCount - a.fileCount).slice(0, 20);
 }
 
 /**
- * Fallback module detection from the file tree (used only when `packages` is
- * unavailable). Surfaces substantial source directories, skipping test/infra.
+ * Threshold for fileTree-based detection.  Directories with more files than
+ * this are decomposed into children to find a better granularity.
+ */
+const MAX_MODULE_FILES = 80;
+const MIN_MODULE_FILES = 3;
+
+/**
+ * Detect business modules from the file tree using recursive decomposition.
+ *
+ * Strategy: walk the directory tree top-down.
+ *  - If a dir is "too big" (> MAX files) → recurse into its children.
+ *  - If a dir has ≥2 substantial child modules → surface the children.
+ *  - Otherwise → emit the dir itself as a module.
+ *  - Skip dirs that are clearly infra/test/build.
+ *
+ * Uses full relative path (e.g. "domains/scm-execution") as both the display
+ * name and the file_pattern value, so the agent gets precise scoping.
  */
 function detectBusinessModules(
   fileTree: FileTreeNode[] | undefined,
 ): { name: string; path: string; fileCount: number }[] {
   if (!fileTree) return [];
 
-  const modules: { name: string; path: string; fileCount: number }[] = [];
-  const seen = new Set<string>();
+  // Index dirs by path; track both declared children count and computed total
+  const dirMap = new Map<string, { declaredCount: number; countedFiles: number; totalCount: number }>();
+  const hasFileEntries = fileTree.some((n) => n.type === "file");
 
   for (const node of fileTree) {
     if (!node.path || node.type !== "dir") continue;
-    const parts = node.path.split("/");
-    if (parts.length < 1 || parts.length > 8) continue;
+    const declared = typeof node.children === "number" ? node.children : 0;
+    dirMap.set(node.path, { declaredCount: declared, countedFiles: 0, totalCount: 0 });
+  }
 
-    const name = parts[parts.length - 1];
-    if (name.startsWith(".") || isTestLikeName(name) || NON_BUSINESS_NAME.test(name)) continue;
-
-    if (seen.has(name)) continue;
-    seen.add(name);
-
-    const childCount = typeof node.children === "number" ? node.children : 0;
-    if (childCount >= 3) {
-      modules.push({ name, path: node.path, fileCount: childCount });
+  // Count file entries into their ancestor dirs
+  if (hasFileEntries) {
+    for (const node of fileTree) {
+      if (!node.path || node.type !== "file") continue;
+      const parts = node.path.split("/");
+      for (let d = 1; d < parts.length; d++) {
+        const dirPath = parts.slice(0, d).join("/");
+        const entry = dirMap.get(dirPath);
+        if (entry) entry.countedFiles++;
+      }
     }
   }
 
-  // Sort by file count descending — most substantial modules first
-  return modules.sort((a, b) => b.fileCount - a.fileCount).slice(0, 20);
+  // Compute totalCount for each dir: use the best available data.
+  // For mixed trees (file entries + dir children counts), use MAX of the two
+  // to avoid undercounting from partial file listings.
+  for (const [, info] of dirMap) {
+    info.totalCount = Math.max(info.declaredCount, info.countedFiles);
+  }
+
+  // When no individual file entries exist (summary mode), the totalCount per
+  // dir is only the direct children count. Accumulate bottom-up so that
+  // parent dirs reflect their full subtree size.
+  if (!hasFileEntries) {
+    const sortedByDepth = [...dirMap.keys()].sort(
+      (a, b) => b.split("/").length - a.split("/").length,
+    );
+    for (const path of sortedByDepth) {
+      const parts = path.split("/");
+      if (parts.length > 1) {
+        const parentPath = parts.slice(0, -1).join("/");
+        const parentInfo = dirMap.get(parentPath);
+        const childInfo = dirMap.get(path);
+        if (parentInfo && childInfo) {
+          parentInfo.totalCount += childInfo.totalCount;
+        }
+      }
+    }
+  }
+
+  // Build parent→children mapping
+  const childrenOf = new Map<string, string[]>();
+  for (const dirPath of dirMap.keys()) {
+    const parts = dirPath.split("/");
+    if (parts.length > 1) {
+      const parentPath = parts.slice(0, -1).join("/");
+      const kids = childrenOf.get(parentPath) ?? [];
+      kids.push(dirPath);
+      childrenOf.set(parentPath, kids);
+    }
+  }
+
+  const modules: { name: string; path: string; fileCount: number }[] = [];
+
+  function isSkippable(dirPath: string): boolean {
+    const leaf = dirPath.split("/").pop() || "";
+    return leaf.startsWith(".") || isTestLikeName(leaf) || NON_BUSINESS_NAME.test(leaf);
+  }
+
+  /**
+   * Recursively find right-sized business modules.
+   * Returns true if this dir (or its children) contributed any modules.
+   */
+  function decomposeDir(dirPath: string, depth: number): boolean {
+    if (depth > 8) return false;
+    if (isSkippable(dirPath)) return false;
+
+    const info = dirMap.get(dirPath);
+    if (!info) return false;
+    const count = info.totalCount;
+
+    if (count < MIN_MODULE_FILES) return false;
+
+    // Check for substantial child modules
+    const kids = childrenOf.get(dirPath) ?? [];
+    const substantialKids = kids.filter((k) => {
+      if (isSkippable(k)) return false;
+      const kidInfo = dirMap.get(k);
+      return kidInfo && kidInfo.totalCount >= MIN_MODULE_FILES;
+    });
+
+    // Decompose if: too big, OR has ≥2 substantial sub-modules worth surfacing
+    const shouldDecompose = count > MAX_MODULE_FILES || substantialKids.length >= 2;
+
+    if (shouldDecompose && substantialKids.length > 0) {
+      let anyChildEmitted = false;
+      for (const kid of substantialKids) {
+        if (decomposeDir(kid, depth + 1)) {
+          anyChildEmitted = true;
+        }
+      }
+      // If no children could be emitted, keep the parent
+      if (!anyChildEmitted) {
+        modules.push({ name: dirPath, path: dirPath, fileCount: count });
+        return true;
+      }
+      return anyChildEmitted;
+    }
+
+    // Right-sized with < 2 substantial children → emit as a module
+    modules.push({ name: dirPath, path: dirPath, fileCount: count });
+    return true;
+  }
+
+  // Start from root dirs — those with no parent in the tree
+  const roots = [...dirMap.keys()].filter((p) => {
+    const parts = p.split("/");
+    if (parts.length <= 1) return true;
+    const parentPath = parts.slice(0, -1).join("/");
+    return !dirMap.has(parentPath);
+  });
+  for (const dirPath of roots) {
+    decomposeDir(dirPath, 1);
+  }
+
+  return modules.sort((a, b) => b.fileCount - a.fileCount).slice(0, 25);
 }
 
 /** Extract a short readable path from a qualified_name like "project.domains.mod.file.symbol". */

@@ -187,7 +187,7 @@ function buildToolsSection(ctx: PromptContext): string {
       `- **glob_search(pattern)** — **Find files** by path pattern.`,
       ``,
       `### Context & analysis tools`,
-      `- **codebase_overview(aspects?)** — Indexed repo overview: module map, key symbols, entry points, routes. Use first on unfamiliar/large codebases to orient yourself.`,
+      `- **codebase_overview()** — Indexed repo overview: module map, key symbols, entry points, routes. Use first on unfamiliar/large codebases to orient yourself.`,
       `- **call_trace(function_name, direction?, depth?)** — Callers (inbound) or callees (outbound) of a symbol. Use after finding a symbol to understand call relationships.`,
       `- **change_impact()** — Map uncommitted git changes to affected symbols; run before declaring done.`,
       ``,
