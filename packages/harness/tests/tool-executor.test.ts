@@ -67,6 +67,38 @@ describe("read_file", () => {
     expect(result.output).toMatch(/outside the workspace/);
   });
 
+  it("attaches a whole-file outline to paged reads of large Python files", async () => {
+    // Build a >500-line Python file so the large-file path triggers.
+    const blocks: string[] = [];
+    for (let i = 0; i < 40; i++) {
+      blocks.push(`class Widget${i}:`);
+      blocks.push(`    def method_${i}(self):`);
+      blocks.push(`        x = ${i}`);
+      for (let j = 0; j < 10; j++) blocks.push(`        # filler ${i}-${j}`);
+    }
+    await writeFile(path.join(tmpDir, "big.py"), blocks.join("\n"));
+
+    const result = await executor.execute("read_file", {
+      path: "big.py",
+      offset: 50,
+      limit: 20,
+    });
+    expect(result.ok).toBe(true);
+    // The slice itself is present…
+    expect(result.output).toMatch(/^\s*50\|/m);
+    // …plus a navigable outline of the whole file with Python def/class lines.
+    expect(result.output).toContain("[File outline");
+    expect(result.output).toMatch(/class Widget0:/);
+    expect(result.output).toMatch(/def method_\d+/);
+  });
+
+  it("does not attach an outline to paged reads of small files", async () => {
+    await writeFile(path.join(tmpDir, "small.py"), "def a():\n    return 1\n");
+    const result = await executor.execute("read_file", { path: "small.py", offset: 1, limit: 1 });
+    expect(result.ok).toBe(true);
+    expect(result.output).not.toContain("[File outline");
+  });
+
   it("returns a directory listing instead of EISDIR when path is a directory", async () => {
     await mkdir(path.join(tmpDir, "pkg"));
     await writeFile(path.join(tmpDir, "pkg", "a.py"), "x");

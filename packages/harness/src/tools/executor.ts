@@ -292,7 +292,18 @@ export class ToolExecutor {
       const numbered = sliced.map(
         (line, i) => `${String(start + i + 1).padStart(6)}|${line}`,
       );
-      return { ok: true, output: this.truncate(numbered.join("\n")) };
+      let output = numbered.join("\n");
+      // Paging a large file blind is the #1 cause of wasted re-reads. Attach a
+      // whole-file outline (function/class line numbers) so the agent can jump
+      // straight to the section it needs instead of reading window by window.
+      if (lines.length > MAX_OUTPUT_LINES) {
+        const outline = extractFileOutline(lines, 0);
+        if (outline) {
+          output +=
+            `\n\n[File outline — ${lines.length} lines total; jump with read_file(offset=N)]\n${outline}`;
+        }
+      }
+      return { ok: true, output: this.truncate(output) };
     }
 
     const lines = content.split("\n");
@@ -749,13 +760,13 @@ export class ToolExecutor {
           }
         }
         const formatted = formatGraphSearchResults(result.parsed, result.output);
-        return { ok: true, output: this.truncate(formatted) };
+        return { ok: true, output: this.truncate(formatted + this.snippetNextStepHint(result.parsed)) };
       }
       mergedParsed = this.mergeSearchGraphParsed(mergedParsed, result.parsed);
     }
 
     const formatted = mergedParsed
-      ? formatGraphSearchResults(mergedParsed, lastRaw)
+      ? formatGraphSearchResults(mergedParsed, lastRaw) + this.snippetNextStepHint(mergedParsed)
       : lastRaw;
     return { ok: anyOk, output: this.truncate(formatted) };
   }
@@ -852,21 +863,31 @@ export class ToolExecutor {
 
     // Format results in grep-like style and append a snippet hint when we
     // have qualified names — steers the model toward the ideal 2-step path.
-    let output = formatGraphSearchResults(result.parsed, result.output);
-    if (result.ok && result.parsed && typeof result.parsed === "object") {
-      const parsed = result.parsed as Record<string, unknown>;
-      const results = Array.isArray(parsed.results) ? parsed.results : [];
-      const withQName = results.filter(
-        (r) => r && typeof r === "object" && (r as Record<string, unknown>).qualified_name,
-      );
-      if (withQName.length > 0) {
-        const topQName = String((withQName[0] as Record<string, unknown>).qualified_name);
-        output +=
-          `\n\n[Next step] Use code_graph_snippet(qualified_name="${topQName}") to read the source, then answer. ` +
-          `Do NOT re-search with grep or glob.`;
-      }
-    }
+    const output =
+      formatGraphSearchResults(result.parsed, result.output) +
+      (result.ok ? this.snippetNextStepHint(result.parsed) : "");
     return { ok: result.ok, output: this.truncate(output) };
+  }
+
+  /**
+   * Build the "[Next step] code_graph_snippet(qualified_name=…)" steer from a
+   * search payload, so both code_graph_search and code_graph_semantic_search
+   * push the model down the cheap search→snippet path instead of re-searching.
+   */
+  private snippetNextStepHint(parsed: unknown): string {
+    if (!parsed || typeof parsed !== "object") return "";
+    const results = Array.isArray((parsed as Record<string, unknown>).results)
+      ? ((parsed as Record<string, unknown>).results as unknown[])
+      : [];
+    const withQName = results.find(
+      (r) => r && typeof r === "object" && (r as Record<string, unknown>).qualified_name,
+    );
+    if (!withQName) return "";
+    const qn = String((withQName as Record<string, unknown>).qualified_name);
+    return (
+      `\n\n[Next step] Use code_graph_snippet(qualified_name="${qn}") to read the source. ` +
+      `Copy the exact [qualified_name] from a result above — do NOT re-run the same search.`
+    );
   }
 
   private async codeGraphCodeSearch(args: Record<string, unknown>): Promise<ToolExecutionResult> {
@@ -964,6 +985,15 @@ export class ToolExecutor {
           "Use read_file instead.",
       };
     }
+
+    // Symbol-not-found used to be a dead end: the model burned a turn, then had
+    // to re-issue search_graph itself. Auto-recover by searching the leaf name
+    // and either resolving a unique match or returning copy-pasteable candidates.
+    if (!result.ok && /symbol not found|search_graph/i.test(result.output)) {
+      const recovered = await this.recoverSnippet(qualifiedName);
+      if (recovered) return recovered;
+    }
+
     let formatted = formatSnippetResult(result.parsed, result.output);
     if (result.ok && result.parsed && typeof result.parsed === "object") {
       const obj = result.parsed as Record<string, unknown>;
@@ -978,6 +1008,54 @@ export class ToolExecutor {
       }
     }
     return { ok: result.ok, output: this.truncate(formatted) };
+  }
+
+  /**
+   * Recover from a `code_graph_snippet` miss: search the graph for the leaf
+   * symbol name and either (a) auto-return the body when exactly one symbol
+   * matches, or (b) hand back copy-pasteable candidate qualified_names. Returns
+   * undefined when nothing matches (caller falls back to the original error).
+   */
+  private async recoverSnippet(qualifiedName: string): Promise<ToolExecutionResult | undefined> {
+    if (!this.codeGraph) return undefined;
+    const leaf = qualifiedName.split(/[.#]/).filter(Boolean).pop() ?? qualifiedName;
+    if (!leaf || leaf.length < 2) return undefined;
+
+    const search = await this.codeGraph.searchGraph({
+      name_pattern: `^${escapeRegExpLiteral(leaf)}$`,
+      limit: 10,
+    });
+    if (!search.ok || !search.parsed || typeof search.parsed !== "object") return undefined;
+
+    const results = Array.isArray((search.parsed as Record<string, unknown>).results)
+      ? ((search.parsed as Record<string, unknown>).results as Record<string, unknown>[])
+      : [];
+    const candidates = results.filter((r) => r && typeof r.qualified_name === "string");
+    if (candidates.length === 0) return undefined;
+
+    // Unique match → resolve it directly so the model doesn't lose a turn.
+    if (candidates.length === 1) {
+      const qn = String(candidates[0].qualified_name);
+      const snippet = await this.codeGraph.getCodeSnippet({ qualified_name: qn });
+      if (snippet.ok) {
+        return {
+          ok: true,
+          output: this.truncate(
+            `[Auto-resolved "${qualifiedName}" → "${qn}"]\n` +
+              formatSnippetResult(snippet.parsed, snippet.output),
+          ),
+        };
+      }
+    }
+
+    const list = formatGraphSearchResults(search.parsed, search.output);
+    return {
+      ok: false,
+      output: this.truncate(
+        `No symbol matched qualified_name="${qualifiedName}". ` +
+          `Candidates for "${leaf}" (copy an exact [qualified_name] into code_graph_snippet):\n${list}`,
+      ),
+    };
   }
 }
 
@@ -1094,6 +1172,9 @@ export function matchProtectedPattern(relPath: string, basename: string, pattern
  */
 function extractFileOutline(hiddenLines: string[], startLineNumber: number): string {
   const SIG_PATTERNS = [
+    // Python function / method (def, async def) and class declarations
+    /^\s*(?:async\s+)?def\s+(\w+)/,
+    /^\s*class\s+(\w+)\s*[(:]/,
     // JS/TS function and method declarations
     /^\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)/,
     /^\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(?/,
@@ -1156,6 +1237,11 @@ export function expandBraceGlob(pattern: string): string[] {
   return expanded;
 }
 
+/** Escape regex metacharacters so a literal symbol name is safe as a name_pattern. */
+function escapeRegExpLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /** Extract file paths from a unified diff (the `b/...` side of `diff --git`). */
 function extractPatchFilePaths(patch: string): string[] {
   const paths: string[] = [];
@@ -1213,10 +1299,15 @@ export function buildArchitectureSummary(raw: Record<string, unknown>): string {
   }
 
   // --- 3. Business modules (auto-detected) ------------------------------
-  const businessModules = detectBusinessModules(fileTree);
+  // Prefer the indexer's own `packages` ranking (works for any language,
+  // incl. snake_case Python packages). Fall back to the file_tree heuristic
+  // only when `packages` is absent.
+  const packageModules = detectModulesFromPackages(raw.packages);
+  const businessModules =
+    packageModules.length > 0 ? packageModules : detectBusinessModules(fileTree);
   if (businessModules.length > 0) {
     const moduleList = businessModules
-      .map((m) => `  "${m.name}"  →  ${m.path}  (${m.fileCount} files)`)
+      .map((m) => `  "${m.name}"  →  ${m.path}  (${m.fileCount} symbols)`)
       .join("\n");
     sections.push(
       `## Detected business modules\nUse these as file_pattern in code_graph_search:\n${moduleList}`,
@@ -1334,7 +1425,51 @@ function buildModuleMap(fileTree: FileTreeNode[]): string {
   return lines.length > 0 ? lines.join("\n") : "";
 }
 
-/** Extract leaf directory names that look like business modules (kebab-case, depth >= 3). */
+interface PackageEntry {
+  name?: string;
+  node_count?: number;
+}
+
+/** Directory/package names that are infrastructure, not business logic. */
+const NON_BUSINESS_NAME =
+  /^(node_modules|dist|build|out|coverage|__pycache__|__tests__|tests?|test|docs?|examples?|benchmarks?|samples?|fixtures?|vendor|third_party|migrations|scripts?|bin|certs?|tool|tools|setup|conf|conftest|makefile|tox|pyproject|requirements|\..*)$/i;
+
+/** A name is "test-ish" if it lives in / describes test code. */
+function isTestLikeName(name: string): boolean {
+  return /^test[_-]|[_-]tests?$|^tests?$/i.test(name);
+}
+
+/**
+ * Preferred module detection: use the indexer's own `packages` ranking. This
+ * is language-agnostic and works for snake_case Python packages (django,
+ * sympy, …) where the old kebab-case file_tree heuristic produced nothing.
+ * Filters out test packages and build/infra noise, ranks by symbol count.
+ */
+function detectModulesFromPackages(
+  packages: unknown,
+): { name: string; path: string; fileCount: number }[] {
+  if (!Array.isArray(packages)) return [];
+  const modules: { name: string; path: string; fileCount: number }[] = [];
+  const seen = new Set<string>();
+  for (const entry of packages as PackageEntry[]) {
+    const name = typeof entry?.name === "string" ? entry.name.trim() : "";
+    if (!name || seen.has(name)) continue;
+    if (isTestLikeName(name) || NON_BUSINESS_NAME.test(name)) continue;
+    // Require a real identifier-ish name (skip parsed config files, etc.).
+    if (!/^[A-Za-z_][\w.-]*$/.test(name)) continue;
+    const count = typeof entry?.node_count === "number" ? entry.node_count : 0;
+    if (count < 3) continue;
+    seen.add(name);
+    // `name` doubles as a file_pattern (matched as a path substring).
+    modules.push({ name, path: name, fileCount: count });
+  }
+  return modules.sort((a, b) => b.fileCount - a.fileCount).slice(0, 15);
+}
+
+/**
+ * Fallback module detection from the file tree (used only when `packages` is
+ * unavailable). Surfaces substantial source directories, skipping test/infra.
+ */
 function detectBusinessModules(
   fileTree: FileTreeNode[] | undefined,
 ): { name: string; path: string; fileCount: number }[] {
@@ -1346,13 +1481,10 @@ function detectBusinessModules(
   for (const node of fileTree) {
     if (!node.path || node.type !== "dir") continue;
     const parts = node.path.split("/");
-    if (parts.length < 2 || parts.length > 8) continue;
+    if (parts.length < 1 || parts.length > 8) continue;
 
     const name = parts[parts.length - 1];
-    // Business module heuristic: kebab-case name with at least one hyphen
-    if (!name.includes("-") || name.startsWith(".")) continue;
-    // Skip common non-business dirs
-    if (/^(node[-_]modules|dist|build|__tests__|\.)/i.test(name)) continue;
+    if (name.startsWith(".") || isTestLikeName(name) || NON_BUSINESS_NAME.test(name)) continue;
 
     if (seen.has(name)) continue;
     seen.add(name);
