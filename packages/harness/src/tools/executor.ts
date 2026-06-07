@@ -265,6 +265,20 @@ export class ToolExecutor {
 
   private async readFile(args: Record<string, unknown>): Promise<ToolExecutionResult> {
     const filePath = this.resolvePath(String(args.path || ""));
+
+    // Reading a directory used to throw EISDIR and waste a turn. Return a
+    // directory listing with guidance so the agent can recover in-place.
+    const stats = await stat(filePath).catch(() => undefined);
+    if (stats?.isDirectory()) {
+      const listing = await this.formatDirectoryListing(filePath);
+      return {
+        ok: true,
+        output:
+          `"${String(args.path)}" is a directory, not a file. Contents:\n\n${listing}\n\n` +
+          `Use list_directory to browse further, or read_file on one of the files listed above.`,
+      };
+    }
+
     const content = await readFile(filePath, "utf8");
 
     const offset = typeof args.offset === "number" ? args.offset : undefined;
@@ -641,6 +655,10 @@ export class ToolExecutor {
       ? this.resolvePath(String(args.path))
       : this.workspaceRoot;
 
+    return { ok: true, output: await this.formatDirectoryListing(dirPath) };
+  }
+
+  private async formatDirectoryListing(dirPath: string): Promise<string> {
     const entries = await readdir(dirPath, { withFileTypes: true });
     const lines = entries
       .filter((e) => !e.name.startsWith(".") || e.name === ".env.example")
@@ -654,7 +672,7 @@ export class ToolExecutor {
         return `${entry.name}${suffix}`;
       });
 
-    return { ok: true, output: lines.join("\n") || "(empty directory)" };
+    return lines.join("\n") || "(empty directory)";
   }
 
   private codeGraphUnavailable(): ToolExecutionResult {

@@ -66,6 +66,18 @@ describe("read_file", () => {
     expect(result.ok).toBe(false);
     expect(result.output).toMatch(/outside the workspace/);
   });
+
+  it("returns a directory listing instead of EISDIR when path is a directory", async () => {
+    await mkdir(path.join(tmpDir, "pkg"));
+    await writeFile(path.join(tmpDir, "pkg", "a.py"), "x");
+    await mkdir(path.join(tmpDir, "pkg", "sub"));
+    const result = await executor.execute("read_file", { path: "pkg" });
+    expect(result.ok).toBe(true);
+    expect(result.output).not.toContain("EISDIR");
+    expect(result.output).toContain("is a directory");
+    expect(result.output).toContain("a.py");
+    expect(result.output).toContain("sub/");
+  });
 });
 
 describe("write_file", () => {
