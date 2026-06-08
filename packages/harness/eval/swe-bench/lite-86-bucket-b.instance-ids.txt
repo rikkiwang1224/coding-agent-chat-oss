@@ -1,0 +1,33 @@
+# Remaining unresolved 86 — bucket b/3 (29 instances)
+# Source: lite-86-unresolved.txt, shuffle seed 20260607
+# = lite-108-eval-merged unresolved+empty (84) + baseline error (2)
+
+sympy__sympy-20639
+sympy__sympy-13146
+sympy__sympy-13895
+scikit-learn__scikit-learn-10949
+pallets__flask-5063
+scikit-learn__scikit-learn-15535
+django__django-13448
+matplotlib__matplotlib-22835
+sympy__sympy-24909
+django__django-11564
+django__django-15738
+scikit-learn__scikit-learn-11040
+django__django-14155
+sympy__sympy-20322
+sympy__sympy-13437
+scikit-learn__scikit-learn-25747
+scikit-learn__scikit-learn-13497
+sympy__sympy-21171
+sphinx-doc__sphinx-7738
+sympy__sympy-18698
+astropy__astropy-14365
+pytest-dev__pytest-5221
+sphinx-doc__sphinx-8474
+scikit-learn__scikit-learn-15512
+matplotlib__matplotlib-23987
+sympy__sympy-13773
+sphinx-doc__sphinx-8801
+sympy__sympy-12171
+sympy__sympy-24102
