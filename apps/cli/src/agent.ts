@@ -184,6 +184,8 @@ export async function runCliAgent(options: RunCliOptions): Promise<number> {
       model: llm.model,
       provider: llm.provider,
       ...(llm.temperature !== undefined ? { temperature: llm.temperature } : {}),
+      ...(llm.thinking !== undefined ? { thinking: llm.thinking } : {}),
+      ...(llm.reasoningEffort ? { reasoningEffort: llm.reasoningEffort } : {}),
     },
     onPermissionConfirm,
     reason: reasonHook,

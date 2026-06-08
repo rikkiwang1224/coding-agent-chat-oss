@@ -1,6 +1,7 @@
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PROVIDER_PRESETS, type LlmProvider } from "@forgelet/sdk-runtime";
+import { applyThinkingMode, parseThinkingMode } from "@forgelet/harness";
 import { resolveAgentHome } from "@forgelet/storage-core";
 import type { CliArgs } from "./argv.js";
 
@@ -11,6 +12,8 @@ export interface CliConfig {
   primaryModel: string;
   apiKey: string;
   baseUrl: string;
+  /** DeepSeek thinking: off | high | max (see THINKING_MODE env) */
+  thinkingMode?: string;
 }
 
 const DEFAULT_CONFIG: CliConfig = {
@@ -62,6 +65,10 @@ function normalizeConfig(saved: Partial<CliConfig>): CliConfig {
         : DEFAULT_CONFIG.primaryModel,
     apiKey: typeof saved.apiKey === "string" ? saved.apiKey : DEFAULT_CONFIG.apiKey,
     baseUrl: typeof saved.baseUrl === "string" ? saved.baseUrl : DEFAULT_CONFIG.baseUrl,
+    thinkingMode:
+      typeof saved.thinkingMode === "string" && saved.thinkingMode.trim()
+        ? saved.thinkingMode.trim()
+        : undefined,
   };
 }
 
@@ -76,6 +83,8 @@ export interface ResolvedLlmConfig {
    * diverge instead of all returning the same greedy patch.
    */
   temperature?: number;
+  thinking?: boolean;
+  reasoningEffort?: "high" | "max";
 }
 
 /** Parse + clamp FORGELET_TEMPERATURE; returns undefined when unset/invalid. */
@@ -122,5 +131,12 @@ export async function resolveLlmConfig(args: CliArgs): Promise<ResolvedLlmConfig
     preset?.baseUrl ||
     "https://api.deepseek.com";
 
-  return { provider, apiKey, baseUrl, model, temperature: resolveTemperature() };
+  const thinkingRaw =
+    process.env.THINKING_MODE?.trim() || fileConfig.thinkingMode?.trim() || undefined;
+  const thinkingMode = parseThinkingMode(thinkingRaw);
+
+  return applyThinkingMode(
+    { provider, apiKey, baseUrl, model, temperature: resolveTemperature() },
+    thinkingMode,
+  );
 }

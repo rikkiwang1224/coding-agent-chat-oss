@@ -1,4 +1,5 @@
 import { PROVIDER_PRESETS, type LlmProvider } from "@forgelet/sdk-runtime";
+import { applyThinkingMode, resolveThinkingModeFromEnv } from "../../src/thinking-mode.js";
 import type { LlmConfig } from "../../src/types.js";
 
 function resolveTemperature(): number | undefined {
@@ -35,12 +36,17 @@ export function resolveLlmConfigFromEnv(): LlmConfig {
     "https://api.deepseek.com";
 
   const temperature = resolveTemperature();
+  // SWE-bench eval default: Think Max (override with THINKING_MODE=off|high).
+  const thinkingMode = resolveThinkingModeFromEnv("max");
 
-  return {
-    apiKey,
-    baseUrl,
-    model,
-    provider,
-    ...(temperature !== undefined ? { temperature } : {}),
-  };
+  return applyThinkingMode(
+    {
+      apiKey,
+      baseUrl,
+      model,
+      provider,
+      ...(temperature !== undefined ? { temperature } : {}),
+    },
+    thinkingMode,
+  );
 }
