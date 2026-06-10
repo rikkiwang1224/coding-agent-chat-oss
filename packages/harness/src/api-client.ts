@@ -27,6 +27,7 @@ export class LlmClient {
   private readonly temperature: number;
   private readonly thinking: boolean;
   private readonly reasoningEffort?: string;
+  private readonly responseFormat?: "json_object";
   private readonly maxRetries: number;
 
   constructor(config: LlmConfig) {
@@ -40,6 +41,7 @@ export class LlmClient {
     this.temperature = config.temperature ?? 0;
     this.thinking = config.thinking ?? false;
     this.reasoningEffort = config.reasoningEffort;
+    this.responseFormat = config.responseFormat;
     this.maxRetries = config.maxRetries ?? MAX_RETRIES;
   }
 
@@ -60,11 +62,16 @@ export class LlmClient {
       body.tool_choice = "auto";
     }
 
-    if (this.thinking) {
-      body.thinking = { type: "enabled" };
-      if (this.reasoningEffort) {
-        body.reasoning_effort = this.reasoningEffort;
-      }
+    // DeepSeek defaults thinking to enabled — must send explicit disabled when off,
+    // otherwise the model burns the output budget on reasoning_content and leaves
+    // content empty (breaks JSON-mode sensors like Reason).
+    body.thinking = this.thinking ? { type: "enabled" } : { type: "disabled" };
+    if (this.thinking && this.reasoningEffort) {
+      body.reasoning_effort = this.reasoningEffort;
+    }
+
+    if (this.responseFormat === "json_object") {
+      body.response_format = { type: "json_object" };
     }
 
     const response = await this.fetchWithRetry(url, body, request.signal);

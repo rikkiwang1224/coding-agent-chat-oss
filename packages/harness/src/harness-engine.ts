@@ -46,6 +46,11 @@ export interface HarnessEngineOptions {
    * Set false to disable. Set true to require it (warn in progress if missing).
    */
   codeGraph?: boolean;
+  /**
+   * Hard self-review gate (symmetry / root-cause lookup required after editing
+   * source before completion). Only effective with code graph. Default: false.
+   */
+  selfReviewGate?: boolean;
 }
 
 export class HarnessEngine implements AgentEngine {
@@ -61,6 +66,7 @@ export class HarnessEngine implements AgentEngine {
   private readonly reason?: ReasonHookConfig;
   private readonly protectedPathPatterns?: string[];
   private readonly codeGraphOption: boolean;
+  private readonly selfReviewGate: boolean;
   private promptContext?: PromptContext;
 
   constructor(options: HarnessEngineOptions) {
@@ -81,6 +87,7 @@ export class HarnessEngine implements AgentEngine {
     this.reason = options.reason;
     this.protectedPathPatterns = options.protectedPathPatterns;
     this.codeGraphOption = options.codeGraph !== false;
+    this.selfReviewGate = options.selfReviewGate ?? false;
   }
 
   getPermissionGuard(): PermissionGuard {
@@ -421,6 +428,7 @@ export class HarnessEngine implements AgentEngine {
         reason: this.reason,
         protectedPathPatterns: this.protectedPathPatterns,
         codeGraph: codeGraphClient,
+        selfReviewGate: this.selfReviewGate,
         onMessagesChanged: (messages) => {
           scheduleSave(messages, countUserTurns(messages));
         },

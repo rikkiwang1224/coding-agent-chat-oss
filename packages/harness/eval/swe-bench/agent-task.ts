@@ -67,6 +67,7 @@ export async function runSweBenchAgent(
       : undefined,
     reason: reasonHook,
     protectedPathPatterns: sweBenchProtectedPathPatterns(),
+    selfReviewGate: selfReviewGateEnabled(),
   });
 
   const controller = new AbortController();
@@ -123,6 +124,16 @@ export async function runSweBenchAgent(
     apiErrorStatus,
     apiErrorMessage,
   };
+}
+
+/**
+ * Hard self-review gate toggle. On by default for SWE-bench; disable with
+ * FORGELET_SELF_REVIEW_GATE in {0,off,false,no}.
+ */
+function selfReviewGateEnabled(): boolean {
+  const raw = (process.env.FORGELET_SELF_REVIEW_GATE || "").trim().toLowerCase();
+  if (raw === "0" || raw === "off" || raw === "false" || raw === "no") return false;
+  return true;
 }
 
 function buildReasonHook(

@@ -10,6 +10,8 @@ export interface LlmConfig {
   temperature?: number;
   thinking?: boolean;
   reasoningEffort?: "low" | "medium" | "high" | "max";
+  /** OpenAI-compatible JSON mode — used by the Reason sensor for structured verdicts. */
+  responseFormat?: "json_object";
   maxRetries?: number;
 }
 

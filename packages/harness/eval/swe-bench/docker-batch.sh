@@ -15,7 +15,7 @@
 # Tunables (env vars):
 #   KEEP_IMAGES          — LRU keep N swebench/sweb.eval.* images (default 15)
 #   PER_INSTANCE_TIMEOUT — per-instance wall clock seconds (default 600)
-#   FORGELET_MAX_TURNS   — agent tool-call budget per instance (default 75)
+#   FORGELET_MAX_TURNS   — agent tool-call budget per instance (default 100)
 #   MODEL_NAME           — predictions.jsonl model_name_or_path (default forgelet-docker)
 #   THINKING_MODE        — DeepSeek thinking: max (default) | high | off
 #   FORGELET_SAVE_TRACE  — 0/off → no JSONL; default ON → ~/.forgelet/traces/swe-bench/eval-<runId>/
@@ -49,7 +49,7 @@ touch "$DONE_FILE" "$PRED_FILE" "$SUMMARY"
 
 KEEP_IMAGES="${KEEP_IMAGES:-15}"
 PER_INSTANCE_TIMEOUT="${PER_INSTANCE_TIMEOUT:-600}"
-FORGELET_MAX_TURNS="${FORGELET_MAX_TURNS:-75}"
+FORGELET_MAX_TURNS="${FORGELET_MAX_TURNS:-100}"
 MODEL_NAME="${MODEL_NAME:-forgelet-docker}"
 # Reason-as-Sensor (independent reviewer pass before declaring done).
 #   FORGELET_REASON=0 → off (baseline)

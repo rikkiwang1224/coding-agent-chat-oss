@@ -47,17 +47,18 @@ describe("parseReasonOutput", () => {
     expect(out.rationale).toBe("no");
   });
 
-  it("defaults to ship when no JSON object present", () => {
+  it("marks unparseable output for retry detection", () => {
     const out = parseReasonOutput("just some prose, no JSON");
     expect(out.verdict).toBe("ship");
     expect(out.confidence).toBe("low");
     expect(out.rationale).toMatch(/No JSON object/i);
   });
 
-  it("defaults to ship when JSON is malformed", () => {
+  it("marks malformed JSON for retry detection", () => {
     const out = parseReasonOutput('{"verdict": "revise", "rationale": ');
     expect(out.verdict).toBe("ship");
     expect(out.confidence).toBe("low");
+    expect(out.rationale).toMatch(/Unbalanced JSON|Sensor JSON parse error/i);
   });
 
   it("defaults verdict to ship if value is neither ship nor revise", () => {

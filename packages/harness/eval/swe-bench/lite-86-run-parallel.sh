@@ -33,7 +33,7 @@ ECS_HOST="${ECS_HOST:-${ECS_IP:+ubuntu@${ECS_IP}}}"
 # Tunables passed to each docker-batch (via lite-86-bucket.sh)
 export KEEP_IMAGES="${KEEP_IMAGES:-8}"
 export PER_INSTANCE_TIMEOUT="${PER_INSTANCE_TIMEOUT:-600}"
-export FORGELET_MAX_TURNS="${FORGELET_MAX_TURNS:-75}"
+export FORGELET_MAX_TURNS="${FORGELET_MAX_TURNS:-100}"
 export FORGELET_VERIFY="${FORGELET_VERIFY:-0}"
 export MODEL_NAME="${MODEL_NAME:-forgelet-docker-guard}"
 

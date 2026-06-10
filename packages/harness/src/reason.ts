@@ -19,8 +19,9 @@
  *   - typical per-call cost ≈ $0.003 on deepseek-v4-pro (5k in / 500 out).
  *
  * Failure mode:
- *   - if the LLM call errors or the JSON output is unparseable, we fall back
- *     to `ship` so a broken Sensor never blocks a passing run.
+ *   - if the LLM call errors, fall back to `ship` so a broken Sensor never blocks.
+ *   - if output is unparseable after one retry, fall back to `revise` with generic
+ *     scope/symmetry guidance so the agent at least re-checks before shipping.
  */
 import type { ChatMessage, LlmConfig } from "./types.js";
 import { LlmClient } from "./api-client.js";
@@ -67,78 +68,83 @@ export interface ReasonOptions {
   signal?: AbortSignal;
 }
 
-const DEFAULT_SYSTEM_PROMPT = `You are an independent, adversarial code reviewer. The coding agent thinks it's done fixing the issue below. Your job is to find what's missing or wrong — do not be polite, do not assume the agent is correct.
+const DEFAULT_SYSTEM_PROMPT = `You are an independent, adversarial code reviewer. The coding agent thinks it's done. Find what's missing — do not assume the agent is correct.
 
-Common failure modes to check (be ruthless):
-1. Issue specifics ignored: did the patch handle the SPECIFIC class names, error codes, warning IDs, type names, or examples called out in the issue?
-2. Edge cases dropped: nested structures, empty collections, None/null, Unicode, non-serializable objects, recursion, threading, generators.
-3. Wrong abstraction layer: was the fix made at the call site instead of the utility, or vice versa? Is there an existing helper in the codebase the patch should have used instead of inlining logic?
-4. Scope creep: did the patch modify unrelated files / change behavior the issue didn't ask for?
-5. Verification skipped: did the agent run the EXACT failing test from the issue, or only generic tests / unrelated tests?
-6. Imports / public API: are new imports correct? Were exports updated? Did private symbols leak?
+Check ruthlessly:
+1. Issue specifics: class names, error codes, types, examples from the issue.
+2. Edge cases: empty/None, Unicode, nested structures, alternate code paths.
+3. Wrong layer: fix at init vs update handler? utility vs call site?
+4. Symmetry: horizontal↔vertical, get↔set, encode↔decode — same fix everywhere?
+5. Hidden grading cases: the issue shows one reproduction; eval may test others you cannot run locally.
 
-Output a SINGLE JSON object — nothing else, no markdown fences:
-
-{
-  "verdict": "ship" | "revise",
-  "confidence": "high" | "medium" | "low",
-  "rationale": "one sentence: why ship or why revise",
-  "missed_cases": [{"what": "...", "where": "file:line or test name"}],
-  "suggestions": ["concrete change 1", "concrete change 2"]
-}
+Reply with ONE JSON object only (no markdown, no prose before/after):
+{"verdict":"ship"|"revise","confidence":"high"|"medium"|"low","rationale":"one sentence","missed_cases":[{"what":"...","where":"file or test"}],"suggestions":["concrete fix"]}
 
 Rules:
-- Prefer "ship" only if the diff appears to fully address the issue with no obvious gaps.
-- If the diff is EMPTY (no changes at all) and the issue is non-trivial, ALWAYS revise.
-- "missed_cases" and "suggestions" should be specific and actionable, not generic advice.
-- Output VALID JSON only. No prose before or after.`;
+- "ship" only if the diff fully covers the issue with no obvious gaps.
+- Empty diff on a non-trivial issue → always "revise".
+- Keep rationale under 200 chars; at most 5 missed_cases and 5 suggestions.`;
 
-const REASON_MAX_TOKENS = 1024;
+const REASON_MAX_TOKENS = 2048;
+const REASON_ISSUE_MAX_CHARS = 6000;
+const JSON_RETRY_USER = `Your previous reply was not valid JSON. Output ONLY one JSON object starting with { — no markdown fences, no explanation.`;
+
+type ParsedReason = Omit<ReasonResult, "rawText" | "tokenUsage">;
+
+interface ReasonCallResult {
+  content: string;
+  reasoning: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens?: number;
+}
 
 export async function runReason(input: ReasonInput, options: ReasonOptions): Promise<ReasonResult> {
   const client = new LlmClient({
     ...options.config,
-    // Force non-thinking mode for the Sensor — we want a fast, structured verdict,
-    // not a long chain-of-thought. Output is small (<1k tokens) so a thinking
-    // budget would just inflate cost without changing the answer.
+    // Force non-thinking mode — JSON lands in `content`, not `reasoning_content`.
     thinking: false,
     reasoningEffort: undefined,
+    responseFormat: "json_object",
     maxTokens: REASON_MAX_TOKENS,
   });
 
-  const userPrompt = buildUserPrompt(input);
+  const systemPrompt = options.systemPromptOverride ?? DEFAULT_SYSTEM_PROMPT;
   const messages: ChatMessage[] = [
-    { role: "system", content: options.systemPromptOverride ?? DEFAULT_SYSTEM_PROMPT },
-    { role: "user", content: userPrompt },
+    { role: "system", content: systemPrompt },
+    { role: "user", content: buildUserPrompt(input) },
   ];
 
   try {
-    let fullText = "";
-    let inputTokens = 0;
-    let outputTokens = 0;
-    let cacheReadInputTokens: number | undefined;
+    let call = await invokeReason(client, messages, options.signal);
+    let parsed = parseReasonOutput(pickReasonText(call));
 
-    for await (const chunk of client.stream({ messages, signal: options.signal })) {
-      const delta = chunk.choices?.[0]?.delta;
-      if (delta?.content) fullText += delta.content;
-      if (chunk.usage) {
-        inputTokens = chunk.usage.prompt_tokens ?? inputTokens;
-        outputTokens = chunk.usage.completion_tokens ?? outputTokens;
-        if (typeof chunk.usage.prompt_cache_hit_tokens === "number") {
-          cacheReadInputTokens = chunk.usage.prompt_cache_hit_tokens;
-        }
-      }
+    if (isParseFallback(parsed)) {
+      messages.push({
+        role: "assistant",
+        content: pickReasonText(call) || "(empty sensor output)",
+      });
+      messages.push({ role: "user", content: JSON_RETRY_USER });
+      call = await invokeReason(client, messages, options.signal);
+      parsed = parseReasonOutput(pickReasonText(call));
     }
 
-    const parsed = parseReasonOutput(fullText);
+    if (isParseFallback(parsed)) {
+      parsed = defaultRevise(
+        parsed.rationale ?? "Sensor output was not parseable JSON after retry",
+      );
+    }
+
     return {
       ...parsed,
-      rawText: fullText,
-      tokenUsage: { inputTokens, outputTokens, cacheReadInputTokens },
+      rawText: pickReasonText(call),
+      tokenUsage: {
+        inputTokens: call.inputTokens,
+        outputTokens: call.outputTokens,
+        cacheReadInputTokens: call.cacheReadInputTokens,
+      },
     };
   } catch (err) {
-    // Sensor failure should never block the agent — fall back to ship and
-    // include the error in rationale so it's visible in trace.
     const msg = err instanceof Error ? err.message : String(err);
     return {
       verdict: "ship",
@@ -146,6 +152,39 @@ export async function runReason(input: ReasonInput, options: ReasonOptions): Pro
       rationale: `Reason sensor failed: ${msg.slice(0, 200)} (defaulting to ship)`,
     };
   }
+}
+
+async function invokeReason(
+  client: LlmClient,
+  messages: ChatMessage[],
+  signal?: AbortSignal,
+): Promise<ReasonCallResult> {
+  let content = "";
+  let reasoning = "";
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheReadInputTokens: number | undefined;
+
+  for await (const chunk of client.stream({ messages, signal })) {
+    const delta = chunk.choices?.[0]?.delta;
+    if (delta?.content) content += delta.content;
+    if (delta?.reasoning_content) reasoning += delta.reasoning_content;
+    if (chunk.usage) {
+      inputTokens = chunk.usage.prompt_tokens ?? inputTokens;
+      outputTokens = chunk.usage.completion_tokens ?? outputTokens;
+      if (typeof chunk.usage.prompt_cache_hit_tokens === "number") {
+        cacheReadInputTokens = chunk.usage.prompt_cache_hit_tokens;
+      }
+    }
+  }
+
+  return { content, reasoning, inputTokens, outputTokens, cacheReadInputTokens };
+}
+
+function pickReasonText(call: ReasonCallResult): string {
+  const content = call.content.trim();
+  if (content) return call.content;
+  return call.reasoning;
 }
 
 /** Truncate a diff so we don't blow the Sensor budget on huge patches. */
@@ -162,27 +201,34 @@ function buildUserPrompt(input: ReasonInput): string {
     ? `\`\`\`diff\n${truncateDiff(diff)}\n\`\`\``
     : "(no changes yet — agent has not modified any files)";
 
+  const issue = truncateText(input.issueText.trim(), REASON_ISSUE_MAX_CHARS);
+
   const claim = input.digest.lastClaim
-    ? `\n\n## Agent's final claim\n> ${input.digest.lastClaim}`
+    ? `\n\n## Agent's final claim\n> ${truncateText(input.digest.lastClaim, 800)}`
     : "";
 
   return [
-    `## Task / Issue\n${input.issueText.trim()}`,
+    `## Task / Issue\n${issue}`,
     `## Current diff\n${diffBlock}`,
     renderActivityDigest(input.digest),
     claim,
-    `\n\nNow output your JSON verdict.`,
+    `\n\nOutput your JSON verdict now.`,
   ].join("\n\n");
 }
 
+function truncateText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}\n\n... [truncated ${text.length - maxChars} chars] ...`;
+}
+
 /** Extract the first JSON object from the model's output, tolerant of stray prose. */
-export function parseReasonOutput(text: string): Omit<ReasonResult, "rawText" | "tokenUsage"> {
+export function parseReasonOutput(text: string): ParsedReason {
   const cleaned = stripCodeFences(text);
 
   // Find the first balanced { ... } JSON object.
   const start = cleaned.indexOf("{");
   if (start === -1) {
-    return defaultShip(`No JSON object found in Sensor output`);
+    return parseFallback(`No JSON object found in Sensor output`);
   }
 
   let depth = 0;
@@ -202,7 +248,7 @@ export function parseReasonOutput(text: string): Omit<ReasonResult, "rawText" | 
     }
   }
   if (end === -1) {
-    return defaultShip(`Unbalanced JSON in Sensor output`);
+    return parseFallback(`Unbalanced JSON in Sensor output`);
   }
 
   const slice = cleaned.slice(start, end + 1);
@@ -210,7 +256,7 @@ export function parseReasonOutput(text: string): Omit<ReasonResult, "rawText" | 
   try {
     parsed = JSON.parse(slice) as Record<string, unknown>;
   } catch (err) {
-    return defaultShip(`Sensor JSON parse error: ${(err as Error).message.slice(0, 100)}`);
+    return parseFallback(`Sensor JSON parse error: ${(err as Error).message.slice(0, 100)}`);
   }
 
   const verdict = parsed.verdict === "revise" ? "revise" : "ship";
@@ -219,7 +265,7 @@ export function parseReasonOutput(text: string): Omit<ReasonResult, "rawText" | 
       ? (parsed.confidence as "high" | "medium" | "low")
       : undefined;
 
-  const result: Omit<ReasonResult, "rawText" | "tokenUsage"> = { verdict };
+  const result: ParsedReason = { verdict };
   if (confidence) result.confidence = confidence;
   if (typeof parsed.rationale === "string") result.rationale = parsed.rationale.slice(0, 500);
 
@@ -246,16 +292,38 @@ export function parseReasonOutput(text: string): Omit<ReasonResult, "rawText" | 
   return result;
 }
 
+const PARSE_FALLBACK_MARK = "__reason_parse_fallback__";
+
+function parseFallback(rationale: string): ParsedReason {
+  return {
+    verdict: "ship",
+    confidence: "low",
+    rationale: `${PARSE_FALLBACK_MARK}:${rationale}`,
+  };
+}
+
+function isParseFallback(parsed: ParsedReason): boolean {
+  return parsed.rationale?.startsWith(`${PARSE_FALLBACK_MARK}:`) ?? false;
+}
+
+function defaultRevise(rationale: string): ParsedReason {
+  return {
+    verdict: "revise",
+    confidence: "low",
+    rationale: rationale.replace(`${PARSE_FALLBACK_MARK}:`, ""),
+    suggestions: [
+      "Re-read the issue for cases beyond the reproduction example — grading tests may cover them.",
+      "Check symmetric/paired methods and update handlers, not just initialization or the first code path you found.",
+    ],
+  };
+}
+
 function stripCodeFences(text: string): string {
   // Strip leading ```json or ``` fence and trailing ```.
   return text
     .replace(/^[\s\u200b]*```(?:json)?\s*/i, "")
     .replace(/\s*```[\s\u200b]*$/i, "")
     .trim();
-}
-
-function defaultShip(rationale: string): Omit<ReasonResult, "rawText" | "tokenUsage"> {
-  return { verdict: "ship", confidence: "low", rationale };
 }
 
 /** Format a revise verdict as a user message to inject back into the agent loop. */

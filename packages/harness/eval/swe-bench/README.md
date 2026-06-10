@@ -521,7 +521,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 | `--limit` | 最多跑几条 instance |
 | `--instance-ids` | 逗号分隔 |
 | `--instances` | 本地 JSON，跳过 HF 拉取 |
-| `--max-turns` | Agent 最大轮次（默认 75） |
+| `--max-turns` | Agent 最大轮次（默认 100） |
 | `--timeout-s` | 单条超时秒（默认 1800） |
 | `--skip-eval` | 只生成 predictions |
 | `--save-traces` | 写入 `traces/<instance_id>.json`（完整 Agent 事件） |

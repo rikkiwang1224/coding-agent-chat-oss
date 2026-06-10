@@ -1,0 +1,5 @@
+# Three SWE-bench Lite instances to smoke-test the mandatory self-review gate (scope/symmetry/extra-test).
+# Prior failures: symmetry miss (22711), undersized scope (13497, 18199).
+matplotlib__matplotlib-22711
+scikit-learn__scikit-learn-13497
+sympy__sympy-18199
