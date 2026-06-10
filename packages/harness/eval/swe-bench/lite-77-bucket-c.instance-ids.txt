@@ -1,0 +1,26 @@
+# lite-77 bucket c: 25 instances (v2 unresolved + empty)
+astropy__astropy-7746
+django__django-11905
+django__django-13265
+django__django-16820
+matplotlib__matplotlib-23476
+matplotlib__matplotlib-23563
+psf__requests-2674
+psf__requests-863
+pydata__xarray-4248
+pytest-dev__pytest-8365
+scikit-learn__scikit-learn-13497
+scikit-learn__scikit-learn-25638
+sphinx-doc__sphinx-7686
+sphinx-doc__sphinx-7738
+sphinx-doc__sphinx-8713
+sphinx-doc__sphinx-8801
+sympy__sympy-11870
+sympy__sympy-13146
+sympy__sympy-13915
+sympy__sympy-19007
+sympy__sympy-20049
+sympy__sympy-20639
+sympy__sympy-21171
+sympy__sympy-23191
+sympy__sympy-24102

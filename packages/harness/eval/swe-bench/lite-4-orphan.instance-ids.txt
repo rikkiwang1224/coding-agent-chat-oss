@@ -1,0 +1,7 @@
+# Lite-300 orphans outside the lite-86 hard cohort (4 instances).
+# - django 13401/13768/15388: unresolved since pass1 (51-100 rv1), never in 106/108/86 retry.
+# - pytest-5103: resolved in lite-108, regressed to empty patch in guard-retest-29.
+django__django-13401
+django__django-13768
+django__django-15388
+pytest-dev__pytest-5103

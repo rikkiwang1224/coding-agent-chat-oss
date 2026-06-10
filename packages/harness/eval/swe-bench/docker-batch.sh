@@ -17,6 +17,7 @@
 #   PER_INSTANCE_TIMEOUT — per-instance wall clock seconds (default 600)
 #   FORGELET_MAX_TURNS   — agent tool-call budget per instance (default 75)
 #   MODEL_NAME           — predictions.jsonl model_name_or_path (default forgelet-docker)
+#   THINKING_MODE        — DeepSeek thinking: max (default) | high | off
 #   FORGELET_SAVE_TRACE  — 0/off → no JSONL; default ON → ~/.forgelet/traces/swe-bench/eval-<runId>/
 #   FORGELET_TRACE_RUN_ID — trace run id (default: basename of <output_dir>)
 #
@@ -33,6 +34,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=docker-codegraph-mounts.sh
 source "$SCRIPT_DIR/docker-codegraph-mounts.sh"
+# shellcheck source=ecs-common.sh
+source "$SCRIPT_DIR/ecs-common.sh"
 
 INSTANCES_JSON="${1:?usage: $0 <instances.json> <output_dir>}"
 OUT_DIR="${2:?usage: $0 <instances.json> <output_dir>}"
@@ -173,20 +176,19 @@ for i in $(seq 0 $((TOTAL - 1))); do
         source /opt/miniconda3/etc/profile.d/conda.sh
         conda activate testbed
 
-        # Pre-pin sphinx dependencies that break with newer PyPI versions.
-        # Without this, the agent wastes turns fixing setup.py instead of
-        # solving the actual issue. These pins match what the official
-        # SWE-bench sphinx images were built against.
-        if [[ \"$INST_ID\" == sphinx-doc__sphinx-* ]]; then
-          pip install -q --no-warn-script-location \
-            'markupsafe<=2.0.1' \
-            'Jinja2<3.1' \
-            'alabaster>=0.7,<0.7.12' \
-            'sphinxcontrib-applehelp<=1.0.7' \
-            'sphinxcontrib-devhelp<=1.0.5' \
-            'sphinxcontrib-htmlhelp<=2.0.4' \
-            'sphinxcontrib-serializinghtml<=1.1.9' \
-            'sphinxcontrib-qthelp<=1.0.6' \
+        # Pre-pin sphinx dependencies (see ecs-common.sh / forgelet_run_evaluation.py).
+        if ecs_is_sphinx_instance \"$INST_ID\"; then
+          pip install -q --no-warn-script-location \\
+            'markupsafe<=2.0.1' \\
+            'Jinja2<3.1' \\
+            'alabaster>=0.7,<0.7.12' \\
+            'sphinxcontrib-applehelp<=1.0.7' \\
+            'sphinxcontrib-devhelp<=1.0.5' \\
+            'sphinxcontrib-htmlhelp<=2.0.4' \\
+            'sphinxcontrib-serializinghtml<=1.1.9' \\
+            'sphinxcontrib-qthelp<=1.0.6' \\
+            'docutils<0.21' \\
+            'pytest>=6.0,<8' \\
             2>/dev/null || true
         fi
 
