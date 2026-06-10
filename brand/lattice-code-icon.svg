@@ -15,24 +15,27 @@
     </filter>
 
     <!-- Unified Smooth Gradient across the whole node -->
-    <!-- The trick is to use gradients that share colors at the seams -->
+    <!-- Perfect continuous gradients using userSpaceOnUse for a seamless optical illusion of 3D -->
     
-    <!-- Top Face: Very light, airy blue to very light violet -->
-    <linearGradient id="gradTop" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#DBEAFE"/>   <!-- Extremely Light Blue (meets left face) -->
-      <stop offset="100%" stop-color="#EDE9FE"/> <!-- Extremely Light Violet (meets right face) -->
+    <!-- Top Face: Blue to Violet (Horizontal) -->
+    <linearGradient id="gradTop" x1="287" y1="382" x2="737" y2="382" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3B82F6"/>   <!-- Blue -->
+      <stop offset="50%" stop-color="#6366F1"/>  <!-- Indigo (Center) -->
+      <stop offset="100%" stop-color="#8B5CF6"/> <!-- Violet -->
     </linearGradient>
 
-    <!-- Left Face: Light Blue to Indigo -->
-    <linearGradient id="gradLeft" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#93C5FD"/>   <!-- Light Blue -->
-      <stop offset="100%" stop-color="#4F46E5"/> <!-- Deep Indigo -->
+    <!-- Left Face: Blue to Deep Indigo (Diagonal Down-Right) -->
+    <linearGradient id="gradLeft" x1="287" y1="382" x2="512" y2="772" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#3B82F6"/>   <!-- Blue -->
+      <stop offset="50%" stop-color="#6366F1"/>  <!-- Indigo (Center) -->
+      <stop offset="100%" stop-color="#4338CA"/> <!-- Deep Indigo -->
     </linearGradient>
 
-    <!-- Right Face: Indigo transitioning to deep Violet -->
-    <linearGradient id="gradRight" x1="0%" y1="100%" x2="100%" y2="0%">
+    <!-- Right Face: Violet to Deep Indigo (Diagonal Down-Left) -->
+    <linearGradient id="gradRight" x1="737" y1="382" x2="512" y2="772" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#8B5CF6"/>   <!-- Violet -->
-      <stop offset="100%" stop-color="#4F46E5"/> <!-- Deep Indigo (perfect match at bottom) -->
+      <stop offset="50%" stop-color="#6366F1"/>  <!-- Indigo (Center) -->
+      <stop offset="100%" stop-color="#4338CA"/> <!-- Deep Indigo -->
     </linearGradient>
   </defs>
 
@@ -63,7 +66,7 @@
       <path d="M 590,527 L 658,577 L 590,627" stroke="#FFFFFF" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
     </g>
 
-    <!-- Central Ridge Highlight (Optional, adds crispness to the joined edges) -->
-    <!-- Removed to make the transition perfectly seamless between faces -->
+    <!-- Central Ridge Highlight to define the 3D shape, since the gradients are perfectly continuous -->
+    <path d="M 512,512 L 512,772 M 512,512 L 287,382 M 512,512 L 737,382" stroke="#FFFFFF" stroke-opacity="0.25" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
   </g>
 </svg>
