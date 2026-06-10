@@ -1,0 +1,1331 @@
+{
+  "total_analyzed": 77,
+  "failure_modes": {
+    "J_wrong_fix": 62,
+    "A_harness_crash": 6,
+    "D_wrong_file": 6,
+    "G_search_thrashing": 2,
+    "F_turn_limit_exhaustion": 1
+  },
+  "failure_mode_descriptions": {
+    "A_harness_crash": "Harness crash/timeout/OOM - agent trace incomplete",
+    "B_gave_up_no_attempt": "Agent gave up early without attempting edits",
+    "C_explored_but_no_edit": "Agent explored codebase but never produced edits",
+    "D_wrong_file": "Wrong file localization - edited files don't match gold",
+    "E_turn_limit_edit_loop": "Hit turn limit while stuck in edit retry loop",
+    "F_turn_limit_exhaustion": "Hit turn limit - ran out of turns",
+    "G_search_thrashing": "Search thrashing - >60% empty search results",
+    "H_edit_failures": "Repeated edit tool failures (>=3)",
+    "I_no_verification": "Produced edits but never ran tests to verify",
+    "J_wrong_fix": "Applied fix but patch doesn't match gold (wrong logic)",
+    "K_other": "Other / uncategorized"
+  },
+  "localization": {
+    "correct": 63,
+    "wrong": 8,
+    "no_pred": 6
+  },
+  "projects": {
+    "sympy__sympy": 27,
+    "sphinx-doc__sphinx": 12,
+    "django__django": 11,
+    "matplotlib__matplotlib": 6,
+    "scikit-learn__scikit-learn": 6,
+    "psf__requests": 4,
+    "astropy__astropy": 3,
+    "pytest-dev__pytest": 3,
+    "pallets__flask": 2,
+    "pydata__xarray": 2,
+    "pylint-dev__pylint": 1
+  },
+  "signals": {
+    "harness_crash_or_timeout": 6,
+    "wrong_file_localization": 6,
+    "code_graph_index_errors": 3,
+    "search_thrashing": 2,
+    "partial_file_coverage": 2,
+    "hit_turn_limit": 1
+  },
+  "effort": {
+    "avg_turns": 31.774647887323944,
+    "avg_tokens": 799365.0422535212,
+    "avg_cost": 0.02234469014084507,
+    "total_cost": 1.5864729999999998
+  },
+  "instances": [
+    {
+      "id": "django__django-15738",
+      "mode": "A_harness_crash",
+      "loc": "no_pred",
+      "signals": [
+        "harness_crash_or_timeout",
+        "partial_file_coverage"
+      ],
+      "turns": 0,
+      "edits": 2,
+      "tests": 2,
+      "errors": 4,
+      "gold_files": [],
+      "pred_files": []
+    },
+    {
+      "id": "django__django-16820",
+      "mode": "A_harness_crash",
+      "loc": "no_pred",
+      "signals": [
+        "harness_crash_or_timeout"
+      ],
+      "turns": 0,
+      "edits": 1,
+      "tests": 3,
+      "errors": 1,
+      "gold_files": [],
+      "pred_files": []
+    },
+    {
+      "id": "sympy__sympy-11897",
+      "mode": "A_harness_crash",
+      "loc": "no_pred",
+      "signals": [
+        "harness_crash_or_timeout",
+        "partial_file_coverage"
+      ],
+      "turns": 0,
+      "edits": 1,
+      "tests": 1,
+      "errors": 1,
+      "gold_files": [],
+      "pred_files": []
+    },
+    {
+      "id": "sympy__sympy-13895",
+      "mode": "A_harness_crash",
+      "loc": "no_pred",
+      "signals": [
+        "harness_crash_or_timeout"
+      ],
+      "turns": 0,
+      "edits": 2,
+      "tests": 3,
+      "errors": 3,
+      "gold_files": [],
+      "pred_files": []
+    },
+    {
+      "id": "sympy__sympy-16503",
+      "mode": "A_harness_crash",
+      "loc": "no_pred",
+      "signals": [
+        "harness_crash_or_timeout"
+      ],
+      "turns": 0,
+      "edits": 1,
+      "tests": 1,
+      "errors": 2,
+      "gold_files": [],
+      "pred_files": []
+    },
+    {
+      "id": "sympy__sympy-23191",
+      "mode": "A_harness_crash",
+      "loc": "no_pred",
+      "signals": [
+        "harness_crash_or_timeout"
+      ],
+      "turns": 0,
+      "edits": 1,
+      "tests": 3,
+      "errors": 6,
+      "gold_files": [],
+      "pred_files": []
+    },
+    {
+      "id": "django__django-15252",
+      "mode": "D_wrong_file",
+      "loc": "wrong",
+      "signals": [
+        "wrong_file_localization"
+      ],
+      "turns": 37,
+      "edits": 3,
+      "tests": 6,
+      "errors": 0,
+      "gold_files": [
+        "django/db/migrations/executor.py"
+      ],
+      "pred_files": [
+        "django/db/migrations/recorder.py"
+      ]
+    },
+    {
+      "id": "matplotlib__matplotlib-23476",
+      "mode": "D_wrong_file",
+      "loc": "wrong",
+      "signals": [
+        "wrong_file_localization"
+      ],
+      "turns": 29,
+      "edits": 1,
+      "tests": 4,
+      "errors": 0,
+      "gold_files": [
+        "lib/matplotlib/figure.py"
+      ],
+      "pred_files": [
+        "lib/matplotlib/backend_bases.py"
+      ]
+    },
+    {
+      "id": "sphinx-doc__sphinx-8474",
+      "mode": "D_wrong_file",
+      "loc": "wrong",
+      "signals": [
+        "wrong_file_localization"
+      ],
+      "turns": 67,
+      "edits": 4,
+      "tests": 9,
+      "errors": 0,
+      "gold_files": [
+        "sphinx/domains/std.py"
+      ],
+      "pred_files": [
+        "setup.py",
+        "sphinx/environment/collectors/toctree.py",
+        "tox.ini"
+      ]
+    },
+    {
+      "id": "sympy__sympy-13146",
+      "mode": "D_wrong_file",
+      "loc": "wrong",
+      "signals": [
+        "wrong_file_localization"
+      ],
+      "turns": 29,
+      "edits": 1,
+      "tests": 3,
+      "errors": 2,
+      "gold_files": [
+        "sympy/core/operations.py"
+      ],
+      "pred_files": [
+        "sympy/core/numbers.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-17630",
+      "mode": "D_wrong_file",
+      "loc": "wrong",
+      "signals": [
+        "wrong_file_localization"
+      ],
+      "turns": 43,
+      "edits": 1,
+      "tests": 2,
+      "errors": 3,
+      "gold_files": [
+        "sympy/matrices/expressions/matexpr.py"
+      ],
+      "pred_files": [
+        "sympy/matrices/expressions/blockmatrix.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-20322",
+      "mode": "D_wrong_file",
+      "loc": "wrong",
+      "signals": [
+        "wrong_file_localization"
+      ],
+      "turns": 43,
+      "edits": 4,
+      "tests": 5,
+      "errors": 2,
+      "gold_files": [
+        "sympy/core/mul.py"
+      ],
+      "pred_files": [
+        "sympy/simplify/radsimp.py"
+      ]
+    },
+    {
+      "id": "django__django-11564",
+      "mode": "F_turn_limit_exhaustion",
+      "loc": "wrong",
+      "signals": [
+        "hit_turn_limit"
+      ],
+      "turns": 75,
+      "edits": 11,
+      "tests": 10,
+      "errors": 4,
+      "gold_files": [
+        "django/conf/__init__.py"
+      ],
+      "pred_files": [
+        "django/core/files/storage.py",
+        "django/templatetags/static.py"
+      ]
+    },
+    {
+      "id": "django__django-13321",
+      "mode": "G_search_thrashing",
+      "loc": "correct",
+      "signals": [
+        "search_thrashing"
+      ],
+      "turns": 16,
+      "edits": 1,
+      "tests": 2,
+      "errors": 0,
+      "gold_files": [
+        "django/contrib/sessions/backends/base.py"
+      ],
+      "pred_files": [
+        "django/contrib/sessions/backends/base.py"
+      ]
+    },
+    {
+      "id": "pallets__flask-4045",
+      "mode": "G_search_thrashing",
+      "loc": "correct",
+      "signals": [
+        "search_thrashing"
+      ],
+      "turns": 43,
+      "edits": 3,
+      "tests": 5,
+      "errors": 5,
+      "gold_files": [
+        "src/flask/blueprints.py"
+      ],
+      "pred_files": [
+        "src/flask/blueprints.py"
+      ]
+    },
+    {
+      "id": "astropy__astropy-14182",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [
+        "code_graph_index_errors"
+      ],
+      "turns": 30,
+      "edits": 2,
+      "tests": 4,
+      "errors": 3,
+      "gold_files": [
+        "astropy/io/ascii/rst.py"
+      ],
+      "pred_files": [
+        "astropy/io/ascii/rst.py"
+      ]
+    },
+    {
+      "id": "astropy__astropy-14365",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 9,
+      "edits": 1,
+      "tests": 1,
+      "errors": 0,
+      "gold_files": [
+        "astropy/io/ascii/qdp.py"
+      ],
+      "pred_files": [
+        "astropy/io/ascii/qdp.py"
+      ]
+    },
+    {
+      "id": "astropy__astropy-7746",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 26,
+      "edits": 2,
+      "tests": 2,
+      "errors": 0,
+      "gold_files": [
+        "astropy/wcs/wcs.py"
+      ],
+      "pred_files": [
+        "astropy/wcs/wcs.py"
+      ]
+    },
+    {
+      "id": "django__django-11905",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 41,
+      "edits": 5,
+      "tests": 9,
+      "errors": 1,
+      "gold_files": [
+        "django/db/models/lookups.py"
+      ],
+      "pred_files": [
+        "django/db/models/lookups.py"
+      ]
+    },
+    {
+      "id": "django__django-13265",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 42,
+      "edits": 8,
+      "tests": 4,
+      "errors": 0,
+      "gold_files": [
+        "django/db/migrations/autodetector.py"
+      ],
+      "pred_files": [
+        "django/db/migrations/autodetector.py"
+      ]
+    },
+    {
+      "id": "django__django-13660",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 15,
+      "edits": 2,
+      "tests": 2,
+      "errors": 2,
+      "gold_files": [
+        "django/core/management/commands/shell.py"
+      ],
+      "pred_files": [
+        "django/core/management/commands/shell.py"
+      ]
+    },
+    {
+      "id": "django__django-14155",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 24,
+      "edits": 4,
+      "tests": 3,
+      "errors": 0,
+      "gold_files": [
+        "django/urls/resolvers.py"
+      ],
+      "pred_files": [
+        "django/urls/resolvers.py"
+      ]
+    },
+    {
+      "id": "django__django-14534",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 26,
+      "edits": 2,
+      "tests": 6,
+      "errors": 0,
+      "gold_files": [
+        "django/forms/boundfield.py"
+      ],
+      "pred_files": [
+        "django/forms/boundfield.py"
+      ]
+    },
+    {
+      "id": "django__django-15202",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 29,
+      "edits": 2,
+      "tests": 6,
+      "errors": 1,
+      "gold_files": [
+        "django/core/validators.py"
+      ],
+      "pred_files": [
+        "django/core/validators.py"
+      ]
+    },
+    {
+      "id": "matplotlib__matplotlib-22711",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 13,
+      "edits": 1,
+      "tests": 3,
+      "errors": 0,
+      "gold_files": [
+        "lib/matplotlib/widgets.py"
+      ],
+      "pred_files": [
+        "lib/matplotlib/widgets.py"
+      ]
+    },
+    {
+      "id": "matplotlib__matplotlib-22835",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 25,
+      "edits": 3,
+      "tests": 4,
+      "errors": 0,
+      "gold_files": [
+        "lib/matplotlib/artist.py"
+      ],
+      "pred_files": [
+        "lib/matplotlib/artist.py"
+      ]
+    },
+    {
+      "id": "matplotlib__matplotlib-23299",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 33,
+      "edits": 5,
+      "tests": 7,
+      "errors": 1,
+      "gold_files": [
+        "lib/matplotlib/__init__.py"
+      ],
+      "pred_files": [
+        "lib/matplotlib/__init__.py"
+      ]
+    },
+    {
+      "id": "matplotlib__matplotlib-23563",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 16,
+      "edits": 1,
+      "tests": 1,
+      "errors": 0,
+      "gold_files": [
+        "lib/mpl_toolkits/mplot3d/art3d.py"
+      ],
+      "pred_files": [
+        "lib/mpl_toolkits/mplot3d/art3d.py"
+      ]
+    },
+    {
+      "id": "matplotlib__matplotlib-23987",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 24,
+      "edits": 4,
+      "tests": 3,
+      "errors": 0,
+      "gold_files": [
+        "lib/matplotlib/figure.py"
+      ],
+      "pred_files": [
+        "lib/matplotlib/figure.py"
+      ]
+    },
+    {
+      "id": "pallets__flask-5063",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 41,
+      "edits": 3,
+      "tests": 2,
+      "errors": 2,
+      "gold_files": [
+        "src/flask/cli.py"
+      ],
+      "pred_files": [
+        "src/flask/cli.py"
+      ]
+    },
+    {
+      "id": "psf__requests-2148",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 28,
+      "edits": 1,
+      "tests": 3,
+      "errors": 2,
+      "gold_files": [
+        "requests/models.py"
+      ],
+      "pred_files": [
+        "requests/models.py"
+      ]
+    },
+    {
+      "id": "psf__requests-2317",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 29,
+      "edits": 2,
+      "tests": 5,
+      "errors": 3,
+      "gold_files": [
+        "requests/sessions.py"
+      ],
+      "pred_files": [
+        "requests/sessions.py"
+      ]
+    },
+    {
+      "id": "psf__requests-2674",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 19,
+      "edits": 1,
+      "tests": 3,
+      "errors": 0,
+      "gold_files": [
+        "requests/adapters.py"
+      ],
+      "pred_files": [
+        "requests/adapters.py"
+      ]
+    },
+    {
+      "id": "psf__requests-863",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 28,
+      "edits": 5,
+      "tests": 5,
+      "errors": 5,
+      "gold_files": [
+        "requests/models.py"
+      ],
+      "pred_files": [
+        "requests/models.py"
+      ]
+    },
+    {
+      "id": "pydata__xarray-4248",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 29,
+      "edits": 1,
+      "tests": 6,
+      "errors": 2,
+      "gold_files": [
+        "xarray/core/formatting.py"
+      ],
+      "pred_files": [
+        "xarray/core/formatting.py"
+      ]
+    },
+    {
+      "id": "pydata__xarray-4493",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 27,
+      "edits": 2,
+      "tests": 7,
+      "errors": 0,
+      "gold_files": [
+        "xarray/core/variable.py"
+      ],
+      "pred_files": [
+        "xarray/core/variable.py"
+      ]
+    },
+    {
+      "id": "pylint-dev__pylint-6506",
+      "mode": "J_wrong_fix",
+      "loc": "wrong",
+      "signals": [],
+      "turns": 23,
+      "edits": 12,
+      "tests": 2,
+      "errors": 1,
+      "gold_files": [
+        "pylint/config/config_initialization.py"
+      ],
+      "pred_files": [
+        "pylint/__init__.py"
+      ]
+    },
+    {
+      "id": "pytest-dev__pytest-5221",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 39,
+      "edits": 2,
+      "tests": 8,
+      "errors": 0,
+      "gold_files": [
+        "src/_pytest/python.py"
+      ],
+      "pred_files": [
+        "src/_pytest/python.py"
+      ]
+    },
+    {
+      "id": "pytest-dev__pytest-7220",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 60,
+      "edits": 8,
+      "tests": 14,
+      "errors": 2,
+      "gold_files": [
+        "src/_pytest/nodes.py"
+      ],
+      "pred_files": [
+        "src/_pytest/_code/code.py",
+        "src/_pytest/config/__init__.py",
+        "src/_pytest/nodes.py",
+        "src/_pytest/terminal.py"
+      ]
+    },
+    {
+      "id": "pytest-dev__pytest-8365",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 19,
+      "edits": 1,
+      "tests": 3,
+      "errors": 0,
+      "gold_files": [
+        "src/_pytest/tmpdir.py"
+      ],
+      "pred_files": [
+        "src/_pytest/tmpdir.py"
+      ]
+    },
+    {
+      "id": "scikit-learn__scikit-learn-10508",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 18,
+      "edits": 4,
+      "tests": 3,
+      "errors": 1,
+      "gold_files": [
+        "sklearn/preprocessing/label.py"
+      ],
+      "pred_files": [
+        "sklearn/preprocessing/label.py"
+      ]
+    },
+    {
+      "id": "scikit-learn__scikit-learn-10949",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 29,
+      "edits": 2,
+      "tests": 3,
+      "errors": 4,
+      "gold_files": [
+        "sklearn/utils/validation.py"
+      ],
+      "pred_files": [
+        "sklearn/utils/validation.py"
+      ]
+    },
+    {
+      "id": "scikit-learn__scikit-learn-11040",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 29,
+      "edits": 8,
+      "tests": 1,
+      "errors": 0,
+      "gold_files": [
+        "sklearn/neighbors/base.py"
+      ],
+      "pred_files": [
+        "sklearn/neighbors/base.py"
+      ]
+    },
+    {
+      "id": "scikit-learn__scikit-learn-13497",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 11,
+      "edits": 1,
+      "tests": 1,
+      "errors": 0,
+      "gold_files": [
+        "sklearn/feature_selection/mutual_info_.py"
+      ],
+      "pred_files": [
+        "sklearn/feature_selection/mutual_info_.py"
+      ]
+    },
+    {
+      "id": "scikit-learn__scikit-learn-25638",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 44,
+      "edits": 6,
+      "tests": 3,
+      "errors": 3,
+      "gold_files": [
+        "sklearn/utils/multiclass.py"
+      ],
+      "pred_files": [
+        "sklearn/utils/multiclass.py"
+      ]
+    },
+    {
+      "id": "scikit-learn__scikit-learn-25747",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 23,
+      "edits": 1,
+      "tests": 3,
+      "errors": 2,
+      "gold_files": [
+        "sklearn/utils/_set_output.py"
+      ],
+      "pred_files": [
+        "sklearn/utils/_set_output.py"
+      ]
+    },
+    {
+      "id": "sphinx-doc__sphinx-10325",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 38,
+      "edits": 10,
+      "tests": 8,
+      "errors": 1,
+      "gold_files": [
+        "sphinx/ext/autodoc/__init__.py"
+      ],
+      "pred_files": [
+        "sphinx/ext/autodoc/__init__.py",
+        "sphinx/ext/autodoc/directive.py",
+        "tox.ini"
+      ]
+    },
+    {
+      "id": "sphinx-doc__sphinx-7686",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 30,
+      "edits": 1,
+      "tests": 7,
+      "errors": 0,
+      "gold_files": [
+        "sphinx/ext/autosummary/generate.py"
+      ],
+      "pred_files": [
+        "setup.py",
+        "sphinx/ext/autosummary/generate.py",
+        "tox.ini"
+      ]
+    },
+    {
+      "id": "sphinx-doc__sphinx-7738",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 40,
+      "edits": 3,
+      "tests": 3,
+      "errors": 0,
+      "gold_files": [
+        "sphinx/ext/napoleon/docstring.py"
+      ],
+      "pred_files": [
+        "setup.py",
+        "sphinx/ext/napoleon/docstring.py",
+        "tox.ini"
+      ]
+    },
+    {
+      "id": "sphinx-doc__sphinx-7975",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 19,
+      "edits": 2,
+      "tests": 8,
+      "errors": 0,
+      "gold_files": [
+        "sphinx/environment/adapters/indexentries.py"
+      ],
+      "pred_files": [
+        "setup.py",
+        "sphinx/environment/adapters/indexentries.py",
+        "tox.ini"
+      ]
+    },
+    {
+      "id": "sphinx-doc__sphinx-8273",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 19,
+      "edits": 1,
+      "tests": 5,
+      "errors": 1,
+      "gold_files": [
+        "sphinx/builders/manpage.py"
+      ],
+      "pred_files": [
+        "setup.py",
+        "sphinx/builders/manpage.py",
+        "tox.ini"
+      ]
+    },
+    {
+      "id": "sphinx-doc__sphinx-8282",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 40,
+      "edits": 6,
+      "tests": 9,
+      "errors": 0,
+      "gold_files": [
+        "sphinx/ext/autodoc/__init__.py"
+      ],
+      "pred_files": [
+        "setup.py",
+        "sphinx/ext/autodoc/__init__.py",
+        "tox.ini"
+      ]
+    },
+    {
+      "id": "sphinx-doc__sphinx-8435",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 41,
+      "edits": 7,
+      "tests": 7,
+      "errors": 1,
+      "gold_files": [
+        "sphinx/ext/autodoc/__init__.py"
+      ],
+      "pred_files": [
+        "setup.py",
+        "sphinx/ext/autodoc/__init__.py",
+        "tox.ini"
+      ]
+    },
+    {
+      "id": "sphinx-doc__sphinx-8506",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 20,
+      "edits": 1,
+      "tests": 5,
+      "errors": 0,
+      "gold_files": [
+        "sphinx/domains/std.py"
+      ],
+      "pred_files": [
+        "setup.py",
+        "sphinx/domains/std.py",
+        "tox.ini"
+      ]
+    },
+    {
+      "id": "sphinx-doc__sphinx-8627",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 39,
+      "edits": 1,
+      "tests": 2,
+      "errors": 1,
+      "gold_files": [
+        "sphinx/util/typing.py"
+      ],
+      "pred_files": [
+        "setup.py",
+        "sphinx/util/typing.py",
+        "tox.ini"
+      ]
+    },
+    {
+      "id": "sphinx-doc__sphinx-8713",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 21,
+      "edits": 1,
+      "tests": 2,
+      "errors": 0,
+      "gold_files": [
+        "sphinx/ext/napoleon/docstring.py"
+      ],
+      "pred_files": [
+        "setup.py",
+        "sphinx/ext/napoleon/docstring.py",
+        "tox.ini"
+      ]
+    },
+    {
+      "id": "sphinx-doc__sphinx-8801",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 50,
+      "edits": 2,
+      "tests": 14,
+      "errors": 0,
+      "gold_files": [
+        "sphinx/ext/autodoc/importer.py"
+      ],
+      "pred_files": [
+        "setup.py",
+        "sphinx/ext/autodoc/importer.py",
+        "tox.ini"
+      ]
+    },
+    {
+      "id": "sympy__sympy-11400",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 29,
+      "edits": 6,
+      "tests": 1,
+      "errors": 1,
+      "gold_files": [
+        "sympy/printing/ccode.py"
+      ],
+      "pred_files": [
+        "sympy/printing/ccode.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-11870",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 22,
+      "edits": 4,
+      "tests": 3,
+      "errors": 0,
+      "gold_files": [
+        "sympy/functions/elementary/trigonometric.py"
+      ],
+      "pred_files": [
+        "sympy/functions/elementary/trigonometric.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-12171",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 19,
+      "edits": 2,
+      "tests": 3,
+      "errors": 1,
+      "gold_files": [
+        "sympy/printing/mathematica.py"
+      ],
+      "pred_files": [
+        "sympy/printing/mathematica.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-13043",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 43,
+      "edits": 5,
+      "tests": 2,
+      "errors": 5,
+      "gold_files": [
+        "sympy/integrals/intpoly.py"
+      ],
+      "pred_files": [
+        "sympy/integrals/intpoly.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-13177",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 17,
+      "edits": 1,
+      "tests": 1,
+      "errors": 1,
+      "gold_files": [
+        "sympy/core/mod.py"
+      ],
+      "pred_files": [
+        "sympy/core/mod.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-13437",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 17,
+      "edits": 4,
+      "tests": 1,
+      "errors": 0,
+      "gold_files": [
+        "sympy/functions/combinatorial/numbers.py"
+      ],
+      "pred_files": [
+        "sympy/functions/combinatorial/numbers.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-13773",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 28,
+      "edits": 1,
+      "tests": 4,
+      "errors": 1,
+      "gold_files": [
+        "sympy/matrices/common.py"
+      ],
+      "pred_files": [
+        "sympy/matrices/common.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-13915",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 48,
+      "edits": 4,
+      "tests": 3,
+      "errors": 2,
+      "gold_files": [
+        "sympy/core/mul.py"
+      ],
+      "pred_files": [
+        "sympy/core/mul.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-14308",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 60,
+      "edits": 3,
+      "tests": 1,
+      "errors": 3,
+      "gold_files": [
+        "sympy/printing/pretty/pretty.py"
+      ],
+      "pred_files": [
+        "sympy/printing/pretty/pretty.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-14317",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 46,
+      "edits": 3,
+      "tests": 4,
+      "errors": 4,
+      "gold_files": [
+        "sympy/printing/latex.py"
+      ],
+      "pred_files": [
+        "sympy/printing/latex.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-15308",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 47,
+      "edits": 1,
+      "tests": 5,
+      "errors": 3,
+      "gold_files": [
+        "sympy/printing/latex.py"
+      ],
+      "pred_files": [
+        "sympy/printing/latex.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-16106",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 34,
+      "edits": 10,
+      "tests": 1,
+      "errors": 0,
+      "gold_files": [
+        "sympy/printing/mathml.py"
+      ],
+      "pred_files": [
+        "sympy/printing/mathml.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-18199",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 25,
+      "edits": 1,
+      "tests": 4,
+      "errors": 4,
+      "gold_files": [
+        "sympy/ntheory/residue_ntheory.py"
+      ],
+      "pred_files": [
+        "sympy/ntheory/residue_ntheory.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-18698",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 53,
+      "edits": 4,
+      "tests": 3,
+      "errors": 4,
+      "gold_files": [
+        "sympy/polys/polytools.py"
+      ],
+      "pred_files": [
+        "sympy/polys/polytools.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-19007",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 34,
+      "edits": 1,
+      "tests": 1,
+      "errors": 3,
+      "gold_files": [
+        "sympy/matrices/expressions/blockmatrix.py"
+      ],
+      "pred_files": [
+        "sympy/matrices/expressions/blockmatrix.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-20049",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [
+        "code_graph_index_errors"
+      ],
+      "turns": 39,
+      "edits": 6,
+      "tests": 1,
+      "errors": 3,
+      "gold_files": [
+        "sympy/physics/vector/point.py"
+      ],
+      "pred_files": [
+        "sympy/physics/vector/point.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-20639",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 40,
+      "edits": 5,
+      "tests": 4,
+      "errors": 2,
+      "gold_files": [
+        "sympy/printing/pretty/pretty.py"
+      ],
+      "pred_files": [
+        "sympy/printing/pretty/pretty.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-21171",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 24,
+      "edits": 1,
+      "tests": 4,
+      "errors": 2,
+      "gold_files": [
+        "sympy/printing/latex.py"
+      ],
+      "pred_files": [
+        "sympy/printing/latex.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-24102",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [
+        "code_graph_index_errors"
+      ],
+      "turns": 18,
+      "edits": 1,
+      "tests": 3,
+      "errors": 3,
+      "gold_files": [
+        "sympy/parsing/mathematica.py"
+      ],
+      "pred_files": [
+        "sympy/parsing/mathematica.py"
+      ]
+    },
+    {
+      "id": "sympy__sympy-24909",
+      "mode": "J_wrong_fix",
+      "loc": "correct",
+      "signals": [],
+      "turns": 25,
+      "edits": 1,
+      "tests": 2,
+      "errors": 0,
+      "gold_files": [
+        "sympy/physics/units/prefixes.py"
+      ],
+      "pred_files": [
+        "sympy/physics/units/prefixes.py"
+      ]
+    }
+  ]
+}
