@@ -80,8 +80,12 @@ export type { HarnessHooks, PreToolUseContext, PreToolUseResult, PostToolUseCont
 export {
   TOOL_DEFINITIONS,
   ToolExecutor,
+  LocalEnvironment,
+  redactSensitiveEnv,
   ShellSession,
   applyEdit,
+  type ExecutionEnvironment,
+  type ExecutionEnvironmentFactory,
   type TodoItem,
 } from "./tools/index.js";
 
