@@ -1,18 +1,72 @@
+<div align="center">
+
+<img src="brand/lattice-code-icon.svg" width="88" alt="Lattice Code" />
+
 # Lattice Code
 
-Open-source coding agent with a desktop chat app and a terminal CLI, powered by the Lattice Code harness.
+**Lattice — the structural layer where code, context, and agents connect.**
 
-![Lattice Code icon](brand/lattice-code-icon.svg)
+Local-first coding agent with a desktop chat app, a terminal CLI, and one shared harness for tools, sessions, and benchmarks.
 
-Lattice Code is a compact local workbench where prompts, tool calls, and code context connect into useful changes.
+<br />
 
-This repository deliberately keeps a small scope:
+[![License: MIT](https://img.shields.io/badge/License-MIT-54C7B8.svg)](LICENSE)
+[![pnpm](https://img.shields.io/badge/pnpm-8.10-20282A.svg)](package.json)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-F4A84C.svg)](tsconfig.base.json)
 
-- **CLI** (`lc`) — run the agent from your terminal
-- **Electron desktop chat** — workspace picker, chat history, image attachments
-- **Harness agent loop** (tools + LLM) shared by chat, CLI, and eval
+</div>
 
-## Quick Start (desktop)
+---
+
+## Overview
+
+Lattice Code is an open-source agent workbench built around a single idea: your repository, conversation history, tool calls, and model context should form one coherent structure—not a pile of disconnected prompts.
+
+The project ships three surfaces on the same engine:
+
+| Surface | Command | Best for |
+|---------|---------|----------|
+| **Desktop chat** | `pnpm dev` | Workspace picker, threaded history, image attachments, permission UI |
+| **Terminal CLI** | `lc` | Scripts, SSH sessions, CI, headless automation |
+| **Harness** | `@lattice-code/harness` | Shared agent loop used by chat, CLI, and eval pipelines |
+
+Everything runs locally. API keys and runtime data stay on your machine under `~/.lattice-code/` unless you point the agent elsewhere.
+
+## Features
+
+- **Unified harness** — read/write files, bash, grep, structured tool permissions, session resume, JSONL traces
+- **Bring your own model** — DeepSeek, Anthropic, Kimi, GLM, Bedrock, Vertex, or any OpenAI-compatible endpoint
+- **Desktop + CLI parity** — same agent behavior in the chat app and `lc`
+- **Explicit permissions** — destructive or sensitive tool calls can require confirmation (or `-y` in trusted environments)
+- **Benchmark-ready** — synthetic harness tasks, [SWE-bench](packages/harness/eval/swe-bench/README.md) Docker eval, Terminal-Bench via Harbor
+- **Small, inspectable scope** — no hosted backend required; the monorepo stays focused on agent UX and the loop itself
+
+## Architecture
+
+```
+┌─────────────────────┐     ┌─────────────────────┐
+│  chat-desktop       │     │  lc (CLI)           │
+│  Electron + React   │     │  terminal REPL      │
+└──────────┬──────────┘     └──────────┬──────────┘
+           │                           │
+           └───────────┬───────────────┘
+                       ▼
+            ┌─────────────────────┐
+            │  @lattice-code/     │
+            │  harness            │  tools · LLM · sessions · traces
+            └──────────┬──────────┘
+                       │
+     ┌─────────────────┼─────────────────┐
+     ▼                 ▼                 ▼
+ sdk-runtime      storage-core      shared-types
+ (providers)      (~/.lattice-code)  (events / protocol)
+```
+
+Runtime layout, session paths, and trace directories are documented in [docs/design/lattice-code-home-layout.md](docs/design/lattice-code-home-layout.md).
+
+## Quick start
+
+### Desktop
 
 ```bash
 pnpm install
@@ -20,30 +74,21 @@ cp .env.example .env
 pnpm dev
 ```
 
-Configure the provider from the app's **Settings** screen. Settings are stored locally in Electron's user data directory.
+Open **Settings** in the app to choose provider and model. Desktop settings live in Electron user data (`chat-desktop-settings.json`).
 
-## CLI (`lc`)
+### CLI
 
-The CLI uses the same harness engine as the desktop app: read/write files, bash, grep, session resume, and tool permissions.
-
-### Install
-
-**From this repo (development)**
+**Development (no global install)**
 
 ```bash
 pnpm install
 pnpm --filter @lattice-code/cli build:deps
 pnpm --filter @lattice-code/cli build
-```
-
-Run without a global install:
-
-```bash
 pnpm lc --help
-pnpm dev:cli -i    # same as lc -i via tsx
+pnpm dev:cli -i    # interactive session via tsx
 ```
 
-**Global command (local link)**
+**Global install (local link)**
 
 ```bash
 pnpm --filter @lattice-code/cli build:deps
@@ -52,149 +97,127 @@ cd apps/cli && pnpm link --global
 lc --version
 ```
 
-**Global command (npm/pnpm publish)**
-
-When `@lattice-code/cli` is published:
+When published:
 
 ```bash
 pnpm add -g @lattice-code/cli
-# or: npm install -g @lattice-code/cli
 ```
 
-### Configure API key and provider
+### First run
 
-Settings are stored in `~/.lattice-code/config.json` (override the directory with `LATTICE_CODE_HOME`).
+```bash
+# one-shot
+lc "explain how authentication works in src/"
 
-**Option A — `config set` subcommand**
+# interactive
+lc -i
+
+# another repo
+lc -c /path/to/repo "add tests for the parser"
+```
+
+## Configuration
+
+Settings merge in this order: **CLI flags** → **environment** → **`~/.lattice-code/config.json`**.
+
+**Config file** (`lc config set`):
 
 ```bash
 lc config set provider deepseek
 lc config set api-key sk-your-key-here
 lc config set model deepseek-v4-pro
-lc config set provider deepseek api-key sk-... model deepseek-v4-pro
 ```
 
-Supported keys: `provider`, `primaryModel` (alias `model`), `apiKey` (`api-key`), `baseUrl` (`base-url`).  
-See `lc config set --help` for `key=value` syntax.
-
-**Option B — environment variables**
+**Environment**:
 
 ```bash
 export DEEPSEEK_API_KEY=sk-...
 export LATTICE_CODE_MODEL=deepseek-v4-pro
 export LATTICE_CODE_PROVIDER=deepseek
+export LATTICE_CODE_HOME=~/.lattice-code   # optional override
 ```
 
-**Option C — repo `.env`**
+Copy `.env.example` to `.env` at the repo root for local development; the CLI loads the nearest `.env` without overriding shell variables.
 
-From the project root, copy `.env.example` to `.env`. The CLI loads the nearest `.env` without overriding variables already set in the shell.
+| Variable | Purpose |
+|----------|---------|
+| `LATTICE_CODE_HOME` | Root for config, sessions, traces, eval runs |
+| `LATTICE_CODE_API_KEY` | API key fallback |
+| `LATTICE_CODE_MODEL` / `LATTICE_CODE_PROVIDER` / `LATTICE_CODE_BASE_URL` | Default LLM routing |
 
-Priority for a run: **CLI flags** > **environment** > **`~/.lattice-code/config.json`**.
+Full CLI flags: `lc --help` · config keys: `lc config set --help`
 
-### Use the CLI
-
-**One-shot task** (current directory as workspace):
-
-```bash
-lc "explain how authentication works in src/"
-lc -c /path/to/repo "add tests for the parser"
-```
-
-**Interactive session** (multi-turn, same session):
-
-```bash
-lc -i
-# › fix the failing test in tests/foo.test.ts
-# › now run the test suite
-# /exit
-```
-
-**Resume a session**:
-
-```bash
-lc --resume -s <session-id> "continue where we left off"
-```
-
-**Pipe a prompt**:
-
-```bash
-echo "review the diff and suggest improvements" | lc
-```
-
-**Auto-approve tool permissions** (CI or trusted environments):
-
-```bash
-lc -y "run the linter and fix issues"
-```
-
-**Other useful flags**
+## CLI reference (common)
 
 | Flag | Description |
 |------|-------------|
+| `-i` | Interactive multi-turn session |
+| `-c <dir>` | Workspace root (default: cwd) |
+| `-s <id>` / `--resume` | Continue an existing session |
+| `-y` | Auto-approve tool permissions |
 | `-v` | Verbose tool output |
-| `--no-trace` | Disable JSONL traces under `~/.lattice-code/traces/cli/` |
-| `--model`, `--provider`, `--api-key`, `--base-url` | Override config for one run |
+| `--no-trace` | Disable JSONL under `~/.lattice-code/traces/cli/` |
+| `--model`, `--provider`, `--api-key`, `--base-url` | One-run overrides |
 
-Full option list: `lc --help`.
+```bash
+lc --resume -s <session-id> "continue where we left off"
+echo "review the diff" | lc
+lc -y "run the linter and fix issues"
+```
 
-## Security Notes
+## Provider presets
 
-- Agent runs use the harness permission guard. Destructive or sensitive tool calls can require explicit confirmation in the UI (desktop) or in the terminal (CLI). Use `-y` only when you trust the environment.
-- Links rendered from chat messages are not allowed to create new Electron windows. External `http` and `https` links open in the system browser; other protocols are ignored.
-- API keys in desktop Settings are stored locally in Electron's user data directory (`chat-desktop-settings.json`). CLI keys live in `~/.lattice-code/config.json`. Neither uses the OS keychain yet.
-- Runtime data is stored under `~/.lattice-code` by default. Set `LATTICE_CODE_HOME` to use a different directory.
-- Harness sessions, chat threads, and agent traces are persisted under `LATTICE_CODE_HOME`. See [docs/design/lattice-code-home-layout.md](docs/design/lattice-code-home-layout.md).
+Anthropic · DeepSeek · Kimi · GLM · Amazon Bedrock · Google Vertex AI · custom OpenAI-compatible endpoints
 
-## Provider Support
+Desktop Settings and `lc config set` both map to the harness LLM client (`apiKey`, `baseUrl`, `model`).
 
-Presets are available for:
+## Project layout
 
-- Anthropic
-- DeepSeek
-- Kimi
-- GLM
-- Amazon Bedrock
-- Google Vertex AI
-- Custom OpenAI-compatible endpoints
+```
+apps/cli              Terminal CLI (`lc`, `lattice-code`)
+apps/chat-desktop       Electron chat UI
+packages/harness        Agent loop, tools, eval runners
+packages/sdk-core       AgentEngine interface
+packages/sdk-runtime    Provider presets and cost helpers
+packages/shared-types   Events and tool protocol
+packages/storage-core   ~/.lattice-code path helpers
+brand/                  Icon and brand notes
+docs/design/            Storage and product design notes
+```
 
-Desktop Settings and `lc config set` both map to the harness LLM client (`apiKey`, `baseUrl`, `model` / `primaryModel`).
-
-## Project Layout
-
-- `apps/cli`: Terminal CLI (`lc` binary).
-- `apps/chat-desktop`: Electron main process, preload bridge, and React renderer.
-- `packages/harness`: Standalone coding agent loop (tools + LLM) for chat, CLI, and automation.
-  - `packages/harness/eval/tasks`: Synthetic integration tasks (daily harness iteration).
-  - `packages/harness/eval/swe-bench`: [SWE-bench](packages/harness/eval/swe-bench/README.md) real-repo benchmark (Mac agent + cloud Docker eval).
-- `packages/sdk-runtime`: LLM provider presets.
-- `packages/sdk-core`: `AgentEngine` interface shared by harness, desktop, and CLI.
-- `packages/shared-types`: shared event and tool protocol types.
-- `packages/storage-core`: local workspace/thread storage helpers.
-
-## Development Commands
+## Development
 
 ```bash
 pnpm typecheck
+pnpm test
+
+# desktop
 pnpm --filter @lattice-code/chat-desktop build
 pnpm --filter @lattice-code/chat-desktop start
 
-# CLI
-pnpm --filter @lattice-code/cli build:deps
-pnpm --filter @lattice-code/cli build
+# cli
 pnpm --filter @lattice-code/cli test
-pnpm lc --help
 
-# Harness eval (synthetic tasks; reads DEEPSEEK_API_KEY from repo-root .env)
+# harness eval (synthetic tasks; uses repo-root .env)
 pnpm eval
 
-# SWE-bench — Mac agent → cloud Docker → analyze traces
+# SWE-bench (Mac agent → cloud Docker → trace analysis)
 pnpm eval:swe -- --dataset lite --limit 3 --skip-eval --run-id my-run
-pnpm eval:swe:analyze -- my-run                    # after cloud grading JSON is local
-# Full loop: packages/harness/eval/swe-bench/WORKFLOW.md
+pnpm eval:swe:analyze -- my-run
 ```
 
-Cursor skill: `.cursor/skills/swe-bench-eval/` (proxy tunnel, scp, `resolved_ids` / `unresolved_ids`, trace debug).
+See [packages/harness/eval/swe-bench/WORKFLOW.md](packages/harness/eval/swe-bench/WORKFLOW.md) for the full benchmark loop.
 
-## Brand Assets
+## Security notes
 
-The source icon and brand notes live in `brand/`.
+- Tool permissions are enforced by the harness. Use `-y` only in environments you trust.
+- External links from chat open in the system browser; new Electron windows are not created for untrusted URLs.
+- API keys are stored locally (desktop settings file or `~/.lattice-code/config.json`). OS keychain integration is not implemented yet.
+
+## Brand
+
+Icon and palette: [brand/BRAND.md](brand/BRAND.md)
+
+## License
+
+[MIT](LICENSE) — Copyright (c) Lattice Code contributors
