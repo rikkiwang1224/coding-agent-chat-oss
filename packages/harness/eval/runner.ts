@@ -5,7 +5,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { HarnessEngine } from "../src/harness-engine.js";
 import type { LlmConfig } from "../src/types.js";
-import type { AgentEvent } from "@forgelet/shared-types";
+import type { AgentEvent } from "@lattice-code/shared-types";
 import { formatCostUsd, summarizeEvalUsage, summarizeTaskUsage, type EvalUsageSummary } from "./usage-summary.js";
 
 const execFileAsync = promisify(execFile);
@@ -68,7 +68,7 @@ export async function runEval(config: LlmConfig, tasksDir: string): Promise<Eval
     const result = await runSingleTask(config, taskPath);
     results.push(result);
     const status = result.passed ? "PASS" : "FAIL";
-    const runId = process.env.FORGELET_EVAL_RUN_ID;
+    const runId = process.env.LATTICE_CODE_EVAL_RUN_ID;
     const runSuffix = runId ? `, run ${runId}` : "";
     console.log(
       `  [${status}] ${result.taskId} (${result.durationMs}ms, ${result.turnCount} turns${runSuffix})`,
@@ -119,10 +119,10 @@ async function runSingleTask(config: LlmConfig, taskPath: string): Promise<EvalR
       // No workspace template — start empty
     }
 
-    const evalRunId = process.env.FORGELET_EVAL_RUN_ID || "local";
+    const evalRunId = process.env.LATTICE_CODE_EVAL_RUN_ID || "local";
 
     // Run the agent
-    const traceEnabled = process.env.FORGELET_EVAL_TRACE === "1";
+    const traceEnabled = process.env.LATTICE_CODE_EVAL_TRACE === "1";
 
     const engine = new HarnessEngine({
       workspaceRoot: workspaceDir,

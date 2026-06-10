@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentImageAttachment, AgentRunMode } from "@forgelet/shared-types";
+import type { AgentEvent, AgentImageAttachment, AgentRunMode } from "@lattice-code/shared-types";
 
 export interface RunTaskInput {
   sessionId: string;

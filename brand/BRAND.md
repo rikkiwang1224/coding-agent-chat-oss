@@ -1,42 +1,47 @@
-# Forgelet Brand
+# Lattice Code Brand
 
 ## Name
 
-**Forgelet**
+**Lattice Code**
 
-Meaning: a small forge. The app is a compact local workbench where prompts, tool calls, and code context are shaped into useful changes.
+Short form in prose: **Lattice** (tagline and positioning).
 
-Tagline options:
+Meaning: a structural layer where code, context, and agents connect. A local workbench for agent-driven development.
+
+## Tagline
+
+**Lattice — the structural layer where code, context, and agents connect.**
+
+Alternates:
 
 - Local chat for coding agents.
-- A small forge for code conversations.
+- The structural layer for code conversations.
 - Bring an agent to any codebase.
 
 ## Icon
 
-The mark combines:
+The mark is a clean, white squircle featuring a fresh 3D isometric lattice node. The central structure consists of three connected faces:
 
-- a chat bubble for the main interaction model
-- code brackets for source-aware conversation
-- an `F`-shaped forge stroke for the name
-- a small warm spark for generation and tool use
+- **Top Face (Light Blend)**: Contains a `...` chat indicator representing conversational AI
+- **Left Face (Blue)**: Contains a `<` bracket
+- **Right Face (Violet)**: Contains a `>` bracket
+
+Together, they form a unified **Lattice Node** spelling out Chat and Code, designed to feel at home on macOS alongside modern tools like VSCode and Codex.
 
 Primary asset:
 
-- `brand/forgelet-icon.svg`
-- `brand/forgelet-icon.png`
+- `brand/lattice-code-icon.svg`
+- `brand/lattice-code-icon.png`
 - `apps/chat-desktop/build/icon.svg`
 - `apps/chat-desktop/build/icon.png`
 
 ## Palette
 
-- Forge Charcoal: `#17191D`
-- Deep Graphite: `#20282A`
-- Warm Forge: `#F4A84C`
-- Heat Coral: `#F06F45`
-- Signal Mint: `#54C7B8`
-- Parchment: `#FFF8EA`
+- Crisp Blue: `#3B82F6`
+- Soft Violet: `#8B5CF6`
+- Light Blend (Top Face): `#BFDBFE` to `#DDD6FE`
+- Squircle White: `#FFFFFF`
 
 ## Usage
 
-Use **Forgelet** as the product name. Use `forgelet` for package/repo slugs.
+Use **Lattice Code** as the product name. Use **Lattice** in positioning copy. Use `lc` for the CLI; `@lattice-code/*` for packages.

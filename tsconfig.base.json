@@ -5,11 +5,11 @@
     "moduleResolution": "NodeNext",
     "baseUrl": ".",
     "paths": {
-      "@forgelet/shared-types": ["packages/shared-types/src/index.ts"],
-      "@forgelet/sdk-core": ["packages/sdk-core/src/index.ts"],
-      "@forgelet/sdk-runtime": ["packages/sdk-runtime/src/index.ts"],
-      "@forgelet/storage-core": ["packages/storage-core/src/index.ts"],
-      "@forgelet/harness": ["packages/harness/src/index.ts"]
+      "@lattice-code/shared-types": ["packages/shared-types/src/index.ts"],
+      "@lattice-code/sdk-core": ["packages/sdk-core/src/index.ts"],
+      "@lattice-code/sdk-runtime": ["packages/sdk-runtime/src/index.ts"],
+      "@lattice-code/storage-core": ["packages/storage-core/src/index.ts"],
+      "@lattice-code/harness": ["packages/harness/src/index.ts"]
     },
     "strict": true,
     "esModuleInterop": true,

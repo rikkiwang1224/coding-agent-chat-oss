@@ -1,5 +1,5 @@
 {
-  "name": "@forgelet/sdk-core",
+  "name": "@lattice-code/sdk-core",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -12,6 +12,6 @@
     "test": "echo 'No tests configured'"
   },
   "dependencies": {
-    "@forgelet/shared-types": "workspace:*"
+    "@lattice-code/shared-types": "workspace:*"
   }
 }

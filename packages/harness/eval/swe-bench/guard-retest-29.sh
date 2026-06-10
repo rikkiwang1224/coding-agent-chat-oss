@@ -3,7 +3,7 @@
 #
 # Usage (ECS):
 #   bash guard-retest-29.sh
-#   OUT_DIR=~/swe-batch/guard-retest-29 MODEL_NAME=forgelet-docker-guard bash guard-retest-29.sh
+#   OUT_DIR=~/swe-batch/guard-retest-29 MODEL_NAME=lattice-code-docker-guard bash guard-retest-29.sh
 #
 # Mac — fetch instances only:
 #   bash guard-retest-29.sh --fetch-only
@@ -17,8 +17,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IDS_FILE="$SCRIPT_DIR/guard-retest-29.instance-ids.txt"
 OUT_DIR="${OUT_DIR:-$HOME/swe-batch/guard-retest-29}"
 INSTANCES_JSON="$OUT_DIR/instances.json"
-MODEL_NAME="${MODEL_NAME:-forgelet-docker-guard}"
-TRACE_RUN_ID="${FORGELET_TRACE_RUN_ID:-guard-retest-29}"
+MODEL_NAME="${MODEL_NAME:-lattice-code-docker-guard}"
+TRACE_RUN_ID="${LATTICE_CODE_TRACE_RUN_ID:-guard-retest-29}"
 EXPECTED=29
 FETCH_ONLY="${1:-}"
 
@@ -41,7 +41,7 @@ fetch_from_hf() {
 }
 
 fetch_from_local_lite_full() {
-  local full="${LITE_FULL:-$HOME/.forgelet/runs/swe-bench/lite-full/instances.json}"
+  local full="${LITE_FULL:-$HOME/.lattice-code/runs/swe-bench/lite-full/instances.json}"
   [[ -f "$full" ]] || return 1
   echo "=== slicing instances from $full ==="
   mkdir -p "$OUT_DIR"
@@ -84,11 +84,11 @@ ensure_instances
 echo ""
 echo "=== guard retest batch: $EXPECTED instances → $OUT_DIR ==="
 echo "    MODEL_NAME=$MODEL_NAME"
-echo "    FORGELET_TRACE_RUN_ID=$TRACE_RUN_ID"
+echo "    LATTICE_CODE_TRACE_RUN_ID=$TRACE_RUN_ID"
 echo ""
 
 export MODEL_NAME
-export FORGELET_TRACE_RUN_ID
-export FORGELET_SAVE_TRACE="${FORGELET_SAVE_TRACE:-1}"
+export LATTICE_CODE_TRACE_RUN_ID
+export LATTICE_CODE_SAVE_TRACE="${LATTICE_CODE_SAVE_TRACE:-1}"
 
 exec bash "$SCRIPT_DIR/docker-batch.sh" "$INSTANCES_JSON" "$OUT_DIR"

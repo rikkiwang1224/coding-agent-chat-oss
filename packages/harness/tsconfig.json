@@ -6,9 +6,9 @@
     "rootDir": "src",
     "baseUrl": ".",
     "paths": {
-      "@forgelet/sdk-core": ["../sdk-core/dist/index.d.ts"],
-      "@forgelet/storage-core": ["../storage-core/dist/index.d.ts"],
-      "@forgelet/shared-types": ["../shared-types/dist/index.d.ts"]
+      "@lattice-code/sdk-core": ["../sdk-core/dist/index.d.ts"],
+      "@lattice-code/storage-core": ["../storage-core/dist/index.d.ts"],
+      "@lattice-code/shared-types": ["../shared-types/dist/index.d.ts"]
     }
   }
 }

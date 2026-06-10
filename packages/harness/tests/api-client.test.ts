@@ -297,4 +297,39 @@ describe("LlmClient - configuration", () => {
     expect(capturedBody.thinking).toEqual({ type: "enabled" });
     expect(capturedBody.reasoning_effort).toBe("high");
   });
+
+  it("explicitly disables thinking when configured off (DeepSeek default is on)", async () => {
+    let capturedBody: any;
+    globalThis.fetch = vi.fn().mockImplementation(async (_url, init) => {
+      capturedBody = JSON.parse(init.body as string);
+      return {
+        ok: true,
+        body: createSSEStream("data: [DONE]\n"),
+      };
+    });
+
+    const client = new LlmClient({ ...mockConfig, thinking: false });
+    const gen = client.stream({ messages: [{ role: "user", content: "hi" }] });
+    for await (const _ of gen) { /* drain */ }
+
+    expect(capturedBody.thinking).toEqual({ type: "disabled" });
+    expect(capturedBody.reasoning_effort).toBeUndefined();
+  });
+
+  it("sends response_format json_object when configured", async () => {
+    let capturedBody: any;
+    globalThis.fetch = vi.fn().mockImplementation(async (_url, init) => {
+      capturedBody = JSON.parse(init.body as string);
+      return {
+        ok: true,
+        body: createSSEStream("data: [DONE]\n"),
+      };
+    });
+
+    const client = new LlmClient({ ...mockConfig, responseFormat: "json_object" });
+    const gen = client.stream({ messages: [{ role: "user", content: "hi" }] });
+    for await (const _ of gen) { /* drain */ }
+
+    expect(capturedBody.response_format).toEqual({ type: "json_object" });
+  });
 });

@@ -2,8 +2,8 @@
 /**
  * Run official SWE-bench Docker harness on existing predictions.
  *
- *   pnpm --filter @forgelet/harness eval:swe:verify -- runs/eval-123/predictions.jsonl
- *   pnpm --filter @forgelet/harness eval:swe:verify -- predictions.jsonl --dataset lite --run-id my-run
+ *   pnpm --filter @lattice-code/harness eval:swe:verify -- runs/eval-123/predictions.jsonl
+ *   pnpm --filter @lattice-code/harness eval:swe:verify -- predictions.jsonl --dataset lite --run-id my-run
  */
 
 import path from "node:path";

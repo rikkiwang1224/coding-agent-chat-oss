@@ -7,7 +7,7 @@ import type {
   ImageAttachment,
   ToolCallInfo,
 } from "@/types";
-import type { AgentRunMetrics, PermissionRequestOutcome } from "@forgelet/shared-types";
+import type { AgentRunMetrics, PermissionRequestOutcome } from "@lattice-code/shared-types";
 import { tagLatestAssistantTurn } from "@/lib/run-cost";
 import {
   applyAssistantSummary,

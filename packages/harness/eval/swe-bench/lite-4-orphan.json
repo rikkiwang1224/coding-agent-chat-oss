@@ -1,0 +1,32 @@
+{
+  "name": "lite-4-orphan",
+  "description": "Four lite-300 instances missed by lite-86/thinking retry pools",
+  "instances": [
+    {
+      "instance_id": "django__django-13401",
+      "reason": "pass1 unresolved; not in lite-300-unresolved-106/108 or lite-86"
+    },
+    {
+      "instance_id": "django__django-13768",
+      "reason": "pass1 unresolved; not in lite-300-unresolved-106/108 or lite-86"
+    },
+    {
+      "instance_id": "django__django-15388",
+      "reason": "pass1 unresolved; not in lite-300-unresolved-106/108 or lite-86"
+    },
+    {
+      "instance_id": "pytest-dev__pytest-5103",
+      "reason": "resolved in lite-108-eval-merged; guard-retest-29 empty patch overwrote win"
+    }
+  ],
+  "ledger_before": {
+    "resolved": 230,
+    "unresolved": 70,
+    "resolve_rate": "76.7%"
+  },
+  "ledger_if_all_resolved": {
+    "resolved": 234,
+    "unresolved": 66,
+    "resolve_rate": "78.0%"
+  }
+}

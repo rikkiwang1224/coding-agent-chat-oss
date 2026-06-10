@@ -1,7 +1,8 @@
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { PROVIDER_PRESETS, type LlmProvider } from "@forgelet/sdk-runtime";
-import { resolveAgentHome } from "@forgelet/storage-core";
+import { PROVIDER_PRESETS, type LlmProvider } from "@lattice-code/sdk-runtime";
+import { applyThinkingMode, parseThinkingMode } from "@lattice-code/harness";
+import { resolveAgentHome } from "@lattice-code/storage-core";
 import type { CliArgs } from "./argv.js";
 
 const CONFIG_FILENAME = "config.json";
@@ -11,6 +12,8 @@ export interface CliConfig {
   primaryModel: string;
   apiKey: string;
   baseUrl: string;
+  /** DeepSeek thinking: off | high | max (see THINKING_MODE env) */
+  thinkingMode?: string;
 }
 
 const DEFAULT_CONFIG: CliConfig = {
@@ -62,6 +65,10 @@ function normalizeConfig(saved: Partial<CliConfig>): CliConfig {
         : DEFAULT_CONFIG.primaryModel,
     apiKey: typeof saved.apiKey === "string" ? saved.apiKey : DEFAULT_CONFIG.apiKey,
     baseUrl: typeof saved.baseUrl === "string" ? saved.baseUrl : DEFAULT_CONFIG.baseUrl,
+    thinkingMode:
+      typeof saved.thinkingMode === "string" && saved.thinkingMode.trim()
+        ? saved.thinkingMode.trim()
+        : undefined,
   };
 }
 
@@ -72,39 +79,41 @@ export interface ResolvedLlmConfig {
   model: string;
   /**
    * Sampling temperature. Undefined → harness default (0, deterministic).
-   * Set via FORGELET_TEMPERATURE — used by Best-of-N sampling so the N runs
+   * Set via LATTICE_CODE_TEMPERATURE — used by Best-of-N sampling so the N runs
    * diverge instead of all returning the same greedy patch.
    */
   temperature?: number;
+  thinking?: boolean;
+  reasoningEffort?: "high" | "max";
 }
 
-/** Parse + clamp FORGELET_TEMPERATURE; returns undefined when unset/invalid. */
+/** Parse + clamp LATTICE_CODE_TEMPERATURE; returns undefined when unset/invalid. */
 function resolveTemperature(): number | undefined {
-  const raw = process.env.FORGELET_TEMPERATURE?.trim();
+  const raw = process.env.LATTICE_CODE_TEMPERATURE?.trim();
   if (!raw) return undefined;
   const t = Number.parseFloat(raw);
   if (!Number.isFinite(t)) return undefined;
   return Math.min(2, Math.max(0, t));
 }
 
-/** Merge CLI flags, env vars, and ~/.forgelet/config.json (flags win). */
+/** Merge CLI flags, env vars, and ~/.lattice-code/config.json (flags win). */
 export async function resolveLlmConfig(args: CliArgs): Promise<ResolvedLlmConfig> {
   const fileConfig = await loadCliConfigFile();
 
   const provider = (args.provider ||
-    process.env.FORGELET_PROVIDER ||
+    process.env.LATTICE_CODE_PROVIDER ||
     fileConfig.provider ||
     "deepseek") as LlmProvider;
 
   const apiKey =
     args.apiKey?.trim() ||
-    process.env.FORGELET_API_KEY?.trim() ||
+    process.env.LATTICE_CODE_API_KEY?.trim() ||
     process.env.DEEPSEEK_API_KEY?.trim() ||
     fileConfig.apiKey.trim();
 
   const model =
     args.model?.trim() ||
-    process.env.FORGELET_MODEL?.trim() ||
+    process.env.LATTICE_CODE_MODEL?.trim() ||
     fileConfig.primaryModel.trim() ||
     "deepseek-v4-pro";
 
@@ -117,10 +126,17 @@ export async function resolveLlmConfig(args: CliArgs): Promise<ResolvedLlmConfig
 
   const baseUrl =
     args.baseUrl?.trim() ||
-    process.env.FORGELET_BASE_URL?.trim() ||
+    process.env.LATTICE_CODE_BASE_URL?.trim() ||
     fileConfig.baseUrl.trim() ||
     preset?.baseUrl ||
     "https://api.deepseek.com";
 
-  return { provider, apiKey, baseUrl, model, temperature: resolveTemperature() };
+  const thinkingRaw =
+    process.env.THINKING_MODE?.trim() || fileConfig.thinkingMode?.trim() || undefined;
+  const thinkingMode = parseThinkingMode(thinkingRaw);
+
+  return applyThinkingMode(
+    { provider, apiKey, baseUrl, model, temperature: resolveTemperature() },
+    thinkingMode,
+  );
 }

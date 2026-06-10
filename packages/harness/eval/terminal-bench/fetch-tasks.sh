@@ -6,8 +6,8 @@
 
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OUT="${1:-$HOME/.forgelet/terminal-bench/tasks}"
-DATASET="${FORGELET_HARBOR_DATASET:-terminal-bench/terminal-bench-2-1}"
+OUT="${1:-$HOME/.lattice-code/terminal-bench/tasks}"
+DATASET="${LATTICE_CODE_HARBOR_DATASET:-terminal-bench/terminal-bench-2-1}"
 
 if [ ! -x "$DIR/.venv/bin/harbor" ]; then
   echo "Run ./setup.sh first" >&2

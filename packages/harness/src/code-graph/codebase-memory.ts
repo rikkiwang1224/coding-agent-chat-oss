@@ -7,9 +7,9 @@ const execFileAsync = promisify(execFile);
 const DEFAULT_QUERY_TIMEOUT_MS = 30_000;
 const DEFAULT_INDEX_TIMEOUT_MS = 300_000;
 
-/** Disable with FORGELET_CODE_GRAPH=0. Override binary with FORGELET_CODEBASE_MEMORY_BIN. */
+/** Disable with LATTICE_CODE_CODE_GRAPH=0. Override binary with LATTICE_CODE_CODEBASE_MEMORY_BIN. */
 export function isCodeGraphDisabled(): boolean {
-  const raw = process.env.FORGELET_CODE_GRAPH?.trim().toLowerCase();
+  const raw = process.env.LATTICE_CODE_CODE_GRAPH?.trim().toLowerCase();
   return raw === "0" || raw === "off" || raw === "false";
 }
 
@@ -38,7 +38,7 @@ async function whichOnPath(name: string): Promise<string | null> {
 export async function resolveCodebaseMemoryBinary(): Promise<string | null> {
   if (isCodeGraphDisabled()) return null;
 
-  const explicit = process.env.FORGELET_CODEBASE_MEMORY_BIN?.trim();
+  const explicit = process.env.LATTICE_CODE_CODEBASE_MEMORY_BIN?.trim();
   if (explicit && (await fileExecutable(explicit))) return explicit;
 
   const onPath = await whichOnPath("codebase-memory-mcp");

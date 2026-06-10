@@ -2,7 +2,7 @@ import { HarnessEngine } from "../../src/harness-engine.js";
 import { SessionStore } from "../../src/session-store.js";
 import type { ReasonHookConfig } from "../../src/agent-loop.js";
 import type { LlmConfig } from "../../src/types.js";
-import type { AgentEvent } from "@forgelet/shared-types";
+import type { AgentEvent } from "@lattice-code/shared-types";
 import { buildSweBenchPrompt } from "./prompt.js";
 import { extractModelPatch } from "./patch.js";
 import { sweBenchProtectedPathPatterns } from "./protected-paths.js";
@@ -24,6 +24,22 @@ export interface RunSweBenchAgentResult {
   turnCount: number;
   durationMs: number;
   tracePath?: string;
+  /**
+   * Set when the run aborted on an LLM API error (e.g. 402 Insufficient
+   * Balance, 401/403 auth). Lets the batch driver fast-abort instead of
+   * burning every remaining instance against an exhausted account.
+   */
+  apiErrorStatus?: number;
+  apiErrorMessage?: string;
+}
+
+/**
+ * Status codes that mean every subsequent instance in a batch will also fail
+ * (billing exhausted or bad credentials), so the batch should stop rather than
+ * grind through the rest producing empty patches.
+ */
+export function isBatchFatalApiStatus(status: number | undefined): boolean {
+  return status === 401 || status === 402 || status === 403;
 }
 
 export async function runSweBenchAgent(
@@ -51,12 +67,15 @@ export async function runSweBenchAgent(
       : undefined,
     reason: reasonHook,
     protectedPathPatterns: sweBenchProtectedPathPatterns(),
+    selfReviewGate: selfReviewGateEnabled(),
   });
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
 
   const emit = options.emit ?? (() => {});
+  let apiErrorStatus: number | undefined;
+  let apiErrorMessage: string | undefined;
 
   try {
     await engine.runTask(
@@ -67,6 +86,14 @@ export async function runSweBenchAgent(
       },
       (event) => {
         if (event.type === "tool.called") turnCount++;
+        if (event.type === "agent.error") {
+          const msg = String((event.payload as { error?: string })?.error ?? "");
+          const match = msg.match(/LLM API error (\d+)/);
+          if (match) {
+            apiErrorStatus = Number(match[1]);
+            apiErrorMessage = msg;
+          }
+        }
         emit(event);
       },
     );
@@ -80,7 +107,7 @@ export async function runSweBenchAgent(
   }
 
   if (traceEnabled && options.traceRunId) {
-    const { resolveSweBenchTraceInstancePath } = await import("@forgelet/storage-core");
+    const { resolveSweBenchTraceInstancePath } = await import("@lattice-code/storage-core");
     tracePath = resolveSweBenchTraceInstancePath(
       options.traceRunId,
       options.instance.instance_id,
@@ -94,14 +121,26 @@ export async function runSweBenchAgent(
     turnCount,
     durationMs: Date.now() - startTime,
     tracePath,
+    apiErrorStatus,
+    apiErrorMessage,
   };
+}
+
+/**
+ * Hard self-review gate toggle. On by default for SWE-bench; disable with
+ * LATTICE_CODE_SELF_REVIEW_GATE in {0,off,false,no}.
+ */
+function selfReviewGateEnabled(): boolean {
+  const raw = (process.env.LATTICE_CODE_SELF_REVIEW_GATE || "").trim().toLowerCase();
+  if (raw === "0" || raw === "off" || raw === "false" || raw === "no") return false;
+  return true;
 }
 
 function buildReasonHook(
   instance: SweBenchInstance,
   workspaceDir: string,
 ): ReasonHookConfig | undefined {
-  const raw = (process.env.FORGELET_REASON || "").trim().toLowerCase();
+  const raw = (process.env.LATTICE_CODE_REASON || "").trim().toLowerCase();
   if (!raw || raw === "0" || raw === "off" || raw === "false") return undefined;
 
   let maxRounds = 2;

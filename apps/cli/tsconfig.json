@@ -6,10 +6,10 @@
     "rootDir": "src",
     "baseUrl": ".",
     "paths": {
-      "@forgelet/harness": ["../../packages/harness/dist/index.d.ts"],
-      "@forgelet/sdk-runtime": ["../../packages/sdk-runtime/dist/index.d.ts"],
-      "@forgelet/shared-types": ["../../packages/shared-types/dist/index.d.ts"],
-      "@forgelet/storage-core": ["../../packages/storage-core/dist/index.d.ts"]
+      "@lattice-code/harness": ["../../packages/harness/dist/index.d.ts"],
+      "@lattice-code/sdk-runtime": ["../../packages/sdk-runtime/dist/index.d.ts"],
+      "@lattice-code/shared-types": ["../../packages/shared-types/dist/index.d.ts"],
+      "@lattice-code/storage-core": ["../../packages/storage-core/dist/index.d.ts"]
     }
   }
 }

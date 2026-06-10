@@ -2,14 +2,21 @@
 /**
  * In-container SWE-bench agent entry point (used by docker-batch.sh).
  *
- * Unlike the generic Forgelet CLI, this script always applies SWE-bench
+ * Unlike the generic Lattice Code CLI, this script always applies SWE-bench
  * prompts, test-file guards, filtered patch extraction, and trace routing.
  */
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadEvalEnv } from "../load-env.js";
-import { runSweBenchAgent } from "./agent-task.js";
+import { isBatchFatalApiStatus, runSweBenchAgent } from "./agent-task.js";
+
+/**
+ * Exit code signalling the batch driver that the run failed on an exhausted
+ * account / bad credentials (402/401/403). Distinct from `timeout`'s 124 and
+ * docker's 125-127 so docker-batch.sh can fast-abort and stay resume-safe.
+ */
+const EXIT_API_FATAL = 75;
 import { SweBenchAgentTerminal } from "./agent-terminal.js";
 import { resolveLlmConfigFromEnv } from "./llm-config.js";
 import type { SweBenchInstance } from "./types.js";
@@ -31,20 +38,20 @@ async function main(): Promise<number> {
   const workspaceRoot = getArg("workspace") || "/testbed";
   const instancePath = getArg("instance") || "/work/instance.json";
   const patchOut = getArg("patch-out") || "/work/agent.patch";
-  const maxTurns = Number(process.env.FORGELET_MAX_TURNS || getArg("max-turns") || "50");
+  const maxTurns = Number(process.env.LATTICE_CODE_MAX_TURNS || getArg("max-turns") || "100");
   const timeoutMs =
-    Number(process.env.FORGELET_TIMEOUT_S || getArg("timeout-s") || "600") * 1000;
-  const traceRunId = process.env.FORGELET_TRACE_RUN_ID?.trim();
+    Number(process.env.LATTICE_CODE_TIMEOUT_S || getArg("timeout-s") || "600") * 1000;
+  const traceRunId = process.env.LATTICE_CODE_TRACE_RUN_ID?.trim();
   const saveTraces =
     !hasFlag("no-trace") &&
-    process.env.FORGELET_SAVE_TRACE !== "0" &&
-    process.env.FORGELET_SAVE_TRACE !== "off" &&
-    process.env.FORGELET_SAVE_TRACE !== "false";
+    process.env.LATTICE_CODE_SAVE_TRACE !== "0" &&
+    process.env.LATTICE_CODE_SAVE_TRACE !== "off" &&
+    process.env.LATTICE_CODE_SAVE_TRACE !== "false";
 
   const config = resolveLlmConfigFromEnv();
   if (!config.apiKey) {
     process.stderr.write(
-      "Error: API key required. Set DEEPSEEK_API_KEY or FORGELET_API_KEY.\n",
+      "Error: API key required. Set DEEPSEEK_API_KEY or LATTICE_CODE_API_KEY.\n",
     );
     return 1;
   }
@@ -63,7 +70,17 @@ async function main(): Promise<number> {
     emit: (event) => terminal.handle(event),
   });
 
+  // Always persist whatever patch the agent produced before failing, so
+  // partial work is never silently discarded.
   await writeFile(patchOut, result.modelPatch);
+
+  if (isBatchFatalApiStatus(result.apiErrorStatus)) {
+    process.stderr.write(
+      `Fatal LLM API error ${result.apiErrorStatus} (account exhausted or invalid credentials): ` +
+        `${result.apiErrorMessage ?? ""}\n`,
+    );
+    return EXIT_API_FATAL;
+  }
   return 0;
 }
 

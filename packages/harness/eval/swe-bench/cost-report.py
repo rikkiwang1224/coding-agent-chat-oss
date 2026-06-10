@@ -13,11 +13,11 @@ Inputs combined per row:
 
 Logs come from `docker-batch.sh` (ECS) and live at:
   - ECS:  ~/swe-batch/<run>/logs/<id>/agent.log
-  - Mac:  ~/.forgelet/runs/swe-bench/<run>/logs/<id>/agent.log  (after rsync)
+  - Mac:  ~/.lattice-code/runs/swe-bench/<run>/logs/<id>/agent.log  (after rsync)
 
 Usage:
   python3 cost-report.py <run_dir>
-  python3 cost-report.py ~/.forgelet/runs/swe-bench/lite-50-p0p1-v1
+  python3 cost-report.py ~/.lattice-code/runs/swe-bench/lite-50-p0p1-v1
 """
 
 from __future__ import annotations

@@ -33,7 +33,7 @@ export function resolveDefaultWorkspacePath(): string | null {
 
   if (
     existsSync(path.join(candidate, ".git")) ||
-    existsSync(path.join(candidate, ".forgelet")) ||
+    existsSync(path.join(candidate, ".lattice-code")) ||
     existsSync(path.join(candidate, "package.json"))
   ) {
     return candidate;
@@ -74,7 +74,7 @@ export async function discoverWorkspacePaths(root: string, maxDepth = WORKSPACE_
       return;
     }
 
-    if (existsSync(path.join(target, ".forgelet", "harness-sessions"))) {
+    if (existsSync(path.join(target, ".lattice-code", "harness-sessions"))) {
       discovered.add(path.resolve(target));
     }
 
@@ -87,7 +87,7 @@ export async function discoverWorkspacePaths(root: string, maxDepth = WORKSPACE_
         continue;
       }
 
-      if (entry.name === ".forgelet" || IGNORED_DISCOVERY_DIRS.has(entry.name)) {
+      if (entry.name === ".lattice-code" || IGNORED_DISCOVERY_DIRS.has(entry.name)) {
         continue;
       }
 

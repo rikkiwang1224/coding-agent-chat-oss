@@ -4,7 +4,7 @@
 > 目标：在现有 ~2k 行 harness 内核上，补齐 **权限确认 UI、Session 真续跑、Hooks 扩展点、统一存储布局**，使桌面端可日常可用。  
 > 非目标：OS 沙箱、MCP 生态、多 Agent 编排（归入 P2/P3）。
 
-**存储与会话模型**（路径、threadId、侧边栏、traces/runs）以 **[forgelet-home-layout.md](./forgelet-home-layout.md)** 为准；本文侧重 Harness 与桌面集成。
+**存储与会话模型**（路径、threadId、侧边栏、traces/runs）以 **[lattice-code-home-layout.md](./lattice-code-home-layout.md)** 为准；本文侧重 Harness 与桌面集成。
 
 ---
 
@@ -15,16 +15,16 @@
 | Agent 循环 | `AgentLoop` + `HarnessEngine` | `agent-runner.ts` 已接入 |
 | 权限 | `PermissionGuard` + 正则 policy | 无 `onPermissionConfirm`，confirm 规则等同拒绝 |
 | 会话 | `SessionStore` 写 **用户 repo** 内 `harness-sessions` | `resume` 应恢复 `messages[]`；列表不应依赖 repo 内路径 |
-| 侧边栏 | — | `threads/` 已在 `FORGELET_HOME`；列表曾混扫 harness-sessions / 旧 snapshot |
+| 侧边栏 | — | `threads/` 已在 `LATTICE_CODE_HOME`；列表曾混扫 harness-sessions / 旧 snapshot |
 | Hooks | `preToolUse` / `postToolUse` 已有 | 未注册；轨迹未统一 |
 | 事件 | `AgentEvent` 经 IPC | `useAgentRun` 已消费；**默认不落盘 trace** |
 
 **P1 已拍板（见 layout 文档）**
 
 - `threadId === agentSessionId`（一张卡片一个 ID）
-- 侧边栏 **只扫** `FORGELET_HOME/workspaces/{workspaceHash}/threads/*.json`
-- Session：`FORGELET_HOME/sessions/{workspaceHash}/{sessionId}.json`
-- Trace / 评测 runs：repo 外，见 [forgelet-home-layout.md §4–§6](./forgelet-home-layout.md)
+- 侧边栏 **只扫** `LATTICE_CODE_HOME/workspaces/{workspaceHash}/threads/*.json`
+- Session：`LATTICE_CODE_HOME/sessions/{workspaceHash}/{sessionId}.json`
+- Trace / 评测 runs：repo 外，见 [lattice-code-home-layout.md §4–§6](./lattice-code-home-layout.md)
 
 ---
 
@@ -72,7 +72,7 @@ sequenceDiagram
 
 #### 3.1.1 存储
 
-- **路径**：`${FORGELET_HOME}/sessions/{workspaceHash}/{sessionId}.json`（**不在**用户 workspace 内）
+- **路径**：`${LATTICE_CODE_HOME}/sessions/{workspaceHash}/{sessionId}.json`（**不在**用户 workspace 内）
 - **ID**：`sessionId === threadId`（侧边栏卡片 ID）
 - **格式**：`SessionData`（`messages` + `metadata`）
 - **写入时机**：
@@ -122,7 +122,7 @@ export interface AgentLoopOptions {
 
 #### 3.1.4 兼容与迁移
 
-- 旧 `{workspace}/.forgelet/harness-sessions/`：**不**作为列表源；可选只读 import，非 P1 必须
+- 旧 `{workspace}/.lattice-code/harness-sessions/`：**不**作为列表源；可选只读 import，非 P1 必须
 - 旧 `loadSessionThread` / SDK snapshot：**不**驱动侧边栏；可选单卡历史回显
 - `ChatMessage.reasoning_content` 全量持久化（DeepSeek 续跑）
 
@@ -179,7 +179,7 @@ function createPermissionCallback(sender: WebContents, sessionId: string): Permi
 
 `HarnessEngine` → `ToolExecutor` 注入 `onPermissionConfirm`。
 
-**`allow_always`**：session 级 allowlist（内存 + 可选 `FORGELET_HOME/workspaces/{hash}/permission-allowlist.json`），**不写用户 repo**。
+**`allow_always`**：session 级 allowlist（内存 + 可选 `LATTICE_CODE_HOME/workspaces/{hash}/permission-allowlist.json`），**不写用户 repo**。
 
 #### 3.2.3 Renderer UI
 
@@ -221,17 +221,17 @@ preToolUse → PermissionGuard.check → [执行工具] → postToolUse
 
 #### 3.3.3 项目级配置（可选延后）
 
-`FORGELET_HOME` 或 workspace 内 `.forgelet/hooks.json` 仅声明内置 hook id（不执行任意 shell）。
+`LATTICE_CODE_HOME` 或 workspace 内 `.lattice-code/hooks.json` 仅声明内置 hook id（不执行任意 shell）。
 
 ---
 
 ### 3.4 统一轨迹（P1d，概要）
 
-完整约定见 [forgelet-home-layout.md §6](./forgelet-home-layout.md)。
+完整约定见 [lattice-code-home-layout.md §6](./lattice-code-home-layout.md)。
 
 - `HarnessEngine.emitEvent` → `JsonlTraceSink` + IPC
 - 桌面：`traces/desktop/{workspaceHash}/{threadId}/trace.jsonl`
-- swe-bench / eval：默认开启；产物在 `FORGELET_HOME/traces` 与 `FORGELET_HOME/runs`
+- swe-bench / eval：默认开启；产物在 `LATTICE_CODE_HOME/traces` 与 `LATTICE_CODE_HOME/runs`
 - 废弃 `--save-traces`、repo 内 `packages/harness/eval/swe-bench/runs/` 作为默认输出
 
 ---
@@ -240,7 +240,7 @@ preToolUse → PermissionGuard.check → [执行工具] → postToolUse
 
 | 阶段 | 内容 | 交付物 |
 |------|------|--------|
-| **1a** | Session 迁 `FORGELET_HOME/sessions/{hash}/`；`threadId===sessionId`；resume 语义；侧边栏仅 threads | storage-core 路径 helper、`SessionStore`、`agent-runner`、thread-store、Composer |
+| **1a** | Session 迁 `LATTICE_CODE_HOME/sessions/{hash}/`；`threadId===sessionId`；resume 语义；侧边栏仅 threads | storage-core 路径 helper、`SessionStore`、`agent-runner`、thread-store、Composer |
 | **1b** | 权限 IPC + Dialog | shared-types、UI |
 | **1c** | Hooks 注册（策略）；与 Trace 分离 | executor、单测 |
 | **1d** | TraceSink + eval/swe 输出迁出 repo | `trace-sink.ts`、runner、README |
@@ -253,7 +253,7 @@ preToolUse → PermissionGuard.check → [执行工具] → postToolUse
 
 | 层 | 内容 |
 |----|------|
-| 单元 | `SessionStore` 使用 `FORGELET_HOME` 临时目录 + `workspaceHash`；hooks pre/post |
+| 单元 | `SessionStore` 使用 `LATTICE_CODE_HOME` 临时目录 + `workspaceHash`；hooks pre/post |
 | 集成 | 同一 `threadId` 连续两轮 resume，第二轮能引用上一轮 tool 结果 |
 | 手测 | New Chat → 多轮 Send 不换 sessionId；侧边栏仅 threads 列表；切换卡片后 resume |
 
@@ -301,7 +301,7 @@ Eval 不改变 plan 基线；swe-bench 默认带 trace（1d）。
 
 **docs**
 
-- [forgelet-home-layout.md](./forgelet-home-layout.md)（布局真相源）
+- [lattice-code-home-layout.md](./lattice-code-home-layout.md)（布局真相源）
 
 ---
 
@@ -309,11 +309,11 @@ Eval 不改变 plan 基线；swe-bench 默认带 trace（1d）。
 
 - [ ] 同一 `threadId` 连续两次 Send（resume），模型能引用上一轮 tool 结果
 - [ ] `threadId === sessionId` 全链路一致；New Chat 不复用旧 sessionId
-- [ ] 侧边栏列表 **仅**来自 `FORGELET_HOME/workspaces/{hash}/threads/`
-- [ ] Session 文件 **不在**用户 workspace 的 `.forgelet/` 下
+- [ ] 侧边栏列表 **仅**来自 `LATTICE_CODE_HOME/workspaces/{hash}/threads/`
+- [ ] Session 文件 **不在**用户 workspace 的 `.lattice-code/` 下
 - [ ] `git push` 确认弹窗；拒绝后 agent 可继续
 - [ ] `preToolUse` deny 不执行工具
-- [ ] （1d）swe-bench 跑完在 `FORGELET_HOME/traces/swe-bench/{runId}/` 可见 jsonl
+- [ ] （1d）swe-bench 跑完在 `LATTICE_CODE_HOME/traces/swe-bench/{runId}/` 可见 jsonl
 - [ ] 单元测试 ≥ 50 通过（含新增）
 
 ---

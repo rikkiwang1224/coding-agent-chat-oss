@@ -1,7 +1,7 @@
 import type { DesktopConfig } from "@/types";
 
 const fallback: Partial<DesktopConfig> = {
-  appName: "Forgelet",
+  appName: "Lattice Code",
 };
 
 export function getDesktopConfig(): Partial<DesktopConfig> {

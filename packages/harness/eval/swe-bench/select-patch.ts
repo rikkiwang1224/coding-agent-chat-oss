@@ -10,7 +10,7 @@
  * decision report to --report.
  *
  * Runs INSIDE the SWE-bench container (needs git + the testbed + the conda
- * `python`). Invoked via tsx, importing the built @forgelet/harness dist.
+ * `python`). Invoked via tsx, importing the built @lattice-code/harness dist.
  *
  * Usage:
  *   tsx select-patch.ts \

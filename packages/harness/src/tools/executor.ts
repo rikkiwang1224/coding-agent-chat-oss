@@ -52,9 +52,9 @@ export interface ToolExecutorOptions {
 
 const DEFAULT_BASH_TIMEOUT_MS = 60_000;
 
-/** Resolve default bash timeout from env FORGELET_BASH_TIMEOUT_MS (milliseconds). */
+/** Resolve default bash timeout from env LATTICE_CODE_BASH_TIMEOUT_MS (milliseconds). */
 export function resolveDefaultBashTimeoutMs(): number {
-  const raw = process.env.FORGELET_BASH_TIMEOUT_MS?.trim();
+  const raw = process.env.LATTICE_CODE_BASH_TIMEOUT_MS?.trim();
   if (!raw) return DEFAULT_BASH_TIMEOUT_MS;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_BASH_TIMEOUT_MS;
@@ -191,26 +191,20 @@ export class ToolExecutor {
         case "list_directory":
           result = await this.listDirectory(args);
           break;
-        case "code_graph_architecture":
+        case "codebase_overview":
           result = await this.codeGraphArchitecture(args);
           break;
-        case "code_graph_search":
+        case "symbol_search":
           result = await this.codeGraphSearch(args);
           break;
-        case "code_graph_trace":
+        case "call_trace":
           result = await this.codeGraphTrace(args);
           break;
-        case "code_graph_impact":
+        case "change_impact":
           result = await this.codeGraphImpact();
           break;
-        case "code_graph_semantic_search":
-          result = await this.codeGraphSemanticSearch(args);
-          break;
-        case "code_graph_code_search":
+        case "text_search":
           result = await this.codeGraphCodeSearch(args);
-          break;
-        case "code_graph_snippet":
-          result = await this.codeGraphSnippet(args);
           break;
         default:
           result = { ok: false, output: `Unknown tool: ${toolName}` };
@@ -264,7 +258,27 @@ export class ToolExecutor {
   }
 
   private async readFile(args: Record<string, unknown>): Promise<ToolExecutionResult> {
+    // Mode 2: qualified_name → delegate to code graph snippet
+    const qualifiedName = typeof args.qualified_name === "string" ? args.qualified_name.trim() : "";
+    if (qualifiedName) {
+      return this.codeGraphSnippet({ qualified_name: qualifiedName });
+    }
+
     const filePath = this.resolvePath(String(args.path || ""));
+
+    // Reading a directory used to throw EISDIR and waste a turn. Return a
+    // directory listing with guidance so the agent can recover in-place.
+    const stats = await stat(filePath).catch(() => undefined);
+    if (stats?.isDirectory()) {
+      const listing = await this.formatDirectoryListing(filePath);
+      return {
+        ok: true,
+        output:
+          `"${String(args.path)}" is a directory, not a file. Contents:\n\n${listing}\n\n` +
+          `Use list_directory to browse further, or read_file on one of the files listed above.`,
+      };
+    }
+
     const content = await readFile(filePath, "utf8");
 
     const offset = typeof args.offset === "number" ? args.offset : undefined;
@@ -278,7 +292,18 @@ export class ToolExecutor {
       const numbered = sliced.map(
         (line, i) => `${String(start + i + 1).padStart(6)}|${line}`,
       );
-      return { ok: true, output: this.truncate(numbered.join("\n")) };
+      let output = numbered.join("\n");
+      // Paging a large file blind is the #1 cause of wasted re-reads. Attach a
+      // whole-file outline (function/class line numbers) so the agent can jump
+      // straight to the section it needs instead of reading window by window.
+      if (lines.length > MAX_OUTPUT_LINES) {
+        const outline = extractFileOutline(lines, 0);
+        if (outline) {
+          output +=
+            `\n\n[File outline — ${lines.length} lines total; jump with read_file(offset=N)]\n${outline}`;
+        }
+      }
+      return { ok: true, output: this.truncate(output) };
     }
 
     const lines = content.split("\n");
@@ -421,7 +446,7 @@ export class ToolExecutor {
     // Write patch to a temp file inside the workspace and feed it to git apply.
     // Using a file (vs stdin) keeps the abort/timeout semantics consistent with
     // the rest of the bash-based tools and avoids quoting issues.
-    const tmpName = `.forgelet-apply-${Date.now()}-${Math.random()
+    const tmpName = `.lattice-code-apply-${Date.now()}-${Math.random()
       .toString(36)
       .slice(2)}.patch`;
     const tmpPath = path.join(this.workspaceRoot, tmpName);
@@ -641,6 +666,10 @@ export class ToolExecutor {
       ? this.resolvePath(String(args.path))
       : this.workspaceRoot;
 
+    return { ok: true, output: await this.formatDirectoryListing(dirPath) };
+  }
+
+  private async formatDirectoryListing(dirPath: string): Promise<string> {
     const entries = await readdir(dirPath, { withFileTypes: true });
     const lines = entries
       .filter((e) => !e.name.startsWith(".") || e.name === ".env.example")
@@ -654,7 +683,7 @@ export class ToolExecutor {
         return `${entry.name}${suffix}`;
       });
 
-    return { ok: true, output: lines.join("\n") || "(empty directory)" };
+    return lines.join("\n") || "(empty directory)";
   }
 
   private codeGraphUnavailable(): ToolExecutionResult {
@@ -662,20 +691,16 @@ export class ToolExecutor {
       ok: false,
       output:
         "Code graph is not available. Install codebase-memory-mcp (https://github.com/DeusData/codebase-memory-mcp) " +
-        "or set FORGELET_CODEBASE_MEMORY_BIN. Disable with FORGELET_CODE_GRAPH=0.",
+        "or set LATTICE_CODE_CODEBASE_MEMORY_BIN. Disable with LATTICE_CODE_CODE_GRAPH=0.",
     };
   }
 
-  private async codeGraphArchitecture(args: Record<string, unknown>): Promise<ToolExecutionResult> {
+  private async codeGraphArchitecture(_args: Record<string, unknown>): Promise<ToolExecutionResult> {
     if (!this.codeGraph) return this.codeGraphUnavailable();
-    const client = this.codeGraph;
 
-    let aspects: string[] | undefined;
-    if (Array.isArray(args.aspects)) {
-      aspects = args.aspects.map((a) => String(a).trim()).filter(Boolean);
-    }
-
-    const result = await client.getArchitecture(aspects?.length ? { aspects } : undefined);
+    // Always request all aspects — the summary is already compact, and
+    // module detection (the primary value) requires file_tree + packages.
+    const result = await this.codeGraph.getArchitecture({ aspects: ["all"] });
     if (!result.ok || !result.parsed) {
       return { ok: result.ok, output: this.truncate(result.output) };
     }
@@ -720,26 +745,96 @@ export class ToolExecutor {
       if (filePatterns.length === 1) {
         if (result.parsed && typeof result.parsed === "object") {
           const parsed = result.parsed as Record<string, unknown>;
-          if (parsed.total === 0 && rawFilePattern) {
+          if (parsed.total === 0) {
+            // Auto-fallback to BM25 semantic search before returning empty.
+            const semanticResult = await this.semanticFallback(namePattern, limit);
+            if (semanticResult) return semanticResult;
+
             return {
               ok: true,
               output: this.truncate(
-                `No symbols found for name_pattern="${namePattern}" scoped to "${rawFilePattern}" (normalized: "${filePattern}"). ` +
-                  `Try code_graph_semantic_search or code_graph_code_search instead.`,
+                `No symbols found for name_pattern="${namePattern}"` +
+                  (rawFilePattern ? ` scoped to "${rawFilePattern}" (normalized: "${filePattern}").` : ".") +
+                  ` Try text_search instead.`,
               ),
             };
           }
         }
         const formatted = formatGraphSearchResults(result.parsed, result.output);
-        return { ok: true, output: this.truncate(formatted) };
+        return { ok: true, output: this.truncate(formatted + this.snippetNextStepHint(result.parsed)) };
       }
       mergedParsed = this.mergeSearchGraphParsed(mergedParsed, result.parsed);
     }
 
+    // Multi-pattern merge: check if ALL results are empty → try semantic fallback
+    if (mergedParsed) {
+      const results = Array.isArray(mergedParsed.results) ? mergedParsed.results : [];
+      if (results.length === 0) {
+        const semanticResult = await this.semanticFallback(namePattern, limit);
+        if (semanticResult) return semanticResult;
+      }
+    }
+
     const formatted = mergedParsed
-      ? formatGraphSearchResults(mergedParsed, lastRaw)
+      ? formatGraphSearchResults(mergedParsed, lastRaw) + this.snippetNextStepHint(mergedParsed)
       : lastRaw;
     return { ok: anyOk, output: this.truncate(formatted) };
+  }
+
+  /**
+   * BM25 semantic fallback for code_graph_search: extract keywords from the
+   * name_pattern regex and run a natural-language search. Returns undefined
+   * when the fallback also finds nothing (caller shows the original "no results").
+   */
+  private async semanticFallback(
+    namePattern: string,
+    limit: number,
+  ): Promise<ToolExecutionResult | undefined> {
+    if (!this.codeGraph) return undefined;
+    // Convert regex-style name_pattern to keyword query:
+    //   "download.*template|downloadTmp" → "download template downloadTmp"
+    const keywords = namePattern
+      .replace(/\.\*|\.\+/g, " ")
+      .replace(/[\\^$()[\]{}+?|]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!keywords || keywords === ".*" || keywords.length < 2) return undefined;
+
+    const result = await this.codeGraph.semanticQuery({ query: keywords, limit });
+    if (!result.ok) {
+      // Older binaries may lack semantic_query; try searchCode as a last resort.
+      if (result.output.includes("unknown tool")) {
+        const codeFallback = await this.codeGraph.searchCode({ query: keywords, limit });
+        if (codeFallback.ok) {
+          const formatted = formatCodeSearchResults(codeFallback.parsed, codeFallback.output);
+          if (!formatted.includes("No matches found")) {
+            return {
+              ok: true,
+              output: this.truncate(
+                `[Structural search found nothing — showing BM25 keyword results for "${keywords}"]\n${formatted}`,
+              ),
+            };
+          }
+        }
+      }
+      return undefined;
+    }
+
+    if (result.parsed && typeof result.parsed === "object") {
+      const parsed = result.parsed as Record<string, unknown>;
+      const results = Array.isArray(parsed.results) ? parsed.results : [];
+      if (results.length === 0) return undefined;
+    }
+
+    const formatted =
+      formatGraphSearchResults(result.parsed, result.output) +
+      (result.ok ? this.snippetNextStepHint(result.parsed) : "");
+    return {
+      ok: true,
+      output: this.truncate(
+        `[Structural search found nothing — showing BM25 keyword results for "${keywords}"]\n${formatted}`,
+      ),
+    };
   }
 
   private mergeSearchGraphParsed(
@@ -795,7 +890,8 @@ export class ToolExecutor {
           : "both",
       depth,
     });
-    return { ok: result.ok, output: this.truncate(result.output) };
+    const formatted = result.ok ? formatTraceResult(result.parsed, result.output) : result.output;
+    return { ok: result.ok, output: this.truncate(formatted) };
   }
 
   private async codeGraphImpact(): Promise<ToolExecutionResult> {
@@ -803,52 +899,29 @@ export class ToolExecutor {
     const client = this.codeGraph;
 
     const result = await client.detectChanges();
-    return { ok: result.ok, output: this.truncate(result.output) };
+    const formatted = result.ok ? formatImpactResult(result.parsed, result.output) : result.output;
+    return { ok: result.ok, output: this.truncate(formatted) };
   }
 
-  private async codeGraphSemanticSearch(args: Record<string, unknown>): Promise<ToolExecutionResult> {
-    if (!this.codeGraph) return this.codeGraphUnavailable();
-    const query = String(args.query ?? "").trim();
-    if (!query) return { ok: false, output: "query is required" };
-
-    const limit =
-      typeof args.limit === "number" && Number.isFinite(args.limit)
-        ? Math.min(Math.max(1, args.limit), 50)
-        : 20;
-
-    const result = await this.codeGraph.semanticQuery({ query, limit });
-    // Graceful degradation: older binaries may lack semantic_query.
-    if (!result.ok && result.output.includes("unknown tool")) {
-      const fallback = await this.codeGraph.searchCode({ query, limit });
-      if (!fallback.ok && fallback.output.includes("unknown tool")) {
-        return {
-          ok: false,
-          output:
-            "Natural-language graph search is not available in this version of codebase-memory-mcp. " +
-            "Use code_graph_search or code_graph_code_search instead. " +
-            "Upgrade codebase-memory-mcp to v0.7.0+.",
-        };
-      }
-      return { ok: fallback.ok, output: this.truncate(formatCodeSearchResults(fallback.parsed, fallback.output)) };
-    }
-
-    // Format results in grep-like style and append a snippet hint when we
-    // have qualified names — steers the model toward the ideal 2-step path.
-    let output = formatGraphSearchResults(result.parsed, result.output);
-    if (result.ok && result.parsed && typeof result.parsed === "object") {
-      const parsed = result.parsed as Record<string, unknown>;
-      const results = Array.isArray(parsed.results) ? parsed.results : [];
-      const withQName = results.filter(
-        (r) => r && typeof r === "object" && (r as Record<string, unknown>).qualified_name,
-      );
-      if (withQName.length > 0) {
-        const topQName = String((withQName[0] as Record<string, unknown>).qualified_name);
-        output +=
-          `\n\n[Next step] Use code_graph_snippet(qualified_name="${topQName}") to read the source, then answer. ` +
-          `Do NOT re-search with grep or glob.`;
-      }
-    }
-    return { ok: result.ok, output: this.truncate(output) };
+  /**
+   * Build the "[Next step] read_file(qualified_name=…)" steer from a search
+   * payload, pushing the model down the cheap search→read path instead of
+   * re-searching.
+   */
+  private snippetNextStepHint(parsed: unknown): string {
+    if (!parsed || typeof parsed !== "object") return "";
+    const results = Array.isArray((parsed as Record<string, unknown>).results)
+      ? ((parsed as Record<string, unknown>).results as unknown[])
+      : [];
+    const withQName = results.find(
+      (r) => r && typeof r === "object" && (r as Record<string, unknown>).qualified_name,
+    );
+    if (!withQName) return "";
+    const qn = String((withQName as Record<string, unknown>).qualified_name);
+    return (
+      `\n\n[Next step] Use read_file(qualified_name="${qn}") to read the source. ` +
+      `Copy the exact [qualified_name] from a result above — do NOT re-run the same search.`
+    );
   }
 
   private async codeGraphCodeSearch(args: Record<string, unknown>): Promise<ToolExecutionResult> {
@@ -893,9 +966,24 @@ export class ToolExecutor {
         lastRaw = result.output;
         if (queries.length === 1 && scopes.length === 1) {
           const formatted = formatCodeSearchResults(result.parsed, result.output);
+          if (!formatted.includes("No matches found")) {
+            return { ok: true, output: this.truncate(formatted) };
+          }
+          // Primary search returned empty — try auto-recovery before giving up.
+          const recovered = await this.codeSearchAutoRecover(rawQuery, rawFilePattern, limit);
+          if (recovered) return recovered;
           return { ok: true, output: this.truncate(formatted) };
         }
         mergedParsed = this.mergeSearchCodeParsed(mergedParsed, result.parsed);
+      }
+    }
+
+    // Multi-query/scope merge: check if ALL results are empty
+    if (mergedParsed) {
+      const results = Array.isArray(mergedParsed.results) ? mergedParsed.results : [];
+      if (results.length === 0) {
+        const recovered = await this.codeSearchAutoRecover(rawQuery, rawFilePattern, limit);
+        if (recovered) return recovered;
       }
     }
 
@@ -903,6 +991,54 @@ export class ToolExecutor {
       ? formatCodeSearchResults(mergedParsed, lastRaw)
       : lastRaw;
     return { ok: true, output: this.truncate(formatted) };
+  }
+
+  /**
+   * Auto-recovery for code_graph_code_search when primary search returns empty.
+   *
+   * Strategy (tried in order):
+   * 1. If file_pattern was specified, retry WITHOUT file_pattern (scope was too narrow)
+   * 2. Fall back to grep (handles regex patterns that CBM's literal search can't)
+   */
+  private async codeSearchAutoRecover(
+    rawQuery: string,
+    rawFilePattern: string | undefined,
+    limit: number,
+  ): Promise<ToolExecutionResult | undefined> {
+    // Strategy 1: broaden scope — retry without file_pattern
+    if (rawFilePattern && this.codeGraph) {
+      const queries = rawQuery.includes("|") ? splitAndCleanCodeSearchQuery(rawQuery) : [rawQuery];
+      for (const query of queries) {
+        const broader = await this.codeGraph.searchCode({ query, limit });
+        if (broader.ok) {
+          const formatted = formatCodeSearchResults(broader.parsed, broader.output);
+          if (!formatted.includes("No matches found")) {
+            return {
+              ok: true,
+              output: this.truncate(
+                `[No results with file_pattern="${rawFilePattern}" — broadened to full project]\n${formatted}`,
+              ),
+            };
+          }
+        }
+      }
+    }
+
+    // Strategy 2: fall back to grep (handles regex that CBM literal search misses)
+    const grepResult = await this.grepSearch({
+      pattern: rawQuery,
+      path: rawFilePattern ?? undefined,
+    });
+    if (grepResult.ok && !grepResult.output.toLowerCase().includes("no matches")) {
+      return {
+        ok: true,
+        output: this.truncate(
+          `[Graph search found nothing — falling back to grep]\n${grepResult.output}`,
+        ),
+      };
+    }
+
+    return undefined;
   }
 
   private mergeSearchCodeParsed(
@@ -946,6 +1082,15 @@ export class ToolExecutor {
           "Use read_file instead.",
       };
     }
+
+    // Symbol-not-found used to be a dead end: the model burned a turn, then had
+    // to re-issue search_graph itself. Auto-recover by searching the leaf name
+    // and either resolving a unique match or returning copy-pasteable candidates.
+    if (!result.ok && /symbol not found|search_graph/i.test(result.output)) {
+      const recovered = await this.recoverSnippet(qualifiedName);
+      if (recovered) return recovered;
+    }
+
     let formatted = formatSnippetResult(result.parsed, result.output);
     if (result.ok && result.parsed && typeof result.parsed === "object") {
       const obj = result.parsed as Record<string, unknown>;
@@ -960,6 +1105,54 @@ export class ToolExecutor {
       }
     }
     return { ok: result.ok, output: this.truncate(formatted) };
+  }
+
+  /**
+   * Recover from a `code_graph_snippet` miss: search the graph for the leaf
+   * symbol name and either (a) auto-return the body when exactly one symbol
+   * matches, or (b) hand back copy-pasteable candidate qualified_names. Returns
+   * undefined when nothing matches (caller falls back to the original error).
+   */
+  private async recoverSnippet(qualifiedName: string): Promise<ToolExecutionResult | undefined> {
+    if (!this.codeGraph) return undefined;
+    const leaf = qualifiedName.split(/[.#]/).filter(Boolean).pop() ?? qualifiedName;
+    if (!leaf || leaf.length < 2) return undefined;
+
+    const search = await this.codeGraph.searchGraph({
+      name_pattern: `^${escapeRegExpLiteral(leaf)}$`,
+      limit: 10,
+    });
+    if (!search.ok || !search.parsed || typeof search.parsed !== "object") return undefined;
+
+    const results = Array.isArray((search.parsed as Record<string, unknown>).results)
+      ? ((search.parsed as Record<string, unknown>).results as Record<string, unknown>[])
+      : [];
+    const candidates = results.filter((r) => r && typeof r.qualified_name === "string");
+    if (candidates.length === 0) return undefined;
+
+    // Unique match → resolve it directly so the model doesn't lose a turn.
+    if (candidates.length === 1) {
+      const qn = String(candidates[0].qualified_name);
+      const snippet = await this.codeGraph.getCodeSnippet({ qualified_name: qn });
+      if (snippet.ok) {
+        return {
+          ok: true,
+          output: this.truncate(
+            `[Auto-resolved "${qualifiedName}" → "${qn}"]\n` +
+              formatSnippetResult(snippet.parsed, snippet.output),
+          ),
+        };
+      }
+    }
+
+    const list = formatGraphSearchResults(search.parsed, search.output);
+    return {
+      ok: false,
+      output: this.truncate(
+        `No symbol matched qualified_name="${qualifiedName}". ` +
+          `Candidates for "${leaf}" (copy an exact [qualified_name] into read_file):\n${list}`,
+      ),
+    };
   }
 }
 
@@ -1076,6 +1269,9 @@ export function matchProtectedPattern(relPath: string, basename: string, pattern
  */
 function extractFileOutline(hiddenLines: string[], startLineNumber: number): string {
   const SIG_PATTERNS = [
+    // Python function / method (def, async def) and class declarations
+    /^\s*(?:async\s+)?def\s+(\w+)/,
+    /^\s*class\s+(\w+)\s*[(:]/,
     // JS/TS function and method declarations
     /^\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)/,
     /^\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*=\s*(?:async\s+)?\(?/,
@@ -1138,6 +1334,11 @@ export function expandBraceGlob(pattern: string): string[] {
   return expanded;
 }
 
+/** Escape regex metacharacters so a literal symbol name is safe as a name_pattern. */
+function escapeRegExpLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 /** Extract file paths from a unified diff (the `b/...` side of `diff --git`). */
 function extractPatchFilePaths(patch: string): string[] {
   const paths: string[] = [];
@@ -1195,21 +1396,31 @@ export function buildArchitectureSummary(raw: Record<string, unknown>): string {
   }
 
   // --- 3. Business modules (auto-detected) ------------------------------
-  const businessModules = detectBusinessModules(fileTree);
+  // Use both detection strategies and pick the one with better granularity.
+  // Package-based detection is language-agnostic (good for Python), while
+  // fileTree-based detection handles monorepos with deep nesting better.
+  const packageModules = detectModulesFromPackages(raw.packages);
+  const treeModules = detectBusinessModules(fileTree);
+
+  // Prefer whichever yields more fine-grained results. If package detection
+  // returned only oversized modules (all > MAX_MODULE_SYMBOLS), the tree
+  // detection likely found better sub-modules.
+  const allPackagesOversized =
+    packageModules.length > 0 && packageModules.every((m) => m.fileCount > MAX_MODULE_SYMBOLS);
+  const businessModules =
+    packageModules.length > 0 && !allPackagesOversized
+      ? packageModules
+      : treeModules.length > 0
+        ? treeModules
+        : packageModules; // fallback: even oversized is better than nothing
+
   if (businessModules.length > 0) {
+    const unit = businessModules === packageModules ? "symbols" : "files";
     const moduleList = businessModules
-      .map((m) => `  "${m.name}"  →  ${m.path}  (${m.fileCount} files)`)
+      .map((m) => `  "${m.name}"  →  ${m.path}  (${m.fileCount} ${unit})`)
       .join("\n");
     sections.push(
-      `## Detected business modules\nUse these as file_pattern in code_graph_search:\n${moduleList}`,
-    );
-  } else if (!fileTree?.length) {
-    // file_tree missing — likely caused by using filtered aspects instead of "all"
-    sections.push(
-      `## ⚠ Module map unavailable\n` +
-      `The file_tree was not included in this response — likely because aspects was not ["all"]. ` +
-      `Re-run code_graph_architecture(aspects=["all"]) to get the module map needed to scope searches. ` +
-      `Without the module map, you will need to use glob_search or list_directory to find relevant modules.`,
+      `## Detected business modules\nUse these as file_pattern in symbol_search:\n${moduleList}`,
     );
   }
 
@@ -1249,9 +1460,9 @@ export function buildArchitectureSummary(raw: Record<string, unknown>): string {
 
   // --- 7. Actionable hints ----------------------------------------------
   const hints: string[] = [
-    `To explore a specific module: code_graph_search(file_pattern="<module-name>", name_pattern="<keyword>")`,
-    `To find status/config in a module: code_graph_search(file_pattern="<module-name>", name_pattern="status|config|enum")`,
-    `To search text in a module: code_graph_code_search(query="<text>", file_pattern="<module-name>")`,
+    `To explore a specific module: symbol_search(file_pattern="<module-name>", name_pattern="<keyword>")`,
+    `To find status/config in a module: symbol_search(file_pattern="<module-name>", name_pattern="status|config|enum")`,
+    `To search text in a module: text_search(query="<text>", file_pattern="<module-name>")`,
   ];
   sections.push(`## Next steps\n${hints.join("\n")}`);
 
@@ -1316,37 +1527,246 @@ function buildModuleMap(fileTree: FileTreeNode[]): string {
   return lines.length > 0 ? lines.join("\n") : "";
 }
 
-/** Extract leaf directory names that look like business modules (kebab-case, depth >= 3). */
+interface PackageEntry {
+  name?: string;
+  node_count?: number;
+}
+
+/** Directory/package names that are infrastructure, not business logic. */
+const NON_BUSINESS_NAME =
+  /^(node_modules|dist|build|out|coverage|__pycache__|__tests__|tests?|test|docs?|examples?|benchmarks?|samples?|fixtures?|vendor|third_party|migrations|scripts?|bin|certs?|tool|tools|setup|conf|conftest|makefile|tox|pyproject|requirements|\..*)$/i;
+
+/** A name is "test-ish" if it lives in / describes test code. */
+function isTestLikeName(name: string): boolean {
+  return /^test[_-]|[_-]tests?$|^tests?$/i.test(name);
+}
+
+/**
+ * When a module exceeds this symbol count, it's considered too coarse and
+ * should be decomposed into sub-modules (if possible).
+ */
+const MAX_MODULE_SYMBOLS = 150;
+const MIN_MODULE_SYMBOLS = 3;
+
+/**
+ * Preferred module detection: use the indexer's own `packages` ranking. This
+ * is language-agnostic and works for snake_case Python packages (django,
+ * sympy, …) where the old kebab-case file_tree heuristic produced nothing.
+ * Filters out test packages and build/infra noise, ranks by symbol count.
+ *
+ * Oversized packages (> MAX_MODULE_SYMBOLS) are automatically decomposed:
+ * if sub-packages exist in the list (e.g. "django.db" under "django"), the
+ * sub-packages replace the parent so that the agent gets narrower scopes.
+ */
+function detectModulesFromPackages(
+  packages: unknown,
+): { name: string; path: string; fileCount: number }[] {
+  if (!Array.isArray(packages)) return [];
+
+  // First pass: collect all valid packages
+  const all: { name: string; count: number }[] = [];
+  const seen = new Set<string>();
+  for (const entry of packages as PackageEntry[]) {
+    const name = typeof entry?.name === "string" ? entry.name.trim() : "";
+    if (!name || seen.has(name)) continue;
+    if (isTestLikeName(name) || NON_BUSINESS_NAME.test(name)) continue;
+    if (!/^[A-Za-z_][\w./-]*$/.test(name)) continue;
+    const count = typeof entry?.node_count === "number" ? entry.node_count : 0;
+    if (count < MIN_MODULE_SYMBOLS) continue;
+    seen.add(name);
+    all.push({ name, count });
+  }
+
+  // Second pass: hierarchical decomposition of oversized packages.
+  // Only take DIRECT sub-packages when decomposing (not grandchildren),
+  // then recurse so deeply nested packages also get decomposed.
+  const modules: { name: string; path: string; fileCount: number }[] = [];
+  const consumed = new Set<string>();
+
+  function directChildren(parentName: string): typeof all {
+    const prefix = parentName + ".";
+    const altPrefix = parentName + "/";
+    return all.filter((s) => {
+      if (s.name === parentName || consumed.has(s.name)) return false;
+      if (!s.name.startsWith(prefix) && !s.name.startsWith(altPrefix)) return false;
+      // Must be a direct child: no further separators after the prefix
+      const rest = s.name.startsWith(prefix)
+        ? s.name.slice(prefix.length)
+        : s.name.slice(altPrefix.length);
+      return !rest.includes(".") && !rest.includes("/");
+    });
+  }
+
+  function decompose(pkg: { name: string; count: number }): void {
+    if (consumed.has(pkg.name)) return;
+    consumed.add(pkg.name);
+
+    if (pkg.count > MAX_MODULE_SYMBOLS) {
+      const kids = directChildren(pkg.name);
+      if (kids.length > 0) {
+        for (const kid of kids) decompose(kid);
+        return;
+      }
+    }
+
+    modules.push({ name: pkg.name, path: pkg.name, fileCount: pkg.count });
+  }
+
+  for (const pkg of all) decompose(pkg);
+
+  return modules.sort((a, b) => b.fileCount - a.fileCount).slice(0, 20);
+}
+
+/**
+ * Threshold for fileTree-based detection.  Directories with more files than
+ * this are decomposed into children to find a better granularity.
+ */
+const MAX_MODULE_FILES = 80;
+const MIN_MODULE_FILES = 3;
+
+/**
+ * Detect business modules from the file tree using recursive decomposition.
+ *
+ * Strategy: walk the directory tree top-down.
+ *  - If a dir is "too big" (> MAX files) → recurse into its children.
+ *  - If a dir has ≥2 substantial child modules → surface the children.
+ *  - Otherwise → emit the dir itself as a module.
+ *  - Skip dirs that are clearly infra/test/build.
+ *
+ * Uses full relative path (e.g. "domains/scm-execution") as both the display
+ * name and the file_pattern value, so the agent gets precise scoping.
+ */
 function detectBusinessModules(
   fileTree: FileTreeNode[] | undefined,
 ): { name: string; path: string; fileCount: number }[] {
   if (!fileTree) return [];
 
-  const modules: { name: string; path: string; fileCount: number }[] = [];
-  const seen = new Set<string>();
+  // Index dirs by path; track both declared children count and computed total
+  const dirMap = new Map<string, { declaredCount: number; countedFiles: number; totalCount: number }>();
+  const hasFileEntries = fileTree.some((n) => n.type === "file");
 
   for (const node of fileTree) {
     if (!node.path || node.type !== "dir") continue;
-    const parts = node.path.split("/");
-    if (parts.length < 2 || parts.length > 8) continue;
+    const declared = typeof node.children === "number" ? node.children : 0;
+    dirMap.set(node.path, { declaredCount: declared, countedFiles: 0, totalCount: 0 });
+  }
 
-    const name = parts[parts.length - 1];
-    // Business module heuristic: kebab-case name with at least one hyphen
-    if (!name.includes("-") || name.startsWith(".")) continue;
-    // Skip common non-business dirs
-    if (/^(node[-_]modules|dist|build|__tests__|\.)/i.test(name)) continue;
-
-    if (seen.has(name)) continue;
-    seen.add(name);
-
-    const childCount = typeof node.children === "number" ? node.children : 0;
-    if (childCount >= 3) {
-      modules.push({ name, path: node.path, fileCount: childCount });
+  // Count file entries into their ancestor dirs
+  if (hasFileEntries) {
+    for (const node of fileTree) {
+      if (!node.path || node.type !== "file") continue;
+      const parts = node.path.split("/");
+      for (let d = 1; d < parts.length; d++) {
+        const dirPath = parts.slice(0, d).join("/");
+        const entry = dirMap.get(dirPath);
+        if (entry) entry.countedFiles++;
+      }
     }
   }
 
-  // Sort by file count descending — most substantial modules first
-  return modules.sort((a, b) => b.fileCount - a.fileCount).slice(0, 20);
+  // Compute totalCount for each dir: use the best available data.
+  // For mixed trees (file entries + dir children counts), use MAX of the two
+  // to avoid undercounting from partial file listings.
+  for (const [, info] of dirMap) {
+    info.totalCount = Math.max(info.declaredCount, info.countedFiles);
+  }
+
+  // When no individual file entries exist (summary mode), the totalCount per
+  // dir is only the direct children count. Accumulate bottom-up so that
+  // parent dirs reflect their full subtree size.
+  if (!hasFileEntries) {
+    const sortedByDepth = [...dirMap.keys()].sort(
+      (a, b) => b.split("/").length - a.split("/").length,
+    );
+    for (const path of sortedByDepth) {
+      const parts = path.split("/");
+      if (parts.length > 1) {
+        const parentPath = parts.slice(0, -1).join("/");
+        const parentInfo = dirMap.get(parentPath);
+        const childInfo = dirMap.get(path);
+        if (parentInfo && childInfo) {
+          parentInfo.totalCount += childInfo.totalCount;
+        }
+      }
+    }
+  }
+
+  // Build parent→children mapping
+  const childrenOf = new Map<string, string[]>();
+  for (const dirPath of dirMap.keys()) {
+    const parts = dirPath.split("/");
+    if (parts.length > 1) {
+      const parentPath = parts.slice(0, -1).join("/");
+      const kids = childrenOf.get(parentPath) ?? [];
+      kids.push(dirPath);
+      childrenOf.set(parentPath, kids);
+    }
+  }
+
+  const modules: { name: string; path: string; fileCount: number }[] = [];
+
+  function isSkippable(dirPath: string): boolean {
+    const leaf = dirPath.split("/").pop() || "";
+    return leaf.startsWith(".") || isTestLikeName(leaf) || NON_BUSINESS_NAME.test(leaf);
+  }
+
+  /**
+   * Recursively find right-sized business modules.
+   * Returns true if this dir (or its children) contributed any modules.
+   */
+  function decomposeDir(dirPath: string, depth: number): boolean {
+    if (depth > 8) return false;
+    if (isSkippable(dirPath)) return false;
+
+    const info = dirMap.get(dirPath);
+    if (!info) return false;
+    const count = info.totalCount;
+
+    if (count < MIN_MODULE_FILES) return false;
+
+    // Check for substantial child modules
+    const kids = childrenOf.get(dirPath) ?? [];
+    const substantialKids = kids.filter((k) => {
+      if (isSkippable(k)) return false;
+      const kidInfo = dirMap.get(k);
+      return kidInfo && kidInfo.totalCount >= MIN_MODULE_FILES;
+    });
+
+    // Decompose if: too big, OR has ≥2 substantial sub-modules worth surfacing
+    const shouldDecompose = count > MAX_MODULE_FILES || substantialKids.length >= 2;
+
+    if (shouldDecompose && substantialKids.length > 0) {
+      let anyChildEmitted = false;
+      for (const kid of substantialKids) {
+        if (decomposeDir(kid, depth + 1)) {
+          anyChildEmitted = true;
+        }
+      }
+      // If no children could be emitted, keep the parent
+      if (!anyChildEmitted) {
+        modules.push({ name: dirPath, path: dirPath, fileCount: count });
+        return true;
+      }
+      return anyChildEmitted;
+    }
+
+    // Right-sized with < 2 substantial children → emit as a module
+    modules.push({ name: dirPath, path: dirPath, fileCount: count });
+    return true;
+  }
+
+  // Start from root dirs — those with no parent in the tree
+  const roots = [...dirMap.keys()].filter((p) => {
+    const parts = p.split("/");
+    if (parts.length <= 1) return true;
+    const parentPath = parts.slice(0, -1).join("/");
+    return !dirMap.has(parentPath);
+  });
+  for (const dirPath of roots) {
+    decomposeDir(dirPath, 1);
+  }
+
+  return modules.sort((a, b) => b.fileCount - a.fileCount).slice(0, 25);
 }
 
 /** Extract a short readable path from a qualified_name like "project.domains.mod.file.symbol". */
@@ -1442,6 +1862,82 @@ export function formatCodeSearchResults(parsed: unknown, raw: string): string {
 
   const header = `Found ${total} match(es):`;
   return [header, ...lines].join("\n");
+}
+
+interface TraceEdge {
+  name?: string;
+  qualified_name?: string;
+  hop?: number;
+}
+
+/**
+ * Format trace_call_path results into a compact call list instead of raw JSON:
+ *   Trace foo (both):
+ *     callers (1):
+ *       [hop 1] bar  [pkg.mod.Bar.bar]
+ */
+export function formatTraceResult(parsed: unknown, raw: string): string {
+  if (!parsed || typeof parsed !== "object") return raw;
+  const obj = parsed as Record<string, unknown>;
+  const fn = typeof obj.function === "string" ? obj.function : "?";
+  const direction = typeof obj.direction === "string" ? obj.direction : "both";
+
+  const renderEdges = (label: string, edges: unknown): string[] => {
+    if (!Array.isArray(edges) || edges.length === 0) return [];
+    const lines = (edges as TraceEdge[]).map((e) => {
+      const hop = typeof e.hop === "number" ? `[hop ${e.hop}] ` : "";
+      const qn = e.qualified_name ? `  [${e.qualified_name}]` : "";
+      return `    ${hop}${e.name ?? "?"}${qn}`;
+    });
+    return [`  ${label} (${edges.length}):`, ...lines];
+  };
+
+  const callers = renderEdges("callers", obj.callers);
+  const callees = renderEdges("callees", obj.callees);
+  if (callers.length === 0 && callees.length === 0) {
+    return `Trace ${fn} (${direction}): no call relationships found.`;
+  }
+  return [`Trace ${fn} (${direction}):`, ...callers, ...callees].join("\n");
+}
+
+interface ImpactSymbol {
+  name?: string;
+  label?: string;
+  file?: string;
+}
+
+/**
+ * Format detect_changes (impact) results into a compact blast-radius summary
+ * instead of raw JSON.
+ */
+export function formatImpactResult(parsed: unknown, raw: string): string {
+  if (!parsed || typeof parsed !== "object") return raw;
+  const obj = parsed as Record<string, unknown>;
+  const changedFiles = Array.isArray(obj.changed_files) ? (obj.changed_files as string[]) : [];
+  if (changedFiles.length === 0) {
+    return "Impact: no uncommitted changes detected.";
+  }
+  const depth = typeof obj.depth === "number" ? ` (depth ${obj.depth})` : "";
+  const header = `Impact${depth}: ${changedFiles.length} changed file(s):`;
+  const fileLines = changedFiles.map((f) => `  ${f}`);
+
+  const symbols = Array.isArray(obj.impacted_symbols)
+    ? (obj.impacted_symbols as ImpactSymbol[])
+    : [];
+  const out = [header, ...fileLines];
+  if (symbols.length > 0) {
+    const shown = symbols.slice(0, 30);
+    out.push(`Impacted symbols (${symbols.length}):`);
+    for (const s of shown) {
+      const label = s.label ? `  (${s.label})` : "";
+      const file = s.file ? `  ${s.file}` : "";
+      out.push(`  ${s.name ?? "?"}${label}${file}`);
+    }
+    if (symbols.length > shown.length) {
+      out.push(`  ... and ${symbols.length - shown.length} more`);
+    }
+  }
+  return out.join("\n");
 }
 
 interface SnippetResultPayload {

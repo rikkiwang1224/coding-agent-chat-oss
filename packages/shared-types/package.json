@@ -1,5 +1,5 @@
 {
-  "name": "@forgelet/shared-types",
+  "name": "@lattice-code/shared-types",
   "version": "0.1.0",
   "private": true,
   "type": "module",

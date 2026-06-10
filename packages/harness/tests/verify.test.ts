@@ -77,7 +77,7 @@ describe("runVerify", () => {
     const cfg: VerifyConfig = {
       enabled: true,
       buildCommand: async () => ({
-        argv: ["/definitely/not/a/real/binary/forgelet-test"],
+        argv: ["/definitely/not/a/real/binary/lc-test"],
         cwd: tmpDir,
       }),
       parseOutput: (r) => ({
@@ -148,7 +148,7 @@ describe("runVerify", () => {
     const script = join(tmpDir, "probe.sh");
     writeFileSync(
       script,
-      "#!/bin/sh\necho \"VAR=$FORGELET_TEST_VAR PWD=$(pwd)\"\n",
+      "#!/bin/sh\necho \"VAR=$LATTICE_CODE_TEST_VAR PWD=$(pwd)\"\n",
     );
     chmodSync(script, 0o755);
 
@@ -157,7 +157,7 @@ describe("runVerify", () => {
       buildCommand: async () => ({
         argv: [script],
         cwd: tmpDir,
-        env: { FORGELET_TEST_VAR: "hello-verify" },
+        env: { LATTICE_CODE_TEST_VAR: "hello-verify" },
       }),
       parseOutput: (r) => ({
         verdict: "pass" as const,

@@ -20,16 +20,16 @@ importers:
 
   apps/chat-desktop:
     dependencies:
-      '@forgelet/harness':
+      '@lattice-code/harness':
         specifier: workspace:*
         version: link:../../packages/harness
-      '@forgelet/sdk-runtime':
+      '@lattice-code/sdk-runtime':
         specifier: workspace:*
         version: link:../../packages/sdk-runtime
-      '@forgelet/shared-types':
+      '@lattice-code/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
-      '@forgelet/storage-core':
+      '@lattice-code/storage-core':
         specifier: workspace:*
         version: link:../../packages/storage-core
       '@radix-ui/react-collapsible':
@@ -111,16 +111,16 @@ importers:
 
   apps/cli:
     dependencies:
-      '@forgelet/harness':
+      '@lattice-code/harness':
         specifier: workspace:*
         version: link:../../packages/harness
-      '@forgelet/sdk-runtime':
+      '@lattice-code/sdk-runtime':
         specifier: workspace:*
         version: link:../../packages/sdk-runtime
-      '@forgelet/shared-types':
+      '@lattice-code/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
-      '@forgelet/storage-core':
+      '@lattice-code/storage-core':
         specifier: workspace:*
         version: link:../../packages/storage-core
     devDependencies:
@@ -130,16 +130,16 @@ importers:
 
   packages/harness:
     dependencies:
-      '@forgelet/sdk-core':
+      '@lattice-code/sdk-core':
         specifier: workspace:*
         version: link:../sdk-core
-      '@forgelet/sdk-runtime':
+      '@lattice-code/sdk-runtime':
         specifier: workspace:*
         version: link:../sdk-runtime
-      '@forgelet/shared-types':
+      '@lattice-code/shared-types':
         specifier: workspace:*
         version: link:../shared-types
-      '@forgelet/storage-core':
+      '@lattice-code/storage-core':
         specifier: workspace:*
         version: link:../storage-core
     devDependencies:
@@ -149,13 +149,13 @@ importers:
 
   packages/sdk-core:
     dependencies:
-      '@forgelet/shared-types':
+      '@lattice-code/shared-types':
         specifier: workspace:*
         version: link:../shared-types
 
   packages/sdk-runtime:
     dependencies:
-      '@forgelet/shared-types':
+      '@lattice-code/shared-types':
         specifier: workspace:*
         version: link:../shared-types
 

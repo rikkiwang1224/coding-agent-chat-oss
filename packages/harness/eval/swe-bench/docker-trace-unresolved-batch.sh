@@ -9,7 +9,7 @@
 # Default attempts=1 (use 3 only for deep-dive cases via docker-trace-rerun.sh).
 #
 # Logs: ~/swe-batch/unresolved-trace-batch.log
-# Traces: ~/.forgelet/traces/swe-bench/eval-unresolved-<id>-a1/instances/<id>.jsonl
+# Traces: ~/.lattice-code/traces/swe-bench/eval-unresolved-<id>-a1/instances/<id>.jsonl
 
 set -euo pipefail
 
@@ -61,7 +61,7 @@ while IFS= read -r id || [[ -n "${id:-}" ]]; do
   echo "" | tee -a "$LOG"
   echo "[$N/$TOTAL] $id — json=$json" | tee -a "$LOG"
   prefix="unresolved-${id}"
-  FORGELET_SAVE_TRACE=1 "$RERUN" "$id" "$ATTEMPTS" "$json" "$prefix" 2>&1 | tee -a "$LOG"
+  LATTICE_CODE_SAVE_TRACE=1 "$RERUN" "$id" "$ATTEMPTS" "$json" "$prefix" 2>&1 | tee -a "$LOG"
   echo "$id" >> "$DONE"
 done < "$IDS_FILE"
 

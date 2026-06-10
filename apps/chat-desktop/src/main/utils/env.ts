@@ -85,7 +85,7 @@ export function loadRuntimeEnv(dirname: string): void {
     return;
   }
 
-  const explicitEnvPath = resolveEnvPath(process.env.FORGELET_ENV_FILE);
+  const explicitEnvPath = resolveEnvPath(process.env.LATTICE_CODE_ENV_FILE);
   const candidatePaths = [
     explicitEnvPath,
     app.isPackaged ? getRuntimeEnvFilePath() : null,

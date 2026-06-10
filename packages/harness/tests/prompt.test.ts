@@ -52,11 +52,11 @@ describe("buildSystemPrompt", () => {
       model: "deepseek-v4-pro",
     });
     expect(prompt).toContain("## Identity");
-    expect(prompt).toContain("Forgelet");
+    expect(prompt).toContain("Lattice Code");
     expect(prompt).toContain("DeepSeek");
     expect(prompt).toContain("deepseek-v4-pro");
     expect(prompt).toContain("Never invent or guess your vendor");
-    expect(prompt).toContain("Forgelet on DeepSeek (deepseek-v4-pro)");
+    expect(prompt).toContain("Lattice Code on DeepSeek (deepseek-v4-pro)");
   });
 
   it("withLlmIdentity merges config into prompt context", () => {
@@ -69,15 +69,15 @@ describe("buildSystemPrompt", () => {
   });
 
   it("merges prompt extras from env", () => {
-    const prev = process.env.FORGELET_SYSTEM_PROMPT_EXTRA;
-    process.env.FORGELET_SYSTEM_PROMPT_EXTRA = "Prefer jq for JSON.";
+    const prev = process.env.LATTICE_CODE_SYSTEM_PROMPT_EXTRA;
+    process.env.LATTICE_CODE_SYSTEM_PROMPT_EXTRA = "Prefer jq for JSON.";
     try {
       const merged = mergePromptContextFromEnv({ workspaceRoot: "/tmp/ws" });
       const prompt = buildSystemPrompt(merged);
       expect(prompt).toContain("Prefer jq for JSON.");
     } finally {
-      if (prev === undefined) delete process.env.FORGELET_SYSTEM_PROMPT_EXTRA;
-      else process.env.FORGELET_SYSTEM_PROMPT_EXTRA = prev;
+      if (prev === undefined) delete process.env.LATTICE_CODE_SYSTEM_PROMPT_EXTRA;
+      else process.env.LATTICE_CODE_SYSTEM_PROMPT_EXTRA = prev;
     }
   });
 });

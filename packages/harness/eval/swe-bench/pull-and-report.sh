@@ -12,7 +12,7 @@
 #   --stop       after pull, call ../../stop-ecs.sh (Tencent Cloud API shutdown)
 #   --wait-stop  same as --stop, and wait until instance is STOPPED
 #
-# Outputs land in ~/.forgelet/runs/swe-bench/<run-id>/, including:
+# Outputs land in ~/.lattice-code/runs/swe-bench/<run-id>/, including:
 #   summary.tsv, predictions.jsonl, logs/<id>/agent.log, cost-report.{tsv,md}
 set -euo pipefail
 
@@ -33,7 +33,7 @@ done
 ECS_HOST="${POSITIONAL[0]:-${ECS_HOST:-ubuntu@119.91.220.67}}"
 ECS_ROOT="${POSITIONAL[1]:-${ECS_BATCH_ROOT:-~/swe-batch}}"
 
-LOCAL_ROOT="$HOME/.forgelet/runs/swe-bench"
+LOCAL_ROOT="$HOME/.lattice-code/runs/swe-bench"
 LOCAL_DIR="$LOCAL_ROOT/$RUN_ID"
 mkdir -p "$LOCAL_DIR"
 

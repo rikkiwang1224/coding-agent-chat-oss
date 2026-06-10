@@ -1,13 +1,13 @@
 import { mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { SessionData } from "@forgelet/harness";
+import type { SessionData } from "@lattice-code/harness";
 import {
   resolveHarnessSessionPath,
   resolveWorkspaceSessionIndexPath,
   resolveWorkspaceThreadPath,
   resolveWorkspaceThreadsDir,
   type WorkspaceSessionIndex,
-} from "@forgelet/storage-core";
+} from "@lattice-code/storage-core";
 import { collapseText, truncateText, isRecord } from "../utils/text.js";
 import { readImageAttachments, type ChatDesktopImageAttachment } from "../utils/image.js";
 
@@ -321,7 +321,7 @@ function storedThreadToSummary(
   };
 }
 
-/** Sidebar list source: only FORGELET_HOME/workspaces/{hash}/threads/*.json */
+/** Sidebar list source: only LATTICE_CODE_HOME/workspaces/{hash}/threads/*.json */
 export async function listWorkspaceThreads(workspacePath: string): Promise<ChatDesktopThreadSummary[]> {
   const stored = await listStoredThreads(workspacePath);
   return stored.map((thread) => storedThreadToSummary(thread, workspacePath));

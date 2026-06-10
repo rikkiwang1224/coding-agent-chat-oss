@@ -7,8 +7,8 @@ import { SessionStore } from "../src/session-store.js";
 describe("SessionStore", () => {
   it("saves and loads messages with reasoning_content", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "harness-session-"));
-    const previousHome = process.env.FORGELET_HOME;
-    process.env.FORGELET_HOME = root;
+    const previousHome = process.env.LATTICE_CODE_HOME;
+    process.env.LATTICE_CODE_HOME = root;
     const store = SessionStore.forWorkspace(root);
 
     await store.save({
@@ -36,9 +36,9 @@ describe("SessionStore", () => {
     expect(loaded?.messages[1].reasoning_content).toBe("thinking...");
 
     if (previousHome === undefined) {
-      delete process.env.FORGELET_HOME;
+      delete process.env.LATTICE_CODE_HOME;
     } else {
-      process.env.FORGELET_HOME = previousHome;
+      process.env.LATTICE_CODE_HOME = previousHome;
     }
     await rm(root, { recursive: true, force: true });
   });

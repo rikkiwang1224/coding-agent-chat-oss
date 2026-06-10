@@ -124,7 +124,7 @@ async function runSingleInstance(
 
     let tracePath: string | undefined;
     if (options.saveTraces !== false) {
-      const { resolveSweBenchTraceInstancePath } = await import("@forgelet/storage-core");
+      const { resolveSweBenchTraceInstancePath } = await import("@lattice-code/storage-core");
       tracePath = resolveSweBenchTraceInstancePath(options.traceRunId, instance.instance_id);
     }
 

@@ -9,7 +9,7 @@ function resolveAppName() {
   } catch (error) {
     console.error("[preload] failed to resolve runtime env from main process", error);
   }
-  return "Forgelet";
+  return "Lattice Code";
 }
 
 contextBridge.exposeInMainWorld("desktopConfig", {

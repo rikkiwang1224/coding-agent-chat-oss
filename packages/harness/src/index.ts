@@ -115,5 +115,12 @@ export {
   type PromptContext,
 } from "./prompt.js";
 export { resolveDefaultBashTimeoutMs } from "./tools/executor.js";
+export {
+  applyThinkingMode,
+  parseThinkingMode,
+  resolveThinkingModeFromEnv,
+  type ParsedThinkingConfig,
+  type ThinkingModeSetting,
+} from "./thinking-mode.js";
 
 export type * from "./types.js";

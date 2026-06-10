@@ -44,7 +44,7 @@ export interface SweBenchRunOptions {
   maxTurns: number;
   timeoutS: number;
   concurrency: number;
-  /** SWE-bench run id for FORGELET_HOME/traces/swe-bench/eval-{runId}/ */
+  /** SWE-bench run id for LATTICE_CODE_HOME/traces/swe-bench/eval-{runId}/ */
   traceRunId: string;
   /** Write per-instance trace JSONL (default true; use --no-trace to disable) */
   saveTraces?: boolean;

@@ -1,4 +1,4 @@
-import type { AgentEvent } from "@forgelet/shared-types";
+import type { AgentEvent } from "@lattice-code/shared-types";
 import type {
   AgentDeltaPayload,
   AgentDonePayload,
@@ -7,7 +7,7 @@ import type {
   ToolCalledPayload,
   ToolErrorPayload,
   ToolOutputPayload,
-} from "@forgelet/shared-types";
+} from "@lattice-code/shared-types";
 
 const DIM = "\x1b[2m";
 const RESET = "\x1b[0m";

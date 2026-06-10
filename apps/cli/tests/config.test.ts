@@ -10,8 +10,8 @@ describe("runConfigCommand set", () => {
   let stderr = "";
 
   beforeEach(async () => {
-    tempHome = await mkdtemp(path.join(os.tmpdir(), "forgelet-config-"));
-    process.env.FORGELET_HOME = tempHome;
+    tempHome = await mkdtemp(path.join(os.tmpdir(), "lc-config-"));
+    process.env.LATTICE_CODE_HOME = tempHome;
     stdout = "";
     stderr = "";
     vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
@@ -26,7 +26,7 @@ describe("runConfigCommand set", () => {
 
   afterEach(async () => {
     vi.restoreAllMocks();
-    delete process.env.FORGELET_HOME;
+    delete process.env.LATTICE_CODE_HOME;
     await rm(tempHome, { recursive: true, force: true });
   });
 

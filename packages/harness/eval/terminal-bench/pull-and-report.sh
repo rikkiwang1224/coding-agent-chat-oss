@@ -8,7 +8,7 @@
 #   ecs-host      = $ECS_HOST or ubuntu@$ECS_IP
 #   ecs-jobs-dir  = ~/tb-batch/jobs
 #
-# Local output: ~/.forgelet/runs/terminal-bench/<job-name>/
+# Local output: ~/.lattice-code/runs/terminal-bench/<job-name>/
 
 set -euo pipefail
 
@@ -17,7 +17,7 @@ ECS_HOST="${2:-${ECS_HOST:-ubuntu@${ECS_IP:?set ECS_IP or pass ecs-host}}}"
 ECS_JOBS="${3:-${ECS_TB_JOBS:-~/tb-batch/jobs}}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOCAL_DIR="$HOME/.forgelet/runs/terminal-bench/$JOB_NAME"
+LOCAL_DIR="$HOME/.lattice-code/runs/terminal-bench/$JOB_NAME"
 mkdir -p "$LOCAL_DIR"
 
 echo "=== rsync ${ECS_HOST}:${ECS_JOBS}/${JOB_NAME}/ → ${LOCAL_DIR}/ ==="

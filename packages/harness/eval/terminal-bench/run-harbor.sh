@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run Terminal-Bench via Harbor with the Forgelet agent adapter.
+# Run Terminal-Bench via Harbor with the Lattice Code agent adapter.
 #
 # Usage:
 #   ./run-harbor.sh [harbor run args...]
@@ -9,9 +9,9 @@
 #   ./run-harbor.sh --dataset terminal-bench/terminal-bench-2-1 --n-concurrent 4
 #
 # Prereqs:
-#   ./setup.sh && ./prepare-forgelet.sh
+#   ./setup.sh && ./prepare-lattice-code.sh
 #   export DEEPSEEK_API_KEY=...   (or provider key for --model)
-#   export FORGELET_ROOT=~/.forgelet/tb-forgelet-staging
+#   export LATTICE_CODE_ROOT=~/.lattice-code/tb-lattice-code-staging
 
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,24 +22,24 @@ if [ ! -x ".venv/bin/harbor" ]; then
   exit 1
 fi
 
-if [ -z "${FORGELET_ROOT:-}" ]; then
-  DEFAULT="$HOME/.forgelet/tb-forgelet-staging"
+if [ -z "${LATTICE_CODE_ROOT:-}" ]; then
+  DEFAULT="$HOME/.lattice-code/tb-lattice-code-staging"
   if [ -d "$DEFAULT/node_modules/tsx" ]; then
-    export FORGELET_ROOT="$DEFAULT"
-    echo "Using FORGELET_ROOT=$FORGELET_ROOT"
+    export LATTICE_CODE_ROOT="$DEFAULT"
+    echo "Using LATTICE_CODE_ROOT=$LATTICE_CODE_ROOT"
   else
-    echo "Error: FORGELET_ROOT unset. Run ./prepare-forgelet.sh first." >&2
+    echo "Error: LATTICE_CODE_ROOT unset. Run ./prepare-lattice-code.sh first." >&2
     exit 1
   fi
 fi
 
-MODEL="${FORGELET_HARBOR_MODEL:-deepseek/deepseek-chat}"
-N_CONCURRENT="${FORGELET_HARBOR_CONCURRENT:-4}"
-DATASET="${FORGELET_HARBOR_DATASET:-terminal-bench/terminal-bench-2-1}"
+MODEL="${LATTICE_CODE_HARBOR_MODEL:-deepseek/deepseek-chat}"
+N_CONCURRENT="${LATTICE_CODE_HARBOR_CONCURRENT:-4}"
+DATASET="${LATTICE_CODE_HARBOR_DATASET:-terminal-bench/terminal-bench-2-1}"
 # Harbor 0.9+ removed --timeout (seconds). Use multipliers or task.toml defaults.
-AGENT_TIMEOUT_MULTIPLIER="${FORGELET_HARBOR_AGENT_TIMEOUT_MULTIPLIER:-}"
+AGENT_TIMEOUT_MULTIPLIER="${LATTICE_CODE_HARBOR_AGENT_TIMEOUT_MULTIPLIER:-}"
 
-AGENT_IMPORT="forgelet_agent:ForgeletAgent"
+AGENT_IMPORT="lattice_code_agent:LatticeCodeAgent"
 export PYTHONPATH="$DIR${PYTHONPATH:+:$PYTHONPATH}"
 
 ARGS=()

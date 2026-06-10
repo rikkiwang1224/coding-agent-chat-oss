@@ -4,7 +4,7 @@
 # Usage:
 #   ./stop-ecs.sh [--wait] [--force]
 #
-# Reads from repo .env (or FORGELET_ENV_FILE):
+# Reads from repo .env (or LATTICE_CODE_ENV_FILE):
 #   TENCENTCLOUD_SECRET_ID, TENCENTCLOUD_SECRET_KEY
 #   TENCENT_ECS_REGION, TENCENT_ECS_INSTANCE_ID (or ECS_IP to look up id)
 #

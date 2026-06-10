@@ -90,6 +90,8 @@ export interface AgentLoopResult {
   reasonVerdicts?: ReasonResult[];
   /** Number of exploration nudges injected (0 if guard disabled or never triggered). */
   explorationNudges?: number;
+  /** Number of self-review gate nudges injected (0 if gate disabled or never triggered). */
+  selfReviewNudges?: number;
 }
 
 export interface AgentLoopOptions {
@@ -119,6 +121,14 @@ export interface AgentLoopOptions {
    */
   explorationBudget?: number | false;
   /**
+   * Hard self-review gate. When enabled, the agent may not declare completion
+   * after editing source unless it ran a structural lookup
+   * (`symbol_search`/`call_trace`) *after* its last edit — forcing the
+   * symmetry / root-cause review that the prompt asks for but agents skip.
+   * Only takes effect when code graph tools are available. Default: false.
+   */
+  selfReviewGate?: boolean;
+  /**
    * Path patterns that block write operations. Passed through to ToolExecutor.
    * Used by SWE-bench to prevent editing test files.
    */
@@ -127,10 +137,11 @@ export interface AgentLoopOptions {
   codeGraph?: CodebaseMemoryClient;
 }
 
-const DEFAULT_MAX_TURNS = 50;
+const DEFAULT_MAX_TURNS = 75;
 const DEFAULT_REASON_ROUNDS = 2;
 const DEFAULT_EXPLORATION_BUDGET = 15;
 const MAX_EXPLORATION_NUDGES = 2;
+const MAX_SELF_REVIEW_NUDGES = 2;
 
 const READ_ONLY_TOOLS = new Set([
   "read_file",
@@ -138,14 +149,30 @@ const READ_ONLY_TOOLS = new Set([
   "list_directory",
   "glob_search",
   "todo_write",
-  "code_graph_architecture",
-  "code_graph_search",
-  "code_graph_trace",
-  "code_graph_impact",
-  "code_graph_semantic_search",
-  "code_graph_code_search",
-  "code_graph_snippet",
+  "codebase_overview",
+  "symbol_search",
+  "call_trace",
+  "change_impact",
+  "text_search",
 ]);
+
+/** Tools that mutate source — trigger the post-edit self-review requirement. */
+const EDIT_TOOLS = new Set([
+  "edit_file",
+  "multi_edit",
+  "write_file",
+  "apply_patch",
+  "str_replace",
+  "search_replace",
+  "insert",
+]);
+
+/**
+ * Structural-lookup tools that satisfy the self-review gate. Deliberately
+ * excludes `change_impact` (agents already run it reflexively) so the gate
+ * forces the symmetry / root-cause navigation that is actually skipped.
+ */
+const REVIEW_NAV_TOOLS = new Set(["symbol_search", "call_trace"]);
 
 export class AgentLoop {
   private readonly client: LlmClient;
@@ -173,6 +200,12 @@ export class AgentLoop {
   private consecutiveReadOnlyTurns = 0;
   private nudgesInjected = 0;
   private readonly explorationBudget: number | false;
+  private readonly selfReviewGate: boolean;
+  /** True once any source-editing tool has run. */
+  private hasEditedSource = false;
+  /** True if a structural lookup ran after the most recent source edit. */
+  private hasReviewNavSinceLastEdit = false;
+  private selfReviewNudges = 0;
   /** Provider's reported `prompt_tokens` from the most recent turn — used to
    * size context compression off the real tokenizer rather than our heuristic. */
   private lastPromptTokens = 0;
@@ -206,6 +239,8 @@ export class AgentLoop {
     this.explorationBudget = options.explorationBudget !== false
       ? (options.explorationBudget ?? DEFAULT_EXPLORATION_BUDGET)
       : false;
+    // Gate requires symbol_search/call_trace, which only exist with code graph.
+    this.selfReviewGate = (options.selfReviewGate ?? false) && codeGraphEnabled;
 
     if (options.initialMessages && options.initialMessages.length > 0) {
       this.messages = [...options.initialMessages];
@@ -253,8 +288,16 @@ export class AgentLoop {
 
       if (!assistantMessage.tool_calls || assistantMessage.tool_calls.length === 0) {
         // No tool calls — the model thinks it's done. Before we accept that,
-        // consult the Reason sensor (LLM reviewer) if enabled.
+        // run the deterministic self-review gate, then consult the Reason
+        // sensor (LLM reviewer) if enabled.
         this.callbacks.onTurnEnd?.(this.turnCount);
+
+        const gateFeedback = this.maybeSelfReviewGate();
+        if (gateFeedback) {
+          this.messages.push({ role: "user", content: gateFeedback });
+          this.notifyMessagesChanged();
+          continue;
+        }
 
         const reviseFeedback = await this.maybeRunReason();
         if (reviseFeedback) {
@@ -275,6 +318,21 @@ export class AgentLoop {
         this.messages.push(result);
       }
       this.notifyMessagesChanged();
+
+      // Self-review gate bookkeeping: scan this turn's tool calls in order so
+      // an edit followed by a lookup (same turn) counts as reviewed, while a
+      // lookup followed by an edit re-arms the requirement.
+      if (this.selfReviewGate) {
+        for (const tc of assistantMessage.tool_calls) {
+          const name = tc.function.name;
+          if (EDIT_TOOLS.has(name)) {
+            this.hasEditedSource = true;
+            this.hasReviewNavSinceLastEdit = false;
+          } else if (REVIEW_NAV_TOOLS.has(name) && this.hasEditedSource) {
+            this.hasReviewNavSinceLastEdit = true;
+          }
+        }
+      }
 
       // Exploration budget guard: detect consecutive read-only turns
       if (this.explorationBudget !== false) {
@@ -327,7 +385,35 @@ export class AgentLoop {
       reasonRoundsUsed: this.reason ? this.reasonRoundsUsed : undefined,
       reasonVerdicts: this.reason && this.reasonVerdicts.length > 0 ? this.reasonVerdicts : undefined,
       explorationNudges: this.nudgesInjected || undefined,
+      selfReviewNudges: this.selfReviewNudges || undefined,
     };
+  }
+
+  /**
+   * Deterministic self-review gate. If the agent edited source but has not run
+   * a structural lookup (`symbol_search`/`call_trace`) since its last edit,
+   * return a reminder to inject and force continuation. Returns null when the
+   * gate is disabled, satisfied, or out of budget.
+   */
+  private maybeSelfReviewGate(): string | null {
+    if (!this.selfReviewGate) return null;
+    if (!this.hasEditedSource) return null;
+    if (this.hasReviewNavSinceLastEdit) return null;
+    if (this.selfReviewNudges >= MAX_SELF_REVIEW_NUDGES) return null;
+
+    this.selfReviewNudges++;
+    return (
+      `[System] You edited source but have not run a structural review since your last edit. ` +
+      `You may NOT finish until you complete this review for every method you changed:\n` +
+      `1. SYMMETRY — call **symbol_search** (or **call_trace**) to find sibling/paired methods ` +
+      `(e.g. x↔y, horizontal↔vertical, get↔set, encode↔decode, add↔remove, __mul__↔__truediv__). ` +
+      `Apply the same fix to each, or state why it is not needed.\n` +
+      `2. ROOT CAUSE — use **call_trace** from the failing behavior to confirm you edited where the ` +
+      `defect originates, not a downstream symptom or a legacy/fallback path.\n` +
+      `3. SCOPE — confirm the fix covers every input/case in the issue, not just the reproduction ` +
+      `example; add and run one extra edge-case test.\n` +
+      `Actually call symbol_search or call_trace now — do not just describe the review in text.`
+    );
   }
 
   /**

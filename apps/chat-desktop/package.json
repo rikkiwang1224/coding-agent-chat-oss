@@ -1,5 +1,5 @@
 {
-  "name": "@forgelet/chat-desktop",
+  "name": "@lattice-code/chat-desktop",
   "version": "0.1.0",
   "private": true,
   "description": "Open-source Electron chat surface for coding agents.",
@@ -13,7 +13,7 @@
     "clean": "rm -rf dist/main dist/main.js dist/main.d.ts",
     "build": "pnpm run clean && pnpm run build:deps && vite build --config vite.config.ts && tsc -p tsconfig.json && cp src/preload.cjs dist/preload.cjs",
     "build:renderer": "vite build --config vite.config.ts",
-    "build:deps": "pnpm --filter @forgelet/shared-types build && pnpm --filter @forgelet/storage-core build && pnpm --filter @forgelet/sdk-core build && pnpm --filter @forgelet/sdk-runtime build && pnpm --filter @forgelet/harness build",
+    "build:deps": "pnpm --filter @lattice-code/shared-types build && pnpm --filter @lattice-code/storage-core build && pnpm --filter @lattice-code/sdk-core build && pnpm --filter @lattice-code/sdk-runtime build && pnpm --filter @lattice-code/harness build",
     "stage:package": "node scripts/prepare-package.mjs",
     "pack": "pnpm run stage:package && electron-builder --dir --config electron-builder.json",
     "dist:mac": "pnpm run stage:package && electron-builder --mac --config electron-builder.json",
@@ -25,10 +25,10 @@
     "test": "echo 'No tests configured'"
   },
   "dependencies": {
-    "@forgelet/harness": "workspace:*",
-    "@forgelet/sdk-runtime": "workspace:*",
-    "@forgelet/shared-types": "workspace:*",
-    "@forgelet/storage-core": "workspace:*",
+    "@lattice-code/harness": "workspace:*",
+    "@lattice-code/sdk-runtime": "workspace:*",
+    "@lattice-code/shared-types": "workspace:*",
+    "@lattice-code/storage-core": "workspace:*",
     "@radix-ui/react-collapsible": "^1.1.12",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
     "@radix-ui/react-scroll-area": "^1.2.10",

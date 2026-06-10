@@ -3,7 +3,7 @@ import { User, Bot, Wrench, Brain, AlertCircle } from "lucide-react";
 import { ToolCallCard } from "./ToolCallCard";
 import { MarkdownContent } from "./MarkdownContent";
 import { toFileUrl } from "@/lib/file-url";
-import { formatCostUsd } from "@forgelet/sdk-runtime";
+import { formatCostUsd } from "@lattice-code/sdk-runtime";
 import { collapseDuplicateAssistantTextItems } from "@/lib/message-dedupe";
 import type { ImageAttachment, Message, MessageTurnCost, ToolCallInfo } from "@/types";
 

@@ -8,8 +8,8 @@
 set -euo pipefail
 
 OUT_DIR="${1:-$HOME/swe-batch/smoke-cg-5}"
-TRACE_RUN_ID="${FORGELET_TRACE_RUN_ID:-smoke-cg-5}"
-TRACE_DIR="${FORGELET_HOME:-$HOME/.forgelet}/traces/swe-bench/eval-${TRACE_RUN_ID}/instances"
+TRACE_RUN_ID="${LATTICE_CODE_TRACE_RUN_ID:-smoke-cg-5}"
+TRACE_DIR="${LATTICE_CODE_HOME:-$HOME/.lattice-code}/traces/swe-bench/eval-${TRACE_RUN_ID}/instances"
 PRED="$OUT_DIR/predictions.jsonl"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IDS_FILE="$SCRIPT_DIR/smoke-codegraph-5.instance-ids.txt"
@@ -98,7 +98,7 @@ PY
 "$trace")
     echo "  trace: code_graph mentions=$cg, test_edits:source_edits=$test_edits"
   else
-    echo "  trace: MISSING (set FORGELET_SAVE_TRACE=1)"
+    echo "  trace: MISSING (set LATTICE_CODE_SAVE_TRACE=1)"
   fi
 
   if [[ -f "$PRED" ]]; then

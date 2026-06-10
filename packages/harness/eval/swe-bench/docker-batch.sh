@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Batch-run the Forgelet agent across SWE-bench instances inside their
+# Batch-run the Lattice Code agent across SWE-bench instances inside their
 # official Docker images, one at a time. Writes a `predictions.jsonl`
 # ready for `sb-cli submit`.
 #
@@ -15,15 +15,17 @@
 # Tunables (env vars):
 #   KEEP_IMAGES          — LRU keep N swebench/sweb.eval.* images (default 15)
 #   PER_INSTANCE_TIMEOUT — per-instance wall clock seconds (default 600)
-#   MODEL_NAME           — predictions.jsonl model_name_or_path (default forgelet-docker)
-#   FORGELET_SAVE_TRACE  — 0/off → no JSONL; default ON → ~/.forgelet/traces/swe-bench/eval-<runId>/
-#   FORGELET_TRACE_RUN_ID — trace run id (default: basename of <output_dir>)
+#   LATTICE_CODE_MAX_TURNS   — agent tool-call budget per instance (default 100)
+#   MODEL_NAME           — predictions.jsonl model_name_or_path (default lattice-code-docker)
+#   THINKING_MODE        — DeepSeek thinking: max (default) | high | off
+#   LATTICE_CODE_SAVE_TRACE  — 0/off → no JSONL; default ON → ~/.lattice-code/traces/swe-bench/eval-<runId>/
+#   LATTICE_CODE_TRACE_RUN_ID — trace run id (default: basename of <output_dir>)
 #
 # Prereqs on the host (typically the ECS box):
 #   - $HOME/node-prebuilt/node-v20/bin/node
-#   - $HOME/coding-agent-chat-oss              (Forgelet source w/ deps + built dist)
+#   - $HOME/coding-agent-chat-oss              (Lattice Code source w/ deps + built dist)
 #   - $HOME/coding-agent-chat-oss/.env         (DEEPSEEK_API_KEY=...)
-#   - codebase-memory-mcp on host PATH (pnpm --filter @forgelet/harness install:codebase-memory)
+#   - codebase-memory-mcp on host PATH (pnpm --filter @lattice-code/harness install:codebase-memory)
 #     Binary + ~/.cache/codebase-memory-mcp are mounted into each instance container.
 #   - docker, jq
 
@@ -32,6 +34,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=docker-codegraph-mounts.sh
 source "$SCRIPT_DIR/docker-codegraph-mounts.sh"
+# shellcheck source=ecs-common.sh
+source "$SCRIPT_DIR/ecs-common.sh"
 
 INSTANCES_JSON="${1:?usage: $0 <instances.json> <output_dir>}"
 OUT_DIR="${2:?usage: $0 <instances.json> <output_dir>}"
@@ -45,36 +49,37 @@ touch "$DONE_FILE" "$PRED_FILE" "$SUMMARY"
 
 KEEP_IMAGES="${KEEP_IMAGES:-15}"
 PER_INSTANCE_TIMEOUT="${PER_INSTANCE_TIMEOUT:-600}"
-MODEL_NAME="${MODEL_NAME:-forgelet-docker}"
+LATTICE_CODE_MAX_TURNS="${LATTICE_CODE_MAX_TURNS:-100}"
+MODEL_NAME="${MODEL_NAME:-lattice-code-docker}"
 # Reason-as-Sensor (independent reviewer pass before declaring done).
-#   FORGELET_REASON=0 → off (baseline)
-#   FORGELET_REASON=1 → on, 2 rounds (default)
-#   FORGELET_REASON=N → on, N rounds (1..5)
+#   LATTICE_CODE_REASON=0 → off (baseline)
+#   LATTICE_CODE_REASON=1 → on, 2 rounds (default)
+#   LATTICE_CODE_REASON=N → on, N rounds (1..5)
 # Default OFF here so existing batches keep their cost/behavior baseline. Opt
-# in explicitly for A/B comparisons: `FORGELET_REASON=1 bash docker-batch.sh ...`.
-FORGELET_REASON="${FORGELET_REASON:-0}"
+# in explicitly for A/B comparisons: `LATTICE_CODE_REASON=1 bash docker-batch.sh ...`.
+LATTICE_CODE_REASON="${LATTICE_CODE_REASON:-0}"
 # Verify-as-Sensor (ground-truth test gate before declaring done).
-#   FORGELET_VERIFY=0 → off (baseline)
-#   FORGELET_VERIFY=1 → on, 3 rounds (default)
-#   FORGELET_VERIFY=N → on, N rounds (1..5)
+#   LATTICE_CODE_VERIFY=0 → off (baseline)
+#   LATTICE_CODE_VERIFY=1 → on, 3 rounds (default)
+#   LATTICE_CODE_VERIFY=N → on, N rounds (1..5)
 # Optional tuning:
-#   FORGELET_VERIFY_TIMEOUT=300 → per-round wall clock cap (seconds, default 300)
+#   LATTICE_CODE_VERIFY_TIMEOUT=300 → per-round wall clock cap (seconds, default 300)
 # Inside the SWE-bench container the CLI auto-detects the repo from git
-# remote, so no FORGELET_VERIFY_REPO is needed here.
-FORGELET_VERIFY="${FORGELET_VERIFY:-0}"
-FORGELET_VERIFY_TIMEOUT="${FORGELET_VERIFY_TIMEOUT:-300}"
-# JSONL traces default ON for post-hoc debugging. Opt out: FORGELET_SAVE_TRACE=0
-SAVE_TRACE="${FORGELET_SAVE_TRACE:-1}"
-FORGELET_HOME="${FORGELET_HOME:-$HOME/.forgelet}"
-TRACE_RUN_ID="${FORGELET_TRACE_RUN_ID:-$(basename "$OUT_DIR")}"
+# remote, so no LATTICE_CODE_VERIFY_REPO is needed here.
+LATTICE_CODE_VERIFY="${LATTICE_CODE_VERIFY:-0}"
+LATTICE_CODE_VERIFY_TIMEOUT="${LATTICE_CODE_VERIFY_TIMEOUT:-300}"
+# JSONL traces default ON for post-hoc debugging. Opt out: LATTICE_CODE_SAVE_TRACE=0
+SAVE_TRACE="${LATTICE_CODE_SAVE_TRACE:-1}"
+LATTICE_CODE_HOME="${LATTICE_CODE_HOME:-$HOME/.lattice-code}"
+TRACE_RUN_ID="${LATTICE_CODE_TRACE_RUN_ID:-$(basename "$OUT_DIR")}"
 TRACE_FLAG="--no-trace"
 TRACE_MOUNT=()
 TRACE_ENV=()
 if [[ "$SAVE_TRACE" != "0" && "$SAVE_TRACE" != "off" && "$SAVE_TRACE" != "false" ]]; then
   TRACE_FLAG=""
-  mkdir -p "$FORGELET_HOME/traces/swe-bench"
-  TRACE_MOUNT=(-v "$FORGELET_HOME/traces:/root/.forgelet/traces")
-  TRACE_ENV=(-e "FORGELET_TRACE_RUN_ID=$TRACE_RUN_ID" -e FORGELET_HOME=/root/.forgelet)
+  mkdir -p "$LATTICE_CODE_HOME/traces/swe-bench"
+  TRACE_MOUNT=(-v "$LATTICE_CODE_HOME/traces:/root/.lattice-code/traces")
+  TRACE_ENV=(-e "LATTICE_CODE_TRACE_RUN_ID=$TRACE_RUN_ID" -e LATTICE_CODE_HOME=/root/.lattice-code)
 fi
 
 # SWE-bench naming: swebench/sweb.eval.x86_64.<id_lower with __ → _1776_>:latest
@@ -116,7 +121,7 @@ cleanup_images() {
 TOTAL=$(jq 'length' "$INSTANCES_JSON")
 BATCH_START=$(date +%s)
 echo "=== batch: $TOTAL instances → $OUT_DIR ==="
-echo "=== keep-images=$KEEP_IMAGES, per-instance timeout=${PER_INSTANCE_TIMEOUT}s, reason=$FORGELET_REASON, verify=$FORGELET_VERIFY, trace=$SAVE_TRACE (runId=$TRACE_RUN_ID), code_graph=$CODE_GRAPH_STATUS ==="
+echo "=== keep-images=$KEEP_IMAGES, per-instance timeout=${PER_INSTANCE_TIMEOUT}s, max-turns=$LATTICE_CODE_MAX_TURNS, reason=$LATTICE_CODE_REASON, verify=$LATTICE_CODE_VERIFY, trace=$SAVE_TRACE (runId=$TRACE_RUN_ID), code_graph=$CODE_GRAPH_STATUS ==="
 
 for i in $(seq 0 $((TOTAL - 1))); do
   INST_ID=$(jq -r ".[$i].instance_id" "$INSTANCES_JSON")
@@ -151,16 +156,17 @@ for i in $(seq 0 $((TOTAL - 1))); do
     docker run --rm \
       --network host \
       -v "$HOME/node-prebuilt/node-v20:/opt/node:ro" \
-      -v "$HOME/coding-agent-chat-oss:/forgelet:ro" \
+      -v "$HOME/coding-agent-chat-oss:/lattice-code:ro" \
       -v "$WORK:/work" \
       "${TRACE_MOUNT[@]}" \
       "${CODE_GRAPH_MOUNT[@]}" \
       --env-file "$HOME/coding-agent-chat-oss/.env" \
       -e SWE_INSTANCE_ID="$INST_ID" \
-      -e FORGELET_REASON="$FORGELET_REASON" \
-      -e FORGELET_VERIFY="$FORGELET_VERIFY" \
-      -e FORGELET_VERIFY_TIMEOUT="$FORGELET_VERIFY_TIMEOUT" \
-      -e FORGELET_VERIFY_REPO="$REPO" \
+      -e LATTICE_CODE_REASON="$LATTICE_CODE_REASON" \
+      -e LATTICE_CODE_VERIFY="$LATTICE_CODE_VERIFY" \
+      -e LATTICE_CODE_VERIFY_TIMEOUT="$LATTICE_CODE_VERIFY_TIMEOUT" \
+      -e LATTICE_CODE_VERIFY_REPO="$REPO" \
+      -e LATTICE_CODE_MAX_TURNS="$LATTICE_CODE_MAX_TURNS" \
       "${TRACE_ENV[@]}" \
       "${CODE_GRAPH_ENV[@]}" \
       "$IMG" \
@@ -170,31 +176,33 @@ for i in $(seq 0 $((TOTAL - 1))); do
         source /opt/miniconda3/etc/profile.d/conda.sh
         conda activate testbed
 
-        # Pre-pin sphinx dependencies that break with newer PyPI versions.
-        # Without this, the agent wastes turns fixing setup.py instead of
-        # solving the actual issue. These pins match what the official
-        # SWE-bench sphinx images were built against.
-        if [[ \"$INST_ID\" == sphinx-doc__sphinx-* ]]; then
-          pip install -q --no-warn-script-location \
-            'markupsafe<=2.0.1' \
-            'Jinja2<3.1' \
-            'alabaster>=0.7,<0.7.12' \
-            'sphinxcontrib-applehelp<=1.0.7' \
-            'sphinxcontrib-devhelp<=1.0.5' \
-            'sphinxcontrib-htmlhelp<=2.0.4' \
-            'sphinxcontrib-serializinghtml<=1.1.9' \
-            'sphinxcontrib-qthelp<=1.0.6' \
+        # Pre-pin sphinx dependencies (see ecs-common.sh / lattice_code_run_evaluation.py).
+        if ecs_is_sphinx_instance \"$INST_ID\"; then
+          pip install -q --no-warn-script-location \\
+            'markupsafe<=2.0.1' \\
+            'Jinja2<3.1' \\
+            'alabaster>=0.7,<0.7.12' \\
+            'sphinxcontrib-applehelp<=1.0.7' \\
+            'sphinxcontrib-devhelp<=1.0.5' \\
+            'sphinxcontrib-htmlhelp<=2.0.4' \\
+            'sphinxcontrib-serializinghtml<=1.1.9' \\
+            'sphinxcontrib-qthelp<=1.0.6' \\
+            'docutils<0.21' \\
+            'pytest>=6.0,<8' \\
             2>/dev/null || true
         fi
 
         cd /testbed
-        timeout ${PER_INSTANCE_TIMEOUT} node /forgelet/node_modules/tsx/dist/cli.mjs \
-          /forgelet/packages/harness/eval/swe-bench/docker-agent.ts \
+        agent_rc=0
+        timeout ${PER_INSTANCE_TIMEOUT} node /lattice-code/node_modules/tsx/dist/cli.mjs \
+          /lattice-code/packages/harness/eval/swe-bench/docker-agent.ts \
           --workspace /testbed \
           --instance /work/instance.json \
           --patch-out /work/agent.patch \
           ${TRACE_FLAG} \
-          > /work/agent.log 2>&1 || echo "agent exit=$?" >> /work/agent.log
+          > /work/agent.log 2>&1 || agent_rc=\$?
+        echo \"agent exit=\$agent_rc\" >> /work/agent.log
+        echo \"\$agent_rc\" > /work/agent.exit
       " 2>&1 | tail -3 || STATUS="FAIL_RUN"
   fi
 
@@ -212,6 +220,22 @@ for i in $(seq 0 $((TOTAL - 1))); do
     PATCH_LINES=$(wc -l < "$WORK/agent.patch")
   fi
 
+  # Fast-abort on exhausted account / bad credentials (docker-agent.ts exits
+  # 75). Continuing would burn every remaining instance against the same dead
+  # account. Do NOT record this instance as done/predicted so a rerun resumes
+  # exactly here once credits are topped up.
+  AGENT_RC=0
+  [ -f "$WORK/agent.exit" ] && AGENT_RC=$(cat "$WORK/agent.exit" 2>/dev/null || echo 0)
+  if [ "$AGENT_RC" = "75" ]; then
+    printf '%s\t%s\t%d\t%d\n' "$INST_ID" "FAIL_API" "$PATCH_LINES" "$ELAPSED" >> "$SUMMARY"
+    echo ""
+    echo "✗ $INST_ID — fatal LLM API error (insufficient balance / invalid credentials)."
+    echo "  Aborting batch WITHOUT marking this instance done. Top up credits or fix the"
+    echo "  API key, then rerun the same command to resume (already-done instances skip)."
+    API_ABORT=1
+    break
+  fi
+
   jq -nc --arg id "$INST_ID" --arg model "$MODEL_NAME" --rawfile p "$WORK/agent.patch" \
     '{instance_id:$id, model_name_or_path:$model, model_patch:$p}' >> "$PRED_FILE"
 
@@ -224,6 +248,13 @@ for i in $(seq 0 $((TOTAL - 1))); do
 
   cleanup_images
 done
+
+if [ "${API_ABORT:-0}" = "1" ]; then
+  echo ""
+  echo "=== batch ABORTED after $((($(date +%s) - BATCH_START) / 60))m due to LLM API failure ==="
+  echo "predictions so far: $PRED_FILE ($(wc -l < "$PRED_FILE") lines)"
+  exit 1
+fi
 
 echo ""
 echo "=== batch complete in $((($(date +%s) - BATCH_START) / 60))m ==="

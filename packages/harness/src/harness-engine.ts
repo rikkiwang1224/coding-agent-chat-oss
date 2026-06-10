@@ -1,5 +1,5 @@
-import type { AgentEngine, RunTaskInput, EventSink } from "@forgelet/sdk-core";
-import type { AgentEvent, AgentRunMetrics } from "@forgelet/shared-types";
+import type { AgentEngine, RunTaskInput, EventSink } from "@lattice-code/sdk-core";
+import type { AgentEvent, AgentRunMetrics } from "@lattice-code/shared-types";
 import type { ChatMessage, LlmConfig } from "./types.js";
 import { AgentLoop, type ReasonHookConfig } from "./agent-loop.js";
 import type { ReasonResult } from "./reason.js";
@@ -13,7 +13,7 @@ import {
 } from "./permissions.js";
 import type { HarnessHooks } from "./hooks.js";
 import { createTraceSink, type TraceConfig, type TraceSink } from "./trace-sink.js";
-import { estimateRunCostUsd } from "@forgelet/sdk-runtime";
+import { estimateRunCostUsd } from "@lattice-code/sdk-runtime";
 import { CodebaseMemoryClient } from "./code-graph/codebase-memory.js";
 
 export interface HarnessEngineOptions {
@@ -28,12 +28,12 @@ export interface HarnessEngineOptions {
   onPermissionConfirm?: PermissionCallback;
   permissionPolicy?: PermissionPolicy;
   hooks?: HarnessHooks;
-  /** Append AgentEvent JSONL under FORGELET_HOME/traces (default on when set) */
+  /** Append AgentEvent JSONL under LATTICE_CODE_HOME/traces (default on when set) */
   trace?: TraceConfig;
   /**
    * Reason-as-Sensor hook — independent LLM reviewer that runs before the
    * agent's "completed" state is accepted. See `agent-loop.ts` for details.
-   * Disabled by default; SWE-bench runner enables it via `FORGELET_REASON=1`.
+   * Disabled by default; SWE-bench runner enables it via `LATTICE_CODE_REASON=1`.
    */
   reason?: ReasonHookConfig;
   /**
@@ -46,6 +46,11 @@ export interface HarnessEngineOptions {
    * Set false to disable. Set true to require it (warn in progress if missing).
    */
   codeGraph?: boolean;
+  /**
+   * Hard self-review gate (symmetry / root-cause lookup required after editing
+   * source before completion). Only effective with code graph. Default: false.
+   */
+  selfReviewGate?: boolean;
 }
 
 export class HarnessEngine implements AgentEngine {
@@ -61,6 +66,7 @@ export class HarnessEngine implements AgentEngine {
   private readonly reason?: ReasonHookConfig;
   private readonly protectedPathPatterns?: string[];
   private readonly codeGraphOption: boolean;
+  private readonly selfReviewGate: boolean;
   private promptContext?: PromptContext;
 
   constructor(options: HarnessEngineOptions) {
@@ -81,6 +87,7 @@ export class HarnessEngine implements AgentEngine {
     this.reason = options.reason;
     this.protectedPathPatterns = options.protectedPathPatterns;
     this.codeGraphOption = options.codeGraph !== false;
+    this.selfReviewGate = options.selfReviewGate ?? false;
   }
 
   getPermissionGuard(): PermissionGuard {
@@ -421,6 +428,7 @@ export class HarnessEngine implements AgentEngine {
         reason: this.reason,
         protectedPathPatterns: this.protectedPathPatterns,
         codeGraph: codeGraphClient,
+        selfReviewGate: this.selfReviewGate,
         onMessagesChanged: (messages) => {
           scheduleSave(messages, countUserTurns(messages));
         },
@@ -534,7 +542,7 @@ async function prepareCodeGraphForRun(
     emit("agent.progress", {
       stage: "execute",
       message:
-        "Code graph skipped: install codebase-memory-mcp (https://github.com/DeusData/codebase-memory-mcp) or set FORGELET_CODEBASE_MEMORY_BIN",
+        "Code graph skipped: install codebase-memory-mcp (https://github.com/DeusData/codebase-memory-mcp) or set LATTICE_CODE_CODEBASE_MEMORY_BIN",
       status: "running",
     });
     return undefined;

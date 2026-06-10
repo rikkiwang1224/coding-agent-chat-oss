@@ -26,7 +26,7 @@
 
 ## 目标
 
-1. 让 Forgelet agent 能跑通 Terminal-Bench，获得基线分数
+1. 让 Lattice Code agent 能跑通 Terminal-Bench，获得基线分数
 2. 建立可复用的评测流程，支持 A/B 对比调优
 3. 复用 SWE-bench 已有基础设施（ECS + Docker），最小化新增运维开销
 
@@ -42,13 +42,13 @@ flowchart LR
     H[harbor CLI<br>Python] --> |"pull task image<br>+ install agent"| C
   end
   subgraph C [Harbor Task Container]
-    I[install: npm + forgelet] --> R[run: forgelet CLI<br>headless mode]
+    I[install: npm + lc] --> R[run: lc CLI<br>headless mode]
     R --> T[Harbor 跑 tests.sh]
   end
   H --> |"CTRF report"| S[scores.json]
 ```
 
-写一个 ~100 行 Python 薄壳（`BaseInstalledAgent`），在 Harbor task 容器内 `install()` Node.js + Forgelet，`run()` 调 CLI headless 模式。Harbor 自动处理镜像拉取、timeout、评分、日志收集。
+写一个 ~100 行 Python 薄壳（`BaseInstalledAgent`），在 Harbor task 容器内 `install()` Node.js + Lattice Code，`run()` 调 CLI headless 模式。Harbor 自动处理镜像拉取、timeout、评分、日志收集。
 
 **优点：**
 - 与 Claude Code / Codex CLI 同等地位，可直接对比
@@ -68,13 +68,13 @@ flowchart LR
     B[tb-docker-batch.sh] --> |"per task"| D
   end
   subgraph D [Task Container]
-    A[mount node + forgelet] --> R[forgelet CLI<br>→ 完成任务]
+    A[mount node + lattice-code] --> R[lc CLI<br>→ 完成任务]
     R --> P[收集产出]
   end
   B --> |"跑 tests.sh"| S[summary.tsv]
 ```
 
-参照 `docker-batch.sh`，写 `tb-docker-batch.sh`：遍历 Terminal-Bench 任务列表 → 拉 task image → mount Node + Forgelet → 跑 agent → 跑 tests.sh → 收集结果。
+参照 `docker-batch.sh`，写 `tb-docker-batch.sh`：遍历 Terminal-Bench 任务列表 → 拉 task image → mount Node + Lattice Code → 跑 agent → 跑 tests.sh → 收集结果。
 
 **优点：**
 - 复用 SWE-bench 运维经验，团队最熟悉
@@ -111,24 +111,24 @@ export DEEPSEEK_API_KEY=...
 
 ### 2. Agent 集成文件
 
-创建 `packages/harness/eval/terminal-bench/forgelet_agent.py`：
+创建 `packages/harness/eval/terminal-bench/lattice_code_agent.py`：
 
 ```python
-"""Harbor agent adapter for Forgelet CLI."""
+"""Harbor agent adapter for Lattice Code CLI."""
 import shlex
 from harbor.agents.installed.base import BaseInstalledAgent, with_prompt_template
 from harbor.environments.base import BaseEnvironment
 from harbor.models.agent.context import AgentContext
 
 
-class ForgeletAgent(BaseInstalledAgent):
-    """Runs the Forgelet CLI agent inside a Harbor task container."""
+class LatticeCodeAgent(BaseInstalledAgent):
+    """Runs the Lattice Code CLI agent inside a Harbor task container."""
 
     SUPPORTS_ATIF = False
 
     @staticmethod
     def name() -> str:
-        return "forgelet"
+        return "lc"
 
     def version(self) -> str | None:
         return "0.1.0"
@@ -139,11 +139,11 @@ class ForgeletAgent(BaseInstalledAgent):
             "curl -fsSL https://deb.nodesource.com/setup_20.x | bash - "
             "&& apt-get install -y nodejs"
         ))
-        # 2. 把 Forgelet 源码 + 依赖 copy 进容器
-        #    生产方式：发布 npm 包后直接 npm install -g forgelet
+        # 2. 把 Lattice Code 源码 + 依赖 copy 进容器
+        #    生产方式：发布 npm 包后直接 npm install -g lc
         #    开发方式：mount 宿主机目录（见下文 harbor job YAML）
         await self.exec_as_agent(environment, command=(
-            "cd /forgelet && npm install --ignore-scripts 2>/dev/null || true"
+            "cd /lattice-code && npm install --ignore-scripts 2>/dev/null || true"
         ))
 
     @with_prompt_template
@@ -158,8 +158,8 @@ class ForgeletAgent(BaseInstalledAgent):
             environment,
             command=(
                 f"cd /home/user && "
-                f"node /forgelet/node_modules/tsx/dist/cli.mjs "
-                f"/forgelet/apps/cli/src/main.ts "
+                f"node /lattice-code/node_modules/tsx/dist/cli.mjs "
+                f"/lattice-code/apps/cli/src/main.ts "
                 f"-c /home/user -y --no-trace {escaped}"
             ),
         )
@@ -171,7 +171,7 @@ class ForgeletAgent(BaseInstalledAgent):
 # 跑全量 89 题
 harbor run \
   --dataset terminal-bench@2.1 \
-  --agent-import-path forgelet_agent:ForgeletAgent \
+  --agent-import-path lattice_code_agent:LatticeCodeAgent \
   --model deepseek/deepseek-chat \
   --n-concurrent 4 \
   --timeout 600
@@ -180,7 +180,7 @@ harbor run \
 harbor run \
   --dataset terminal-bench@2.1 \
   --task-id hello-world \
-  --agent-import-path forgelet_agent:ForgeletAgent \
+  --agent-import-path lattice_code_agent:LatticeCodeAgent \
   --model deepseek/deepseek-chat
 ```
 
@@ -196,7 +196,7 @@ rsync -avz --exclude node_modules --exclude .git \
 pip install harbor
 cd ~/terminal-bench-eval
 harbor run -d terminal-bench@2.1 \
-  --agent-import-path forgelet_agent:ForgeletAgent \
+  --agent-import-path lattice_code_agent:LatticeCodeAgent \
   --model deepseek/deepseek-chat \
   --n-concurrent 4
 ```
@@ -210,7 +210,7 @@ harbor run -d terminal-bench@2.1 \
 | 脚本 | 作用 |
 |------|------|
 | `fetch-tasks.sh` | 从 Harbor registry 拉 Terminal-Bench task 列表 + image |
-| `tb-docker-batch.sh` | 批量跑：per task 起容器 → mount node/forgelet → agent 跑 → tests.sh 跑 → 收集结果 |
+| `tb-docker-batch.sh` | 批量跑：per task 起容器 → mount node/lattice-code → agent 跑 → tests.sh 跑 → 收集结果 |
 | `tb-docker-smoke.sh` | 单题调试，流式 stdout |
 | `tb-docker-trace-rerun.sh` | 开 trace 重跑，根因分析 |
 | `tb-report.py` | 汇总 pass/fail + cost |
@@ -223,8 +223,8 @@ export PATH=/opt/node/bin:$PATH
 cd /home/user  # 或 task 指定的 workdir
 
 # 跑 agent
-timeout $TIMEOUT node /forgelet/node_modules/tsx/dist/cli.mjs \
-  /forgelet/apps/cli/src/main.ts -c . -y --no-trace "$INSTRUCTION" \
+timeout $TIMEOUT node /lattice-code/node_modules/tsx/dist/cli.mjs \
+  /lattice-code/apps/cli/src/main.ts -c . -y --no-trace "$INSTRUCTION" \
   > /work/agent.log 2>&1
 
 # 评分
@@ -239,7 +239,7 @@ bash /task/tests.sh > /work/test-result.txt 2>&1
 
 | 项 | 说明 | 改动范围 |
 |----|------|---------|
-| **System prompt 泛化** | 当前 prompt 偏向"修 Python 代码"，Terminal-Bench 需要通用终端任务能力。加一段 terminal-task aware 的指引：鼓励探索环境、读 task 说明、善用 bash 管道 | `prompt.ts` 或通过 `FORGELET_SYSTEM_PROMPT_EXTRA` env var 注入 |
+| **System prompt 泛化** | 当前 prompt 偏向"修 Python 代码"，Terminal-Bench 需要通用终端任务能力。加一段 terminal-task aware 的指引：鼓励探索环境、读 task 说明、善用 bash 管道 | `prompt.ts` 或通过 `LATTICE_CODE_SYSTEM_PROMPT_EXTRA` env var 注入 |
 | **bash timeout 放宽** | 部分 task 需要编译/装包，60s 可能不够 | `definitions.ts` 中 `timeout_ms` 默认值或 env var 覆盖 |
 
 ### P1（跑通后优化）
@@ -264,7 +264,7 @@ bash /task/tests.sh > /work/test-result.txt 2>&1
 
 | 阶段 | 工作 | 耗时 | 产出 |
 |------|------|------|------|
-| **Phase 1: 跑通** | 写 `forgelet_agent.py` + 装 Harbor + hello-world 验证 | 0.5 天 | agent 在 Harbor 里跑通 |
+| **Phase 1: 跑通** | 写 `lattice_code_agent.py` + 装 Harbor + hello-world 验证 | 0.5 天 | agent 在 Harbor 里跑通 |
 | **Phase 2: 基线** | 全量 89 题，不改 prompt | 0.5 天 | 基线分数 |
 | **Phase 3: P0 适配** | system prompt 泛化 + bash timeout | 0.5 天 | 适配后分数 |
 | **Phase 4: 调优** | 分析错误 → prompt tuning → A/B | 持续 | 逐步提分 |
@@ -290,7 +290,7 @@ bash /task/tests.sh > /work/test-result.txt 2>&1
 packages/harness/eval/terminal-bench/
 ├── PROPOSAL.md          ← 本文件
 ├── WORKFLOW.md           ← 跑通后写操作手册（参照 swe-bench/WORKFLOW.md）
-├── forgelet_agent.py     ← Harbor BaseInstalledAgent adapter
+├── lattice_code_agent.py     ← Harbor BaseInstalledAgent adapter
 ├── tb-docker-batch.sh    ← 自建批跑脚本（Phase 2+）
 ├── tb-docker-smoke.sh    ← 单题调试
 ├── tb-report.py          ← 结果汇总

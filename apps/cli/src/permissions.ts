@@ -1,5 +1,5 @@
 import type { Interface } from "node:readline/promises";
-import type { PermissionCallback } from "@forgelet/harness";
+import type { PermissionCallback } from "@lattice-code/harness";
 
 function commandKey(toolName: string, args: Record<string, unknown>): string {
   if (toolName === "bash" || toolName === "run_command") {

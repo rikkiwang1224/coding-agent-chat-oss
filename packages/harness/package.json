@@ -1,5 +1,5 @@
 {
-  "name": "@forgelet/harness",
+  "name": "@lattice-code/harness",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -23,7 +23,7 @@
     "eval:ecs:stop": "bash eval/stop-ecs.sh --wait",
     "eval:tb:bundle": "bash eval/terminal-bench/bundle-harbor-for-ecs.sh",
     "eval:tb:setup": "bash eval/terminal-bench/setup.sh",
-    "eval:tb:prepare": "bash eval/terminal-bench/prepare-forgelet.sh",
+    "eval:tb:prepare": "bash eval/terminal-bench/prepare-lattice-code.sh",
     "eval:tb:sync": "bash eval/terminal-bench/sync-to-ecs.sh",
     "eval:tb:pull": "bash eval/terminal-bench/pull-and-report.sh",
     "eval:tb:smoke": "bash eval/terminal-bench/smoke.sh",
@@ -32,13 +32,16 @@
     "fetch:codebase-memory-source": "bash eval/swe-bench/fetch-codebase-memory-source.sh",
     "build:codebase-memory-swe": "bash eval/swe-bench/build-codebase-memory-swe.sh",
     "build:codebase-memory-swe-on-ecs": "bash eval/swe-bench/build-codebase-memory-swe-on-ecs.sh",
-    "sync:codebase-memory-swe": "bash eval/swe-bench/sync-codebase-memory-swe-to-ecs.sh"
+    "sync:codebase-memory-swe": "bash eval/swe-bench/sync-codebase-memory-swe-to-ecs.sh",
+    "eval:swe:lite86:sync": "bash eval/swe-bench/lite-86-sync-to-ecs.sh",
+    "eval:swe:lite86:start": "bash eval/swe-bench/lite-86-start.sh",
+    "eval:swe:lite86:monitor": "bash eval/swe-bench/lite-86-monitor.sh watch"
   },
   "dependencies": {
-    "@forgelet/sdk-core": "workspace:*",
-    "@forgelet/sdk-runtime": "workspace:*",
-    "@forgelet/shared-types": "workspace:*",
-    "@forgelet/storage-core": "workspace:*"
+    "@lattice-code/sdk-core": "workspace:*",
+    "@lattice-code/sdk-runtime": "workspace:*",
+    "@lattice-code/shared-types": "workspace:*",
+    "@lattice-code/storage-core": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^4.1.7"

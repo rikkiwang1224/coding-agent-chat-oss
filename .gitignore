@@ -5,7 +5,7 @@ release/
 *.tsbuildinfo
 .DS_Store
 .env
-.forgelet/
+.lattice-code/
 packages/harness/eval/reports/
 packages/harness/eval/swe-bench/repos/
 packages/harness/eval/swe-bench/runs/

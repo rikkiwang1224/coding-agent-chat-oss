@@ -3,7 +3,7 @@ import { Loader2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { formatCostUsd } from "@forgelet/sdk-runtime";
+import { formatCostUsd } from "@lattice-code/sdk-runtime";
 import { formatTraceTimestamp, shortenSessionId } from "@/lib/trace-format";
 import type { SelectedTrace } from "@/hooks/useTraces";
 import type { TraceSummary } from "@/types";
@@ -84,7 +84,7 @@ export function TraceListPanel({
         ) : summaries.length === 0 ? (
           <p className="px-4 py-10 text-center text-[13px] text-muted leading-relaxed">
             No chats yet. Run the agent in any workspace — logs are stored under{" "}
-            <code className="text-[11px] font-mono">~/.forgelet/workspaces/</code>
+            <code className="text-[11px] font-mono">~/.lattice-code/workspaces/</code>
           </p>
         ) : (
           <div className="py-1">

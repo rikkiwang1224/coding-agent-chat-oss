@@ -3,7 +3,7 @@
 #
 # Usage (ECS or any host with docker-batch prereqs):
 #   bash smoke-codegraph-5.sh
-#   OUT_DIR=~/swe-batch/smoke-cg-5 MODEL_NAME=forgelet-docker-cg bash smoke-codegraph-5.sh
+#   OUT_DIR=~/swe-batch/smoke-cg-5 MODEL_NAME=lattice-code-docker-cg bash smoke-codegraph-5.sh
 #
 # Mac — fetch instances only:
 #   bash smoke-codegraph-5.sh --fetch-only
@@ -21,8 +21,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IDS_FILE="$SCRIPT_DIR/smoke-codegraph-5.instance-ids.txt"
 OUT_DIR="${OUT_DIR:-$HOME/swe-batch/smoke-cg-5}"
 INSTANCES_JSON="$OUT_DIR/instances.json"
-MODEL_NAME="${MODEL_NAME:-forgelet-docker-cg}"
-TRACE_RUN_ID="${FORGELET_TRACE_RUN_ID:-smoke-cg-5}"
+MODEL_NAME="${MODEL_NAME:-lattice-code-docker-cg}"
+TRACE_RUN_ID="${LATTICE_CODE_TRACE_RUN_ID:-smoke-cg-5}"
 FETCH_ONLY="${1:-}"
 
 read_ids() {
@@ -44,7 +44,7 @@ fetch_from_hf() {
 }
 
 fetch_from_local_lite_full() {
-  local full="${LITE_FULL:-$HOME/.forgelet/runs/swe-bench/lite-full/instances.json}"
+  local full="${LITE_FULL:-$HOME/.lattice-code/runs/swe-bench/lite-full/instances.json}"
   [[ -f "$full" ]] || return 1
   echo "=== slicing instances from $full ==="
   mkdir -p "$OUT_DIR"
@@ -87,14 +87,14 @@ ensure_instances
 echo ""
 echo "=== smoke batch: 5 instances → $OUT_DIR ==="
 echo "    MODEL_NAME=$MODEL_NAME"
-echo "    FORGELET_TRACE_RUN_ID=$TRACE_RUN_ID"
+echo "    LATTICE_CODE_TRACE_RUN_ID=$TRACE_RUN_ID"
 echo ""
 echo "On ECS, ensure harness is built on the mounted repo:"
-echo "  cd \$HOME/coding-agent-chat-oss && pnpm --filter @forgelet/harness build"
+echo "  cd \$HOME/coding-agent-chat-oss && pnpm --filter @lattice-code/harness build"
 echo ""
 
 export MODEL_NAME
-export FORGELET_TRACE_RUN_ID
-export FORGELET_SAVE_TRACE="${FORGELET_SAVE_TRACE:-1}"
+export LATTICE_CODE_TRACE_RUN_ID
+export LATTICE_CODE_SAVE_TRACE="${LATTICE_CODE_SAVE_TRACE:-1}"
 
 exec bash "$SCRIPT_DIR/docker-batch.sh" "$INSTANCES_JSON" "$OUT_DIR"

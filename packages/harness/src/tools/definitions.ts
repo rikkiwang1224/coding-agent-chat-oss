@@ -6,14 +6,23 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
     function: {
       name: "read_file",
       description:
-        "Read the contents of a file at the given path. Returns the file content as a string. " +
-        "Use this to inspect source code, config files, or any text-based file in the workspace.",
+        "Read file contents. Two modes: (1) read_file(path) reads a file by path, " +
+        "(2) read_file(qualified_name) reads just one function/method body by its graph-indexed " +
+        "qualified name (much cheaper than reading the whole file — use after search results give you a qualified_name). " +
+        "Use BEFORE editing to understand context.",
       parameters: {
         type: "object",
         properties: {
           path: {
             type: "string",
-            description: "Absolute or workspace-relative path to the file to read",
+            description: "Absolute or workspace-relative path to the file to read. Required unless qualified_name is set.",
+          },
+          qualified_name: {
+            type: "string",
+            description:
+              "Read a specific function/method by its qualified name from the code graph (e.g. from code_graph_search results). " +
+              "Returns only the function body — much cheaper than reading the whole file. " +
+              "When set, path/offset/limit are ignored.",
           },
           offset: {
             type: "integer",
@@ -24,7 +33,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
             description: "Maximum number of lines to read. Omit to read the entire file.",
           },
         },
-        required: ["path"],
+        required: [],
       },
     },
   },

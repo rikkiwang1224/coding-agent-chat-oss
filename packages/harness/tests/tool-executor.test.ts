@@ -66,6 +66,50 @@ describe("read_file", () => {
     expect(result.ok).toBe(false);
     expect(result.output).toMatch(/outside the workspace/);
   });
+
+  it("attaches a whole-file outline to paged reads of large Python files", async () => {
+    // Build a >500-line Python file so the large-file path triggers.
+    const blocks: string[] = [];
+    for (let i = 0; i < 40; i++) {
+      blocks.push(`class Widget${i}:`);
+      blocks.push(`    def method_${i}(self):`);
+      blocks.push(`        x = ${i}`);
+      for (let j = 0; j < 10; j++) blocks.push(`        # filler ${i}-${j}`);
+    }
+    await writeFile(path.join(tmpDir, "big.py"), blocks.join("\n"));
+
+    const result = await executor.execute("read_file", {
+      path: "big.py",
+      offset: 50,
+      limit: 20,
+    });
+    expect(result.ok).toBe(true);
+    // The slice itself is present…
+    expect(result.output).toMatch(/^\s*50\|/m);
+    // …plus a navigable outline of the whole file with Python def/class lines.
+    expect(result.output).toContain("[File outline");
+    expect(result.output).toMatch(/class Widget0:/);
+    expect(result.output).toMatch(/def method_\d+/);
+  });
+
+  it("does not attach an outline to paged reads of small files", async () => {
+    await writeFile(path.join(tmpDir, "small.py"), "def a():\n    return 1\n");
+    const result = await executor.execute("read_file", { path: "small.py", offset: 1, limit: 1 });
+    expect(result.ok).toBe(true);
+    expect(result.output).not.toContain("[File outline");
+  });
+
+  it("returns a directory listing instead of EISDIR when path is a directory", async () => {
+    await mkdir(path.join(tmpDir, "pkg"));
+    await writeFile(path.join(tmpDir, "pkg", "a.py"), "x");
+    await mkdir(path.join(tmpDir, "pkg", "sub"));
+    const result = await executor.execute("read_file", { path: "pkg" });
+    expect(result.ok).toBe(true);
+    expect(result.output).not.toContain("EISDIR");
+    expect(result.output).toContain("is a directory");
+    expect(result.output).toContain("a.py");
+    expect(result.output).toContain("sub/");
+  });
 });
 
 describe("write_file", () => {
@@ -179,6 +223,23 @@ describe("bash", () => {
     expect(result.output).toContain("timed out");
   });
 
+  it("kills the runaway job on timeout so it does not block the next command", async () => {
+    const timedOut = await executor.execute("bash", {
+      command: "echo start && sleep 30",
+      timeout_ms: 500,
+    });
+    expect(timedOut.ok).toBe(false);
+    expect(timedOut.output).toMatch(/timed out after 1s and was terminated/);
+
+    // The previous command's `sleep 30` must be dead; this should return fast,
+    // not wait ~30s for the runaway job to finish.
+    const start = Date.now();
+    const next = await executor.execute("bash", { command: "echo SECOND", timeout_ms: 8000 });
+    expect(next.ok).toBe(true);
+    expect(next.output).toContain("SECOND");
+    expect(Date.now() - start).toBeLessThan(3000);
+  });
+
   it("returns empty command error", async () => {
     const result = await executor.execute("bash", { command: "" });
     expect(result.ok).toBe(false);
@@ -209,7 +270,7 @@ describe("glob_search", () => {
     // A malicious model output. If we ever passed `pattern` into `sh -c`,
     // this would try to run `rm`. We expect zero files matched and the
     // workspace to be intact.
-    const injected = '*"; touch /tmp/forgelet-pwned-$$; echo "';
+    const injected = '*"; touch /tmp/lc-pwned-$$; echo "';
     const result = await executor.execute("glob_search", { pattern: injected });
     expect(result.ok).toBe(true);
     // safe.ts must still exist (no rm executed)

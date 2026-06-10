@@ -12,8 +12,8 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$DIR"
 
 pick_python() {
-  if [ -n "${FORGELET_PYTHON:-}" ]; then
-    echo "$FORGELET_PYTHON"
+  if [ -n "${LATTICE_CODE_PYTHON:-}" ]; then
+    echo "$LATTICE_CODE_PYTHON"
     return
   fi
   local candidate ver major minor
@@ -64,12 +64,12 @@ if [ -d "$BUNDLE_WHEELS" ]; then
 fi
 
 USE_ONLINE=0
-if [ "${FORGELET_SETUP_OFFLINE:-}" = "1" ]; then
+if [ "${LATTICE_CODE_SETUP_OFFLINE:-}" = "1" ]; then
   USE_ONLINE=0
 elif [ -n "${https_proxy:-${HTTPS_PROXY:-}}" ]; then
   # Explicit proxy → online (harbor-bundle is often incomplete; don't fall back)
   USE_ONLINE=1
-elif [ "${FORGELET_SETUP_ONLINE:-}" = "1" ]; then
+elif [ "${LATTICE_CODE_SETUP_ONLINE:-}" = "1" ]; then
   USE_ONLINE=1
 elif github_reachable; then
   USE_ONLINE=1

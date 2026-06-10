@@ -24,7 +24,7 @@ fi
 
 docker run --rm \
   -v "$HOME/node-prebuilt/node-v20:/opt/node:ro" \
-  -v "$HOME/coding-agent-chat-oss:/forgelet:ro" \
+  -v "$HOME/coding-agent-chat-oss:/lattice-code:ro" \
   "$IMG" \
   bash -lc "
     set -e
@@ -32,8 +32,8 @@ docker run --rm \
     source /opt/miniconda3/etc/profile.d/conda.sh
     conda activate testbed
     cd /testbed
-    node /forgelet/node_modules/tsx/dist/cli.mjs \
-      /forgelet/packages/harness/eval/swe-bench/guard-smoke.ts
+    node /lattice-code/node_modules/tsx/dist/cli.mjs \
+      /lattice-code/packages/harness/eval/swe-bench/guard-smoke.ts
   "
 
 echo "=== guard-docker-smoke passed ==="

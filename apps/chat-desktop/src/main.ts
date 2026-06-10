@@ -9,8 +9,8 @@ import { registerAllIpc } from "./main/ipc/index.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const APP_NAME = "Forgelet";
-const APP_ID = "dev.forgelet.chat";
+const APP_NAME = "Lattice Code";
+const APP_ID = "dev.latticecode.chat";
 
 function resolveRendererAsset(relativePath: string): string {
   const fromDist = path.resolve(__dirname, "renderer", relativePath);
