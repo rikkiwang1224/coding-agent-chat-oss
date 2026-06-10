@@ -2,7 +2,7 @@
   "name": "@lattice-code/cli",
   "version": "0.1.0",
   "private": true,
-  "description": "Terminal CLI for Lattice Code coding agents.",
+  "description": "DeepSeek-first terminal CLI for Lattice Code coding agents.",
   "type": "module",
   "bin": {
     "lc": "./dist/main.js",

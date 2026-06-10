@@ -29,8 +29,8 @@ export type RunState =
 export type AppMode = "chat" | "dashboard" | "settings";
 
 export type LlmProvider =
-  | "anthropic"
   | "deepseek"
+  | "anthropic"
   | "kimi"
   | "glm"
   | "bedrock"

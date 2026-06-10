@@ -13,7 +13,9 @@
     "composite": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/renderer/*"]
+      "@/*": ["src/renderer/*"],
+      "@lattice-code/sdk-runtime": ["../../packages/sdk-runtime/dist/index.d.ts"],
+      "@lattice-code/shared-types": ["../../packages/shared-types/dist/index.d.ts"]
     }
   },
   "include": ["src/renderer/**/*.ts", "src/renderer/**/*.tsx"]

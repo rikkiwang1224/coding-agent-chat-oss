@@ -6,7 +6,7 @@
 
 **Lattice — the structural layer where code, context, and agents connect.**
 
-Local-first coding agent with a desktop chat app, a terminal CLI, and one shared harness for tools, sessions, and benchmarks.
+DeepSeek-first local coding agent with a desktop chat app, a terminal CLI, and one shared harness for tools, sessions, and benchmarks.
 
 <br />
 
@@ -20,7 +20,9 @@ Local-first coding agent with a desktop chat app, a terminal CLI, and one shared
 
 ## Overview
 
-Lattice Code is an open-source agent workbench built around a single idea: your repository, conversation history, tool calls, and model context should form one coherent structure—not a pile of disconnected prompts.
+Lattice Code is an open-source coding agent built **for DeepSeek first**—tuned for its API, thinking modes, cache pricing, and context behavior—then wrapped in a local-first workbench where your repository, conversation history, tool calls, and model context form one coherent structure, not a pile of disconnected prompts.
+
+Other providers (Anthropic, Kimi, GLM, Bedrock, Vertex, OpenAI-compatible endpoints) are supported when you need them, but they are not the product focus.
 
 The project ships three surfaces on the same engine:
 
@@ -34,9 +36,10 @@ Everything runs locally. API keys and runtime data stay on your machine under `~
 
 ## Features
 
+- **DeepSeek-native defaults** — `deepseek-v4-pro` out of the box, thinking mode (`off` / `high` / `max`), cache-aware cost tracking, prompts aligned to DeepSeek behavior
 - **Unified harness** — read/write files, bash, grep, structured tool permissions, session resume, JSONL traces
-- **Bring your own model** — DeepSeek, Anthropic, Kimi, GLM, Bedrock, Vertex, or any OpenAI-compatible endpoint
 - **Desktop + CLI parity** — same agent behavior in the chat app and `lc`
+- **Optional provider swap** — switch to Anthropic, Kimi, GLM, Bedrock, Vertex, or a custom OpenAI-compatible endpoint via Settings or `lc config set`
 - **Explicit permissions** — destructive or sensitive tool calls can require confirmation (or `-y` in trusted environments)
 - **Benchmark-ready** — synthetic harness tasks, [SWE-bench](packages/harness/eval/swe-bench/README.md) Docker eval, Terminal-Bench via Harbor
 - **Small, inspectable scope** — no hosted backend required; the monorepo stays focused on agent UX and the loop itself
@@ -74,7 +77,7 @@ cp .env.example .env
 pnpm dev
 ```
 
-Open **Settings** in the app to choose provider and model. Desktop settings live in Electron user data (`chat-desktop-settings.json`).
+Open **Settings** to confirm your DeepSeek API key and model (defaults to `deepseek-v4-pro`). Desktop settings live in Electron user data (`chat-desktop-settings.json`).
 
 ### CLI
 
@@ -141,6 +144,7 @@ Copy `.env.example` to `.env` at the repo root for local development; the CLI lo
 
 | Variable | Purpose |
 |----------|---------|
+| `DEEPSEEK_API_KEY` | Primary API key for CLI / eval (also `LATTICE_CODE_API_KEY`) |
 | `LATTICE_CODE_HOME` | Root for config, sessions, traces, eval runs |
 | `LATTICE_CODE_API_KEY` | API key fallback |
 | `LATTICE_CODE_MODEL` / `LATTICE_CODE_PROVIDER` / `LATTICE_CODE_BASE_URL` | Default LLM routing |
@@ -167,9 +171,11 @@ lc -y "run the linter and fix issues"
 
 ## Provider presets
 
-Anthropic · DeepSeek · Kimi · GLM · Amazon Bedrock · Google Vertex AI · custom OpenAI-compatible endpoints
+**Primary:** DeepSeek (`https://api.deepseek.com`, default model `deepseek-v4-pro`)
 
-Desktop Settings and `lc config set` both map to the harness LLM client (`apiKey`, `baseUrl`, `model`).
+**Also available:** Anthropic · Kimi · GLM · Amazon Bedrock · Google Vertex AI · custom OpenAI-compatible endpoints
+
+DeepSeek is the default everywhere (CLI, desktop, eval scripts). Desktop Settings and `lc config set` map to the harness LLM client (`apiKey`, `baseUrl`, `model`).
 
 ## Project layout
 

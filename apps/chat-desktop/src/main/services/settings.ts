@@ -1,7 +1,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { app } from "electron";
-import { PROVIDER_PRESETS, type LlmProvider } from "@lattice-code/sdk-runtime";
+import {
+  buildDefaultLlmGeneralSettings,
+  getProviderOption,
+  type LlmProvider,
+} from "@lattice-code/sdk-runtime";
 
 const SETTINGS_FILENAME = "chat-desktop-settings.json";
 
@@ -20,11 +24,8 @@ export interface AppSettings {
 
 export const DEFAULT_SETTINGS: AppSettings = {
   general: {
-    provider: "deepseek",
-    primaryModel: "deepseek-v4-pro",
-    lightModel: "deepseek-v4-flash",
+    ...buildDefaultLlmGeneralSettings(),
     apiKey: "",
-    baseUrl: "",
   },
 };
 
@@ -67,8 +68,8 @@ type LegacyGeneral = Partial<AppSettings["general"]> & {
 };
 
 const VALID_PROVIDERS: ReadonlySet<LlmProvider> = new Set<LlmProvider>([
-  "anthropic",
   "deepseek",
+  "anthropic",
   "kimi",
   "glm",
   "bedrock",
@@ -114,26 +115,14 @@ export function buildLlmConfigFromSettingsGeneral(
     }
   | undefined {
   if (!general.apiKey?.trim()) return undefined;
-  const provider = general.provider ?? "deepseek";
-
-  const DEEPSEEK_DEFAULTS = {
-    baseUrl: "https://api.deepseek.com",
-    defaultPrimaryModel: "deepseek-v4-pro",
-    defaultLightModel: "deepseek-v4-flash",
-  };
-
-  const preset =
-    provider in PROVIDER_PRESETS
-      ? PROVIDER_PRESETS[provider as keyof typeof PROVIDER_PRESETS]
-      : provider === "deepseek"
-        ? DEEPSEEK_DEFAULTS
-        : undefined;
+  const provider = general.provider ?? buildDefaultLlmGeneralSettings().provider;
+  const option = getProviderOption(provider);
 
   return {
     provider,
     apiKey: general.apiKey.trim(),
-    baseUrl: general.baseUrl.trim() || preset?.baseUrl,
-    primaryModel: general.primaryModel.trim() || preset?.defaultPrimaryModel,
-    lightModel: general.lightModel.trim() || preset?.defaultLightModel,
+    baseUrl: general.baseUrl.trim() || option.baseUrl,
+    primaryModel: general.primaryModel.trim() || option.defaultPrimaryModel,
+    lightModel: general.lightModel.trim() || option.defaultLightModel,
   };
 }

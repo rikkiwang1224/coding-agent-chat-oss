@@ -1,4 +1,8 @@
-import { PROVIDER_PRESETS, type LlmProvider } from "@lattice-code/sdk-runtime";
+import {
+  DEFAULT_LLM_PROVIDER,
+  getProviderOption,
+  type LlmProvider,
+} from "@lattice-code/sdk-runtime";
 import { applyThinkingMode, resolveThinkingModeFromEnv } from "../../src/thinking-mode.js";
 import type { LlmConfig } from "../../src/types.js";
 
@@ -12,7 +16,9 @@ function resolveTemperature(): number | undefined {
 
 /** Resolve LLM config from env (Docker batch / in-container agent). */
 export function resolveLlmConfigFromEnv(): LlmConfig {
-  const provider = (process.env.LATTICE_CODE_PROVIDER?.trim() || "deepseek") as LlmProvider;
+  const provider = (process.env.LATTICE_CODE_PROVIDER?.trim() ||
+    DEFAULT_LLM_PROVIDER) as LlmProvider;
+  const providerDefaults = getProviderOption(provider);
   const apiKey =
     process.env.LATTICE_CODE_API_KEY?.trim() ||
     process.env.DEEPSEEK_API_KEY?.trim() ||
@@ -21,19 +27,12 @@ export function resolveLlmConfigFromEnv(): LlmConfig {
   const model =
     process.env.LATTICE_CODE_MODEL?.trim() ||
     process.env.MODEL_NAME?.trim() ||
-    "deepseek-v4-pro";
-
-  const preset =
-    provider in PROVIDER_PRESETS
-      ? PROVIDER_PRESETS[provider as keyof typeof PROVIDER_PRESETS]
-      : provider === "deepseek"
-        ? { baseUrl: "https://api.deepseek.com", defaultPrimaryModel: "deepseek-v4-pro" }
-        : undefined;
+    providerDefaults.defaultPrimaryModel;
 
   const baseUrl =
     process.env.LATTICE_CODE_BASE_URL?.trim() ||
-    preset?.baseUrl ||
-    "https://api.deepseek.com";
+    providerDefaults.baseUrl ||
+    getProviderOption(DEFAULT_LLM_PROVIDER).baseUrl;
 
   const temperature = resolveTemperature();
   // SWE-bench eval default: Think Max (override with THINKING_MODE=off|high).

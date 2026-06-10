@@ -2,7 +2,7 @@
   "name": "@lattice-code/chat-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Open-source Electron chat surface for coding agents.",
+  "description": "DeepSeek-first Electron chat surface for Lattice Code.",
   "type": "module",
   "main": "dist/main.js",
   "scripts": {
