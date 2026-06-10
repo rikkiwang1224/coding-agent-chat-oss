@@ -1,6 +1,6 @@
 # Lattice Code Home：存储与会话模型
 
-> 与 [Harness P1 产品化](./harness-p1-productization.md) 配套。  
+> 存储与会话模型的真相源。Harness 与桌面端集成见 [harness-desktop-integration.md](./harness-desktop-integration.md)。  
 > 约定：所有用户数据、评测产物、轨迹 **不进用户 git 仓库、不进本 monorepo**；根目录为 `LATTICE_CODE_HOME`（默认 `~/.lattice-code`）。
 
 ---
@@ -174,14 +174,3 @@ interface SessionData {
 | `~/.lattice-code/sessions/{id}/snapshot.json`（旧 SDK 扁平） | 侧边栏**不**扫描；`loadSessionThread` 可只读回显历史（P1 可选，非列表源） |
 | `{workspace}/.lattice-code/query-loop-sessions` | 不再作为列表源 |
 
----
-
-## 10. 实现分期（引用 P1）
-
-| 阶段 | 内容 |
-|------|------|
-| P1a | `SessionStore` 迁至 `sessions/{hash}/{id}.json`；`threadId === sessionId`；Send/resume 语义 |
-| P1a+ | 侧边栏仅 `threads/`；废弃 `runSessionIds` 写入 |
-| P1d | `TraceSink` + swe-bench/eval 默认 trace 至 `LATTICE_CODE_HOME`；`runs/` 迁出 repo |
-
-详细任务见 [harness-p1-productization.md](./harness-p1-productization.md)。
