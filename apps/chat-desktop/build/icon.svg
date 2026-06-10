@@ -14,28 +14,12 @@
       <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity="0.08"/>
     </filter>
 
-    <!-- Unified Smooth Gradient across the whole node -->
-    <!-- Perfect continuous gradients using userSpaceOnUse for a seamless optical illusion of 3D -->
-    
-    <!-- Top Face: Blue to Violet (Horizontal) -->
-    <linearGradient id="gradTop" x1="287" y1="382" x2="737" y2="382" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#3B82F6"/>   <!-- Blue -->
-      <stop offset="50%" stop-color="#6366F1"/>  <!-- Indigo (Center) -->
-      <stop offset="100%" stop-color="#8B5CF6"/> <!-- Violet -->
-    </linearGradient>
-
-    <!-- Left Face: Blue to Deep Indigo (Diagonal Down-Right) -->
-    <linearGradient id="gradLeft" x1="287" y1="382" x2="512" y2="772" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#3B82F6"/>   <!-- Blue -->
-      <stop offset="50%" stop-color="#6366F1"/>  <!-- Indigo (Center) -->
-      <stop offset="100%" stop-color="#4338CA"/> <!-- Deep Indigo -->
-    </linearGradient>
-
-    <!-- Right Face: Violet to Deep Indigo (Diagonal Down-Left) -->
-    <linearGradient id="gradRight" x1="737" y1="382" x2="512" y2="772" gradientUnits="userSpaceOnUse">
-      <stop offset="0%" stop-color="#8B5CF6"/>   <!-- Violet -->
-      <stop offset="50%" stop-color="#6366F1"/>  <!-- Indigo (Center) -->
-      <stop offset="100%" stop-color="#4338CA"/> <!-- Deep Indigo -->
+    <!-- Single Master Gradient for a truly seamless, wide-spanning transition -->
+    <linearGradient id="gradMaster" x1="287" y1="252" x2="737" y2="772" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#06B6D4"/>   <!-- Cyan (Top Left) -->
+      <stop offset="35%" stop-color="#3B82F6"/>  <!-- Blue -->
+      <stop offset="65%" stop-color="#8B5CF6"/>  <!-- Violet -->
+      <stop offset="100%" stop-color="#7E22CE"/> <!-- Deep Purple (Bottom Right) -->
     </linearGradient>
   </defs>
 
@@ -48,7 +32,7 @@
     <!-- Top Face - Chat / AI -->
     <!-- Removed translation to seal the gaps completely -->
     <g>
-      <path d="M 512,512 L 287,382 L 512,252 L 737,382 Z" fill="url(#gradTop)" stroke="none"/>
+      <path d="M 512,512 L 287,382 L 512,252 L 737,382 Z" fill="url(#gradMaster)" stroke="none"/>
       <circle cx="456" cy="382" r="16" fill="#FFFFFF"/>
       <circle cx="512" cy="382" r="16" fill="#FFFFFF"/>
       <circle cx="568" cy="382" r="16" fill="#FFFFFF"/>
@@ -56,13 +40,13 @@
 
     <!-- Left Face - Code '<' -->
     <g>
-      <path d="M 512,512 L 287,382 L 287,642 L 512,772 Z" fill="url(#gradLeft)" stroke="none"/>
+      <path d="M 512,512 L 287,382 L 287,642 L 512,772 Z" fill="url(#gradMaster)" stroke="none"/>
       <path d="M 434,527 L 366,577 L 434,627" stroke="#FFFFFF" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
     </g>
 
     <!-- Right Face - Code '>' -->
     <g>
-      <path d="M 512,512 L 737,382 L 737,642 L 512,772 Z" fill="url(#gradRight)" stroke="none"/>
+      <path d="M 512,512 L 737,382 L 737,642 L 512,772 Z" fill="url(#gradMaster)" stroke="none"/>
       <path d="M 590,527 L 658,577 L 590,627" stroke="#FFFFFF" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
     </g>
 
