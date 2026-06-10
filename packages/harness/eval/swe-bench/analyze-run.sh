@@ -14,17 +14,17 @@ ECS_IP="${3:-}"
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 CLOUD_DIR="${ROOT}/packages/harness/eval/swe-bench/runs/eval-${RUN_ID}/cloud-results"
 REPORT="${CLOUD_DIR}/${MODEL_NAME}.${RUN_ID}.json"
-PRED="${HOME}/.forgelet/runs/swe-bench/eval-${RUN_ID}/predictions.jsonl"
-TRACES="${HOME}/.forgelet/traces/swe-bench/eval-${RUN_ID}/instances"
+PRED="${HOME}/.lattice-code/runs/swe-bench/eval-${RUN_ID}/predictions.jsonl"
+TRACES="${HOME}/.lattice-code/traces/swe-bench/eval-${RUN_ID}/instances"
 
 if [[ ! -f "$REPORT" ]]; then
   if [[ -n "$ECS_IP" ]]; then
     mkdir -p "$CLOUD_DIR"
     echo "Fetching report from ubuntu@${ECS_IP}..."
-    scp "ubuntu@${ECS_IP}:~/forgelet-eval/${MODEL_NAME}.${RUN_ID}.json" "$REPORT"
+    scp "ubuntu@${ECS_IP}:~/lc-eval/${MODEL_NAME}.${RUN_ID}.json" "$REPORT"
   else
     echo "Cloud report not found: ${REPORT}" >&2
-    echo "  scp ubuntu@<ECS_IP>:~/forgelet-eval/${MODEL_NAME}.${RUN_ID}.json ${REPORT}" >&2
+    echo "  scp ubuntu@<ECS_IP>:~/lc-eval/${MODEL_NAME}.${RUN_ID}.json ${REPORT}" >&2
     echo "  or re-run with ECS IP: pnpm eval:swe:analyze -- ${RUN_ID} ${MODEL_NAME} <ECS_IP>" >&2
     exit 1
   fi
@@ -77,7 +77,7 @@ for id in $UNRESOLVED; do
     fi
   fi
   if [[ -f "${TRACES}/${id}.jsonl" ]]; then
-    pnpm --filter @forgelet/harness exec tsx eval/swe-bench/summarize-traces.ts -- --run-id "$RUN_ID" --instance "$id" 2>/dev/null \
+    pnpm --filter @lattice-code/harness exec tsx eval/swe-bench/summarize-traces.ts -- --run-id "$RUN_ID" --instance "$id" 2>/dev/null \
       || (cd "$HARNESS_DIR" && npx tsx eval/swe-bench/summarize-traces.ts -- --run-id "$RUN_ID" --instance "$id")
   else
     echo "  (no trace file — run agent again for ${id})"
@@ -88,4 +88,4 @@ echo ""
 echo "Next: inspect patch for an unresolved id:"
 echo "  grep '<instance_id>' ${PRED} | jq -r .model_patch | less"
 echo "Full traces: pnpm eval:swe:traces -- --run-id ${RUN_ID}"
-echo "Optional Docker logs: scp -r ubuntu@<ECS_IP>:~/forgelet-eval/logs ${CLOUD_DIR}/"
+echo "Optional Docker logs: scp -r ubuntu@<ECS_IP>:~/lc-eval/logs ${CLOUD_DIR}/"

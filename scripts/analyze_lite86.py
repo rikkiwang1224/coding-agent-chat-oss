@@ -11,7 +11,7 @@ Extracts per-instance signals to characterize coding-agent failure modes:
 import json, os, re
 from collections import Counter, defaultdict
 
-BASE = os.path.expanduser("~/.forgelet/traces/swe-bench")
+BASE = os.path.expanduser("~/.lattice-code/traces/swe-bench")
 BUCKETS = ["eval-lite-86-bucket-a", "eval-lite-86-bucket-b", "eval-lite-86-bucket-c"]
 
 EDIT_TOOLS = {"edit_file", "apply_patch", "str_replace", "write_file", "create_file",

@@ -19,7 +19,7 @@
  *
  * Generality: this file is benchmark-specific (the runner registry knows
  * about Django et al.). For real-world projects, a different adapter would
- * read `.forgelet/verify.json` or `package.json#scripts.verify`.
+ * read `.lattice-code/verify.json` or `package.json#scripts.verify`.
  */
 import type {
   ExecResult,

@@ -8,15 +8,15 @@ report instead of re-evaluating all N instances.
 
 Usage:
   python3 merge-eval-report.py \\
-    --base  ~/.forgelet/runs/swe-bench/lite-51-100-rv1-eval-rerun8/eval-report.json \\
-    --partial ~/.forgelet/runs/swe-bench/lite-51-100-rv1-eval-partial8/eval-report.json \\
-    --out ~/.forgelet/runs/swe-bench/lite-51-100-rv1-eval-merged/eval-report.json
+    --base  ~/.lattice-code/runs/swe-bench/lite-51-100-rv1-eval-rerun8/eval-report.json \\
+    --partial ~/.lattice-code/runs/swe-bench/lite-51-100-rv1-eval-partial8/eval-report.json \\
+    --out ~/.lattice-code/runs/swe-bench/lite-51-100-rv1-eval-merged/eval-report.json
 
   # Restrict merge to specific ids (must appear in --partial):
   python3 merge-eval-report.py --base ... --partial ... --out ... \\
     --ids django__django-15061 django__django-15202
 
-Inputs are the ``forgelet-docker*.json`` / ``eval-report.json`` files produced
+Inputs are the ``lattice-code-docker*.json`` / ``eval-report.json`` files produced
 by ``swebench.harness.run_evaluation`` (schema_version 2).
 """
 

@@ -13,8 +13,8 @@ TASK="${1:-adaptive-rejection-sampler}"
 if [[ "$TASK" != */* ]]; then
   TASK="terminal-bench/$TASK"
 fi
-MODEL="${FORGELET_HARBOR_MODEL:-deepseek/deepseek-chat}"
-DATASET="${FORGELET_HARBOR_DATASET:-terminal-bench/terminal-bench-2-1}"
+MODEL="${LATTICE_CODE_HARBOR_MODEL:-deepseek/deepseek-chat}"
+DATASET="${LATTICE_CODE_HARBOR_DATASET:-terminal-bench/terminal-bench-2-1}"
 
 exec "$DIR/run-harbor.sh" \
   run \

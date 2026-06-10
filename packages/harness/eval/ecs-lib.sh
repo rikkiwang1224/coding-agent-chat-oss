@@ -11,8 +11,8 @@
 _ecs_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 resolve_env_file() {
-  if [[ -n "${FORGELET_ENV_FILE:-}" && -f "${FORGELET_ENV_FILE}" ]]; then
-    echo "${FORGELET_ENV_FILE}"
+  if [[ -n "${LATTICE_CODE_ENV_FILE:-}" && -f "${LATTICE_CODE_ENV_FILE}" ]]; then
+    echo "${LATTICE_CODE_ENV_FILE}"
     return 0
   fi
 

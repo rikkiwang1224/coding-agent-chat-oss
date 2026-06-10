@@ -52,9 +52,9 @@ export interface ToolExecutorOptions {
 
 const DEFAULT_BASH_TIMEOUT_MS = 60_000;
 
-/** Resolve default bash timeout from env FORGELET_BASH_TIMEOUT_MS (milliseconds). */
+/** Resolve default bash timeout from env LATTICE_CODE_BASH_TIMEOUT_MS (milliseconds). */
 export function resolveDefaultBashTimeoutMs(): number {
-  const raw = process.env.FORGELET_BASH_TIMEOUT_MS?.trim();
+  const raw = process.env.LATTICE_CODE_BASH_TIMEOUT_MS?.trim();
   if (!raw) return DEFAULT_BASH_TIMEOUT_MS;
   const parsed = Number.parseInt(raw, 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_BASH_TIMEOUT_MS;
@@ -446,7 +446,7 @@ export class ToolExecutor {
     // Write patch to a temp file inside the workspace and feed it to git apply.
     // Using a file (vs stdin) keeps the abort/timeout semantics consistent with
     // the rest of the bash-based tools and avoids quoting issues.
-    const tmpName = `.forgelet-apply-${Date.now()}-${Math.random()
+    const tmpName = `.lattice-code-apply-${Date.now()}-${Math.random()
       .toString(36)
       .slice(2)}.patch`;
     const tmpPath = path.join(this.workspaceRoot, tmpName);
@@ -691,7 +691,7 @@ export class ToolExecutor {
       ok: false,
       output:
         "Code graph is not available. Install codebase-memory-mcp (https://github.com/DeusData/codebase-memory-mcp) " +
-        "or set FORGELET_CODEBASE_MEMORY_BIN. Disable with FORGELET_CODE_GRAPH=0.",
+        "or set LATTICE_CODE_CODEBASE_MEMORY_BIN. Disable with LATTICE_CODE_CODE_GRAPH=0.",
     };
   }
 

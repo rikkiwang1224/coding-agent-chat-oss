@@ -1,14 +1,14 @@
-# Forgelet
+# Lattice Code
 
-Open-source coding agent with a desktop chat app and a terminal CLI, powered by the Forgelet harness.
+Open-source coding agent with a desktop chat app and a terminal CLI, powered by the Lattice Code harness.
 
-![Forgelet icon](brand/forgelet-icon.svg)
+![Lattice Code icon](brand/lattice-code-icon.svg)
 
-Forgelet means "a small forge": a compact local workbench where prompts, tool calls, and code context are shaped into useful changes.
+Lattice Code is a compact local workbench where prompts, tool calls, and code context connect into useful changes.
 
 This repository deliberately keeps a small scope:
 
-- **CLI** (`forgelet`) — run the agent from your terminal
+- **CLI** (`lc`) — run the agent from your terminal
 - **Electron desktop chat** — workspace picker, chat history, image attachments
 - **Harness agent loop** (tools + LLM) shared by chat, CLI, and eval
 
@@ -22,7 +22,7 @@ pnpm dev
 
 Configure the provider from the app's **Settings** screen. Settings are stored locally in Electron's user data directory.
 
-## CLI (`forgelet`)
+## CLI (`lc`)
 
 The CLI uses the same harness engine as the desktop app: read/write files, bash, grep, session resume, and tool permissions.
 
@@ -32,78 +32,78 @@ The CLI uses the same harness engine as the desktop app: read/write files, bash,
 
 ```bash
 pnpm install
-pnpm --filter @forgelet/cli build:deps
-pnpm --filter @forgelet/cli build
+pnpm --filter @lattice-code/cli build:deps
+pnpm --filter @lattice-code/cli build
 ```
 
 Run without a global install:
 
 ```bash
-pnpm forgelet --help
-pnpm dev:cli -i    # same as forgelet -i via tsx
+pnpm lc --help
+pnpm dev:cli -i    # same as lc -i via tsx
 ```
 
 **Global command (local link)**
 
 ```bash
-pnpm --filter @forgelet/cli build:deps
-pnpm --filter @forgelet/cli build
+pnpm --filter @lattice-code/cli build:deps
+pnpm --filter @lattice-code/cli build
 cd apps/cli && pnpm link --global
-forgelet --version
+lc --version
 ```
 
 **Global command (npm/pnpm publish)**
 
-When `@forgelet/cli` is published:
+When `@lattice-code/cli` is published:
 
 ```bash
-pnpm add -g @forgelet/cli
-# or: npm install -g @forgelet/cli
+pnpm add -g @lattice-code/cli
+# or: npm install -g @lattice-code/cli
 ```
 
 ### Configure API key and provider
 
-Settings are stored in `~/.forgelet/config.json` (override the directory with `FORGELET_HOME`).
+Settings are stored in `~/.lattice-code/config.json` (override the directory with `LATTICE_CODE_HOME`).
 
 **Option A — `config set` subcommand**
 
 ```bash
-forgelet config set provider deepseek
-forgelet config set api-key sk-your-key-here
-forgelet config set model deepseek-v4-pro
-forgelet config set provider deepseek api-key sk-... model deepseek-v4-pro
+lc config set provider deepseek
+lc config set api-key sk-your-key-here
+lc config set model deepseek-v4-pro
+lc config set provider deepseek api-key sk-... model deepseek-v4-pro
 ```
 
 Supported keys: `provider`, `primaryModel` (alias `model`), `apiKey` (`api-key`), `baseUrl` (`base-url`).  
-See `forgelet config set --help` for `key=value` syntax.
+See `lc config set --help` for `key=value` syntax.
 
 **Option B — environment variables**
 
 ```bash
 export DEEPSEEK_API_KEY=sk-...
-export FORGELET_MODEL=deepseek-v4-pro
-export FORGELET_PROVIDER=deepseek
+export LATTICE_CODE_MODEL=deepseek-v4-pro
+export LATTICE_CODE_PROVIDER=deepseek
 ```
 
 **Option C — repo `.env`**
 
 From the project root, copy `.env.example` to `.env`. The CLI loads the nearest `.env` without overriding variables already set in the shell.
 
-Priority for a run: **CLI flags** > **environment** > **`~/.forgelet/config.json`**.
+Priority for a run: **CLI flags** > **environment** > **`~/.lattice-code/config.json`**.
 
 ### Use the CLI
 
 **One-shot task** (current directory as workspace):
 
 ```bash
-forgelet "explain how authentication works in src/"
-forgelet -c /path/to/repo "add tests for the parser"
+lc "explain how authentication works in src/"
+lc -c /path/to/repo "add tests for the parser"
 ```
 
 **Interactive session** (multi-turn, same session):
 
 ```bash
-forgelet -i
+lc -i
 # › fix the failing test in tests/foo.test.ts
 # › now run the test suite
 # /exit
@@ -112,19 +112,19 @@ forgelet -i
 **Resume a session**:
 
 ```bash
-forgelet --resume -s <session-id> "continue where we left off"
+lc --resume -s <session-id> "continue where we left off"
 ```
 
 **Pipe a prompt**:
 
 ```bash
-echo "review the diff and suggest improvements" | forgelet
+echo "review the diff and suggest improvements" | lc
 ```
 
 **Auto-approve tool permissions** (CI or trusted environments):
 
 ```bash
-forgelet -y "run the linter and fix issues"
+lc -y "run the linter and fix issues"
 ```
 
 **Other useful flags**
@@ -132,18 +132,18 @@ forgelet -y "run the linter and fix issues"
 | Flag | Description |
 |------|-------------|
 | `-v` | Verbose tool output |
-| `--no-trace` | Disable JSONL traces under `~/.forgelet/traces/cli/` |
+| `--no-trace` | Disable JSONL traces under `~/.lattice-code/traces/cli/` |
 | `--model`, `--provider`, `--api-key`, `--base-url` | Override config for one run |
 
-Full option list: `forgelet --help`.
+Full option list: `lc --help`.
 
 ## Security Notes
 
 - Agent runs use the harness permission guard. Destructive or sensitive tool calls can require explicit confirmation in the UI (desktop) or in the terminal (CLI). Use `-y` only when you trust the environment.
 - Links rendered from chat messages are not allowed to create new Electron windows. External `http` and `https` links open in the system browser; other protocols are ignored.
-- API keys in desktop Settings are stored locally in Electron's user data directory (`chat-desktop-settings.json`). CLI keys live in `~/.forgelet/config.json`. Neither uses the OS keychain yet.
-- Runtime data is stored under `~/.forgelet` by default. Set `FORGELET_HOME` to use a different directory.
-- Harness sessions, chat threads, and agent traces are persisted under `FORGELET_HOME`. See [docs/design/forgelet-home-layout.md](docs/design/forgelet-home-layout.md).
+- API keys in desktop Settings are stored locally in Electron's user data directory (`chat-desktop-settings.json`). CLI keys live in `~/.lattice-code/config.json`. Neither uses the OS keychain yet.
+- Runtime data is stored under `~/.lattice-code` by default. Set `LATTICE_CODE_HOME` to use a different directory.
+- Harness sessions, chat threads, and agent traces are persisted under `LATTICE_CODE_HOME`. See [docs/design/lattice-code-home-layout.md](docs/design/lattice-code-home-layout.md).
 
 ## Provider Support
 
@@ -157,11 +157,11 @@ Presets are available for:
 - Google Vertex AI
 - Custom OpenAI-compatible endpoints
 
-Desktop Settings and `forgelet config set` both map to the harness LLM client (`apiKey`, `baseUrl`, `model` / `primaryModel`).
+Desktop Settings and `lc config set` both map to the harness LLM client (`apiKey`, `baseUrl`, `model` / `primaryModel`).
 
 ## Project Layout
 
-- `apps/cli`: Terminal CLI (`forgelet` binary).
+- `apps/cli`: Terminal CLI (`lc` binary).
 - `apps/chat-desktop`: Electron main process, preload bridge, and React renderer.
 - `packages/harness`: Standalone coding agent loop (tools + LLM) for chat, CLI, and automation.
   - `packages/harness/eval/tasks`: Synthetic integration tasks (daily harness iteration).
@@ -175,14 +175,14 @@ Desktop Settings and `forgelet config set` both map to the harness LLM client (`
 
 ```bash
 pnpm typecheck
-pnpm --filter @forgelet/chat-desktop build
-pnpm --filter @forgelet/chat-desktop start
+pnpm --filter @lattice-code/chat-desktop build
+pnpm --filter @lattice-code/chat-desktop start
 
 # CLI
-pnpm --filter @forgelet/cli build:deps
-pnpm --filter @forgelet/cli build
-pnpm --filter @forgelet/cli test
-pnpm forgelet --help
+pnpm --filter @lattice-code/cli build:deps
+pnpm --filter @lattice-code/cli build
+pnpm --filter @lattice-code/cli test
+pnpm lc --help
 
 # Harness eval (synthetic tasks; reads DEEPSEEK_API_KEY from repo-root .env)
 pnpm eval

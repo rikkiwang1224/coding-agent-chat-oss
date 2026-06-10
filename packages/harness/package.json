@@ -1,5 +1,5 @@
 {
-  "name": "@forgelet/harness",
+  "name": "@lattice-code/harness",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -23,7 +23,7 @@
     "eval:ecs:stop": "bash eval/stop-ecs.sh --wait",
     "eval:tb:bundle": "bash eval/terminal-bench/bundle-harbor-for-ecs.sh",
     "eval:tb:setup": "bash eval/terminal-bench/setup.sh",
-    "eval:tb:prepare": "bash eval/terminal-bench/prepare-forgelet.sh",
+    "eval:tb:prepare": "bash eval/terminal-bench/prepare-lattice-code.sh",
     "eval:tb:sync": "bash eval/terminal-bench/sync-to-ecs.sh",
     "eval:tb:pull": "bash eval/terminal-bench/pull-and-report.sh",
     "eval:tb:smoke": "bash eval/terminal-bench/smoke.sh",
@@ -38,10 +38,10 @@
     "eval:swe:lite86:monitor": "bash eval/swe-bench/lite-86-monitor.sh watch"
   },
   "dependencies": {
-    "@forgelet/sdk-core": "workspace:*",
-    "@forgelet/sdk-runtime": "workspace:*",
-    "@forgelet/shared-types": "workspace:*",
-    "@forgelet/storage-core": "workspace:*"
+    "@lattice-code/sdk-core": "workspace:*",
+    "@lattice-code/sdk-runtime": "workspace:*",
+    "@lattice-code/shared-types": "workspace:*",
+    "@lattice-code/storage-core": "workspace:*"
   },
   "devDependencies": {
     "vitest": "^4.1.7"

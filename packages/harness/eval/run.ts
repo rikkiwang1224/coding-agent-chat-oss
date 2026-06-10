@@ -11,11 +11,11 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeFile } from "node:fs/promises";
-import { resolveEvalTraceDir } from "@forgelet/storage-core";
+import { resolveEvalTraceDir } from "@lattice-code/storage-core";
 import { loadEvalEnv } from "./load-env.js";
 import { formatCostUsd, runEval } from "./runner.js";
 import type { LlmConfig } from "../src/types.js";
-import type { LlmProvider } from "@forgelet/sdk-runtime";
+import type { LlmProvider } from "@lattice-code/sdk-runtime";
 
 loadEvalEnv();
 
@@ -47,9 +47,9 @@ const config: LlmConfig = { apiKey, model, baseUrl, provider };
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const tasksDir = path.resolve(__dirname, "tasks");
 
-process.env.FORGELET_EVAL_RUN_ID = evalRunId;
+process.env.LATTICE_CODE_EVAL_RUN_ID = evalRunId;
 if (saveTraces) {
-  process.env.FORGELET_EVAL_TRACE = "1";
+  process.env.LATTICE_CODE_EVAL_TRACE = "1";
 }
 
 const traceDir = resolveEvalTraceDir(evalRunId);

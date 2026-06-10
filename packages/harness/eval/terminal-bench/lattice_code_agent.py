@@ -1,4 +1,4 @@
-"""Harbor installed-agent adapter for the Forgelet CLI."""
+"""Harbor installed-agent adapter for the Lattice Code CLI."""
 
 from __future__ import annotations
 
@@ -15,10 +15,10 @@ from harbor.models.agent.context import AgentContext
 _NODE_PREBUILT_REL = ".node-prebuilt/node-v20"
 _CONTAINER_NODE = "/opt/node-v20"
 _AGENT_DIR = Path(__file__).resolve().parent
-_DEFAULT_FORGELET_INSTALL = "/forgelet"
+_DEFAULT_LATTICE_CODE_INSTALL = "/lattice-code"
 _DEFAULT_PROMPT_EXTRA = "/installed-agent/prompt-extra.txt"
-_CLI_ENTRY = "/forgelet/apps/cli/src/main.ts"
-_TSX_CLI = "/forgelet/node_modules/tsx/dist/cli.mjs"
+_CLI_ENTRY = "/lattice-code/apps/cli/src/main.ts"
+_TSX_CLI = "/lattice-code/node_modules/tsx/dist/cli.mjs"
 
 
 def _provider_from_model(model_name: str) -> str:
@@ -34,14 +34,14 @@ def _short_model(model_name: str) -> str:
     return model_name
 
 
-class ForgeletAgent(BaseInstalledAgent):
-    """Run Forgelet inside a Harbor task container."""
+class LatticeCodeAgent(BaseInstalledAgent):
+    """Run Lattice Code inside a Harbor task container."""
 
     SUPPORTS_ATIF: bool = False
 
     @staticmethod
     def name() -> str:
-        return "forgelet"
+        return "lc"
 
     def version(self) -> str | None:
         return self._version or "0.1.0"
@@ -49,7 +49,7 @@ class ForgeletAgent(BaseInstalledAgent):
     def get_version_command(self) -> str | None:
         return f"node {_TSX_CLI} --version 2>/dev/null || node --version"
 
-    async def _forgelet_ready(self, environment: BaseEnvironment) -> bool:
+    async def _lc_ready(self, environment: BaseEnvironment) -> bool:
         result = await environment.exec(
             command=f"test -f {_TSX_CLI} && test -f {_CLI_ENTRY}",
         )
@@ -60,10 +60,10 @@ class ForgeletAgent(BaseInstalledAgent):
         if result.return_code == 0:
             return
 
-        forgelet_root = os.environ.get("FORGELET_ROOT", "").strip()
+        lc_root = os.environ.get("LATTICE_CODE_ROOT", "").strip()
         node_src = (
-            Path(forgelet_root).expanduser().resolve() / _NODE_PREBUILT_REL
-            if forgelet_root
+            Path(lc_root).expanduser().resolve() / _NODE_PREBUILT_REL
+            if lc_root
             else None
         )
         if node_src and (node_src / "bin" / "node").is_file():
@@ -84,37 +84,37 @@ class ForgeletAgent(BaseInstalledAgent):
 
         raise RuntimeError(
             "Task container has no Node.js and cannot reach package mirrors. "
-            f"Bundle Linux Node under FORGELET_ROOT/{_NODE_PREBUILT_REL} "
-            "(run prepare-forgelet.sh) instead of apt-get install."
+            f"Bundle Linux Node under LATTICE_CODE_ROOT/{_NODE_PREBUILT_REL} "
+            "(run prepare-lattice-code.sh) instead of apt-get install."
         )
 
-    async def _stage_forgelet(self, environment: BaseEnvironment) -> None:
-        if await self._forgelet_ready(environment):
-            self.logger.debug("Forgelet already present at %s", _DEFAULT_FORGELET_INSTALL)
+    async def _stage_lc(self, environment: BaseEnvironment) -> None:
+        if await self._lc_ready(environment):
+            self.logger.debug("Lattice Code already present at %s", _DEFAULT_LATTICE_CODE_INSTALL)
             return
 
-        forgelet_root = os.environ.get("FORGELET_ROOT", "").strip()
-        if not forgelet_root:
+        lc_root = os.environ.get("LATTICE_CODE_ROOT", "").strip()
+        if not lc_root:
             raise ValueError(
-                "Forgelet is not pre-installed in the container and FORGELET_ROOT is unset. "
-                "Run prepare-forgelet.sh on the host, then export FORGELET_ROOT to that "
+                "Lattice Code is not pre-installed in the container and LATTICE_CODE_ROOT is unset. "
+                "Run prepare-lattice-code.sh on the host, then export LATTICE_CODE_ROOT to that "
                 "staging directory before harbor run."
             )
 
-        source = Path(forgelet_root).expanduser().resolve()
+        source = Path(lc_root).expanduser().resolve()
         if not source.is_dir():
-            raise ValueError(f"FORGELET_ROOT is not a directory: {source}")
+            raise ValueError(f"LATTICE_CODE_ROOT is not a directory: {source}")
 
-        self.logger.info("Uploading Forgelet staging dir %s → %s", source, _DEFAULT_FORGELET_INSTALL)
-        await environment.upload_dir(source, _DEFAULT_FORGELET_INSTALL)
+        self.logger.info("Uploading Lattice Code staging dir %s → %s", source, _DEFAULT_LATTICE_CODE_INSTALL)
+        await environment.upload_dir(source, _DEFAULT_LATTICE_CODE_INSTALL)
 
-        if await self._forgelet_ready(environment):
+        if await self._lc_ready(environment):
             return
 
         await self.exec_as_agent(
             environment,
             command=(
-                f"set -euo pipefail; cd {_DEFAULT_FORGELET_INSTALL}; "
+                f"set -euo pipefail; cd {_DEFAULT_LATTICE_CODE_INSTALL}; "
                 "if command -v pnpm >/dev/null 2>&1; then "
                 "  ELECTRON_SKIP_BINARY_DOWNLOAD=1 pnpm install --ignore-scripts; "
                 "elif command -v npm >/dev/null 2>&1; then "
@@ -143,7 +143,7 @@ class ForgeletAgent(BaseInstalledAgent):
         )
 
     async def install(self, environment: BaseEnvironment) -> None:
-        preinstalled = os.environ.get("FORGELET_PREINSTALLED", "").strip().lower() in {
+        preinstalled = os.environ.get("LATTICE_CODE_PREINSTALLED", "").strip().lower() in {
             "1",
             "true",
             "yes",
@@ -151,33 +151,33 @@ class ForgeletAgent(BaseInstalledAgent):
         }
         if not preinstalled:
             await self._install_node(environment)
-            await self._stage_forgelet(environment)
-        elif not await self._forgelet_ready(environment):
+            await self._stage_lc(environment)
+        elif not await self._lc_ready(environment):
             raise RuntimeError(
-                "FORGELET_PREINSTALLED=1 but Forgelet binaries are missing in the container"
+                "LATTICE_CODE_PREINSTALLED=1 but Lattice Code binaries are missing in the container"
             )
 
         await self._upload_prompt_extra(environment)
 
-        if not await self._forgelet_ready(environment):
-            raise RuntimeError("Forgelet install failed: tsx CLI or main.ts not found")
+        if not await self._lc_ready(environment):
+            raise RuntimeError("Lattice Code install failed: tsx CLI or main.ts not found")
 
     def _build_run_env(self) -> dict[str, str]:
         if not self.model_name:
             raise ValueError("model_name is required (pass --model provider/model to harbor run)")
 
         env: dict[str, str] = {
-            "FORGELET_TASK_HINT": "terminal",
-            "FORGELET_PROMPT_EXTRA_FILE": _DEFAULT_PROMPT_EXTRA,
-            "FORGELET_BASH_TIMEOUT_MS": os.environ.get("FORGELET_BASH_TIMEOUT_MS", "180000"),
-            "FORGELET_REASON": os.environ.get("FORGELET_REASON", "0"),
-            "FORGELET_VERIFY": os.environ.get("FORGELET_VERIFY", "0"),
-            "FORGELET_PROVIDER": _provider_from_model(self.model_name),
-            "FORGELET_MODEL": _short_model(self.model_name),
+            "LATTICE_CODE_TASK_HINT": "terminal",
+            "LATTICE_CODE_PROMPT_EXTRA_FILE": _DEFAULT_PROMPT_EXTRA,
+            "LATTICE_CODE_BASH_TIMEOUT_MS": os.environ.get("LATTICE_CODE_BASH_TIMEOUT_MS", "180000"),
+            "LATTICE_CODE_REASON": os.environ.get("LATTICE_CODE_REASON", "0"),
+            "LATTICE_CODE_VERIFY": os.environ.get("LATTICE_CODE_VERIFY", "0"),
+            "LATTICE_CODE_PROVIDER": _provider_from_model(self.model_name),
+            "LATTICE_CODE_MODEL": _short_model(self.model_name),
         }
 
-        if "FORGELET_API_KEY" in os.environ and os.environ["FORGELET_API_KEY"].strip():
-            env["FORGELET_API_KEY"] = os.environ["FORGELET_API_KEY"]
+        if "LATTICE_CODE_API_KEY" in os.environ and os.environ["LATTICE_CODE_API_KEY"].strip():
+            env["LATTICE_CODE_API_KEY"] = os.environ["LATTICE_CODE_API_KEY"]
         else:
             for key in get_api_key_var_names_from_model_name(self.model_name):
                 if key in os.environ and os.environ[key].strip():
@@ -186,14 +186,14 @@ class ForgeletAgent(BaseInstalledAgent):
             else:
                 raise ValueError(
                     f"No API key found for model {self.model_name}. "
-                    "Set FORGELET_API_KEY or the provider-specific key in the environment."
+                    "Set LATTICE_CODE_API_KEY or the provider-specific key in the environment."
                 )
 
         for passthrough in (
             "DEEPSEEK_API_KEY",
             "OPENAI_API_KEY",
             "ANTHROPIC_API_KEY",
-            "FORGELET_BASE_URL",
+            "LATTICE_CODE_BASE_URL",
             "OPENAI_API_BASE",
         ):
             if (
@@ -215,8 +215,8 @@ class ForgeletAgent(BaseInstalledAgent):
     ) -> None:
         env = self._build_run_env()
         escaped_instruction = shlex.quote(instruction)
-        workdir = os.environ.get("FORGELET_WORKDIR", "").strip() or "$HOME"
-        agent_timeout = os.environ.get("FORGELET_AGENT_TIMEOUT_SEC", "600")
+        workdir = os.environ.get("LATTICE_CODE_WORKDIR", "").strip() or "$HOME"
+        agent_timeout = os.environ.get("LATTICE_CODE_AGENT_TIMEOUT_SEC", "600")
 
         command = (
             f"set -euo pipefail; "

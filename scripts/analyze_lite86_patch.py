@@ -5,7 +5,7 @@ Categorizes failure: empty patch, wrong-file (localization miss), right-file-wro
 import json, os, re
 from collections import Counter, defaultdict
 
-RUN = os.path.expanduser("~/.forgelet/runs/swe-bench")
+RUN = os.path.expanduser("~/.lattice-code/runs/swe-bench")
 EVAL = os.path.join(RUN, "lite-86-eval-v1")
 
 def load_report():

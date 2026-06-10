@@ -1,7 +1,7 @@
-# Forgelet Home：存储与会话模型
+# Lattice Code Home：存储与会话模型
 
 > 与 [Harness P1 产品化](./harness-p1-productization.md) 配套。  
-> 约定：所有用户数据、评测产物、轨迹 **不进用户 git 仓库、不进本 monorepo**；根目录为 `FORGELET_HOME`（默认 `~/.forgelet`）。
+> 约定：所有用户数据、评测产物、轨迹 **不进用户 git 仓库、不进本 monorepo**；根目录为 `LATTICE_CODE_HOME`（默认 `~/.lattice-code`）。
 
 ---
 
@@ -10,11 +10,11 @@
 | 议题 | 决策 |
 |------|------|
 | `threadId` 与 `agentSessionId` | **永远相等**（一张侧边栏卡片 = 一个 Harness `sessionId`） |
-| 侧边栏列表数据源 | **只扫** `FORGELET_HOME/workspaces/{workspaceHash}/threads/*.json` |
-| Session 路径 | `${FORGELET_HOME}/sessions/{workspaceHash}/{sessionId}.json` |
-| 轨迹路径 | `${FORGELET_HOME}/traces/...`（默认开启，见 §4） |
-| 评测产物 | `${FORGELET_HOME}/runs/...`（与 traces 分离，见 §5） |
-| 用户 workspace 内 | **不再写入** `.forgelet/harness-sessions`、不依赖 `query-loop-sessions` 建列表 |
+| 侧边栏列表数据源 | **只扫** `LATTICE_CODE_HOME/workspaces/{workspaceHash}/threads/*.json` |
+| Session 路径 | `${LATTICE_CODE_HOME}/sessions/{workspaceHash}/{sessionId}.json` |
+| 轨迹路径 | `${LATTICE_CODE_HOME}/traces/...`（默认开启，见 §4） |
+| 评测产物 | `${LATTICE_CODE_HOME}/runs/...`（与 traces 分离，见 §5） |
+| 用户 workspace 内 | **不再写入** `.lattice-code/harness-sessions`、不依赖 `query-loop-sessions` 建列表 |
 
 ---
 
@@ -61,10 +61,10 @@ Workspace（用户选中的代码库根）
 
 ---
 
-## 4. 目录布局（`FORGELET_HOME`）
+## 4. 目录布局（`LATTICE_CODE_HOME`）
 
 ```text
-${FORGELET_HOME}/                          # 默认 ~/.forgelet，环境变量 FORGELET_HOME
+${LATTICE_CODE_HOME}/                          # 默认 ~/.lattice-code，环境变量 LATTICE_CODE_HOME
 ├── workspaces/{workspaceHash}/
 │   ├── workspace.json
 │   ├── session-index.json                 # 可选：该工作区 agent 会话索引
@@ -78,7 +78,7 @@ ${FORGELET_HOME}/                          # 默认 ~/.forgelet，环境变量 F
     ├── eval/{runId}/instances/{taskId}.jsonl
     └── swe-bench/{runId}/instances/{instance_id}.jsonl
 
-${FORGELET_HOME}/runs/                     # 评测结果（非过程）
+${LATTICE_CODE_HOME}/runs/                     # 评测结果（非过程）
 ├── eval/{runId}/report.json
 └── swe-bench/{runId}/
     ├── predictions.jsonl
@@ -90,9 +90,9 @@ ${FORGELET_HOME}/runs/                     # 评测结果（非过程）
 
 | 变量 | 作用 |
 |------|------|
-| `FORGELET_HOME` | 上述树根 |
-| `FORGELET_TRACE_ROOT` | 可选，仅覆盖 `traces/` |
-| `FORGELET_RUNS_ROOT` | 可选，仅覆盖 `runs/` |
+| `LATTICE_CODE_HOME` | 上述树根 |
+| `LATTICE_CODE_TRACE_ROOT` | 可选，仅覆盖 `traces/` |
+| `LATTICE_CODE_RUNS_ROOT` | 可选，仅覆盖 `runs/` |
 
 ---
 
@@ -136,7 +136,7 @@ interface ThreadRecord {
 }
 ```
 
-**列表 API**：`listStoredThreads(workspaceRoot)` 仅 `readdir(workspaces/{hash}/threads/)`，不扫 session 目录、不扫用户 repo 下 `.forgelet`。
+**列表 API**：`listStoredThreads(workspaceRoot)` 仅 `readdir(workspaces/{hash}/threads/)`，不扫 session 目录、不扫用户 repo 下 `.lattice-code`。
 
 **加载会话**：选中卡片 → 读 `threads/{threadId}.json` → `setSessionId(threadId)`；若需完整 tool 历史，可再从 `sessions/{hash}/{threadId}.json` 或 trace 补充（P2）。
 
@@ -170,9 +170,9 @@ interface SessionData {
 
 | 旧路径 | 处理 |
 |--------|------|
-| `{workspace}/.forgelet/harness-sessions/*.json` | 不自动迁移；可选一次性导入脚本；新写入只走 `FORGELET_HOME/sessions/` |
-| `~/.forgelet/sessions/{id}/snapshot.json`（旧 SDK 扁平） | 侧边栏**不**扫描；`loadSessionThread` 可只读回显历史（P1 可选，非列表源） |
-| `{workspace}/.forgelet/query-loop-sessions` | 不再作为列表源 |
+| `{workspace}/.lattice-code/harness-sessions/*.json` | 不自动迁移；可选一次性导入脚本；新写入只走 `LATTICE_CODE_HOME/sessions/` |
+| `~/.lattice-code/sessions/{id}/snapshot.json`（旧 SDK 扁平） | 侧边栏**不**扫描；`loadSessionThread` 可只读回显历史（P1 可选，非列表源） |
+| `{workspace}/.lattice-code/query-loop-sessions` | 不再作为列表源 |
 
 ---
 
@@ -182,6 +182,6 @@ interface SessionData {
 |------|------|
 | P1a | `SessionStore` 迁至 `sessions/{hash}/{id}.json`；`threadId === sessionId`；Send/resume 语义 |
 | P1a+ | 侧边栏仅 `threads/`；废弃 `runSessionIds` 写入 |
-| P1d | `TraceSink` + swe-bench/eval 默认 trace 至 `FORGELET_HOME`；`runs/` 迁出 repo |
+| P1d | `TraceSink` + swe-bench/eval 默认 trace 至 `LATTICE_CODE_HOME`；`runs/` 迁出 repo |
 
 详细任务见 [harness-p1-productization.md](./harness-p1-productization.md)。

@@ -2,7 +2,7 @@
 # Mounts host codebase-memory-mcp binary + graph cache into SWE instance containers.
 #
 # Binary resolution (ECS has no GitHub — use prebuilt SWE binary from Mac):
-#   1. FORGELET_CODEBASE_MEMORY_BIN if set
+#   1. LATTICE_CODE_CODEBASE_MEMORY_BIN if set
 #   2. ~/.local/bin/codebase-memory-mcp-swe  (built via build-codebase-memory-swe.sh)
 #   3. ~/.local/bin/codebase-memory-mcp     (local dev / host-only)
 #
@@ -14,14 +14,14 @@
 
 SWE_BIN="${HOME}/.local/bin/codebase-memory-mcp-swe"
 DEFAULT_BIN="${HOME}/.local/bin/codebase-memory-mcp"
-if [[ -n "${FORGELET_CODEBASE_MEMORY_BIN:-}" ]]; then
-  CODEBASE_MEMORY_BIN="$FORGELET_CODEBASE_MEMORY_BIN"
+if [[ -n "${LATTICE_CODE_CODEBASE_MEMORY_BIN:-}" ]]; then
+  CODEBASE_MEMORY_BIN="$LATTICE_CODE_CODEBASE_MEMORY_BIN"
 elif [[ -f "$SWE_BIN" && -x "$SWE_BIN" ]]; then
   CODEBASE_MEMORY_BIN="$SWE_BIN"
 else
   CODEBASE_MEMORY_BIN="$DEFAULT_BIN"
 fi
-CODEBASE_MEMORY_CACHE="${FORGELET_CODEBASE_MEMORY_CACHE:-$HOME/.cache/codebase-memory-mcp}"
+CODEBASE_MEMORY_CACHE="${LATTICE_CODE_CODEBASE_MEMORY_CACHE:-$HOME/.cache/codebase-memory-mcp}"
 
 CODE_GRAPH_MOUNT=()
 CODE_GRAPH_ENV=()
@@ -35,13 +35,13 @@ if [[ -f "$CODEBASE_MEMORY_BIN" && -x "$CODEBASE_MEMORY_BIN" ]]; then
     -v "$CODEBASE_MEMORY_CACHE:/root/.cache/codebase-memory-mcp"
   )
   CODE_GRAPH_ENV=(
-    -e FORGELET_CODEBASE_MEMORY_BIN=/usr/local/bin/codebase-memory-mcp
+    -e LATTICE_CODE_CODEBASE_MEMORY_BIN=/usr/local/bin/codebase-memory-mcp
     -e HOME=/root
   )
   CODE_GRAPH_STATUS="mcp@$(basename "$CODEBASE_MEMORY_BIN")"
   CODE_GRAPH_PATH_PREFIX="/usr/local/bin:"
 else
   echo "WARN: codebase-memory-mcp not found at $CODEBASE_MEMORY_BIN — code graph tools disabled in container" >&2
-  echo "  ECS: scp SWE binary from Mac — pnpm --filter @forgelet/harness build:codebase-memory-swe && sync:codebase-memory-swe" >&2
-  echo "  Mac dev: pnpm --filter @forgelet/harness install:codebase-memory" >&2
+  echo "  ECS: scp SWE binary from Mac — pnpm --filter @lattice-code/harness build:codebase-memory-swe && sync:codebase-memory-swe" >&2
+  echo "  Mac dev: pnpm --filter @lattice-code/harness install:codebase-memory" >&2
 fi

@@ -1,13 +1,13 @@
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { AgentEvent } from "@forgelet/shared-types";
-import type { TraceRunKind } from "@forgelet/storage-core";
+import type { AgentEvent } from "@lattice-code/shared-types";
+import type { TraceRunKind } from "@lattice-code/storage-core";
 import {
   resolveCliTraceDir,
   resolveDesktopTraceDir,
   resolveEvalTraceDir,
   resolveSweBenchTraceInstancePath,
-} from "@forgelet/storage-core";
+} from "@lattice-code/storage-core";
 
 export interface TraceConfig {
   enabled?: boolean;

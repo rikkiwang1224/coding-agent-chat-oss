@@ -13,7 +13,7 @@ import os
 from collections import Counter, defaultdict
 from pathlib import Path
 
-TRACE_BASE = os.path.expanduser("~/.forgelet/traces/swe-bench")
+TRACE_BASE = os.path.expanduser("~/.lattice-code/traces/swe-bench")
 BUCKETS = [
     "eval-lite-108-bucket-a",
     "eval-lite-108-bucket-b",

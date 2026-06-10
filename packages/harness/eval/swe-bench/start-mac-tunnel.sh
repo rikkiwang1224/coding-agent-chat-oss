@@ -12,7 +12,7 @@ set -euo pipefail
 ECS_IP="${ECS_IP:?set ECS_IP (e.g. export ECS_IP=43.138.255.207)}"
 ECS_USER="${ECS_USER:-ubuntu}"
 PROXY_PORT="${PROXY_PORT:-7890}"
-PPROXY_LOG="${PPROXY_LOG:-/tmp/forgelet-pproxy.log}"
+PPROXY_LOG="${PPROXY_LOG:-/tmp/lc-pproxy.log}"
 
 if ! command -v python3 >/dev/null; then
   echo "python3 required" >&2

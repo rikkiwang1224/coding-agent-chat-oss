@@ -1,6 +1,6 @@
 {
-  "appId": "dev.forgelet.chat",
-  "productName": "Forgelet",
+  "appId": "dev.latticecode.chat",
+  "productName": "Lattice Code",
   "directories": {
     "app": ".packager/app",
     "output": "release"

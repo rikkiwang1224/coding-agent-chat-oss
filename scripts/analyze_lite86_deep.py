@@ -3,7 +3,7 @@
 import json, os, re
 from collections import Counter
 
-BASE = os.path.expanduser("~/.forgelet/traces/swe-bench")
+BASE = os.path.expanduser("~/.lattice-code/traces/swe-bench")
 BUCKETS = ["eval-lite-86-bucket-a", "eval-lite-86-bucket-b", "eval-lite-86-bucket-c"]
 
 def parse(fp):

@@ -1,7 +1,7 @@
 import { Pencil, MoreVertical } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { formatCostUsd } from "@forgelet/sdk-runtime";
+import { formatCostUsd } from "@lattice-code/sdk-runtime";
 import { useApp } from "@/context/AppContext";
 
 export function ChatTopBar() {

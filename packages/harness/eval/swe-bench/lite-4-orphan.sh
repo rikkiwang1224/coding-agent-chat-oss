@@ -14,7 +14,7 @@
 # Quick win for pytest-5103 (lite-108 patch already passed eval):
 #   bash lite-4-orphan.sh --restore-5103-from-lite-108
 #
-# Defaults: forgelet-docker-guard, THINKING_MODE=max
+# Defaults: lattice-code-docker-guard, THINKING_MODE=max
 
 set -euo pipefail
 
@@ -22,8 +22,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IDS_FILE="$SCRIPT_DIR/lite-4-orphan.instance-ids.txt"
 OUT_DIR="${OUT_DIR:-$HOME/swe-batch/lite-4-orphan}"
 INSTANCES_JSON="$OUT_DIR/instances.json"
-MODEL_NAME="${MODEL_NAME:-forgelet-docker-guard}"
-TRACE_RUN_ID="${FORGELET_TRACE_RUN_ID:-lite-4-orphan}"
+MODEL_NAME="${MODEL_NAME:-lattice-code-docker-guard}"
+TRACE_RUN_ID="${LATTICE_CODE_TRACE_RUN_ID:-lite-4-orphan}"
 MODE="${1:-}"
 
 [[ -f "$IDS_FILE" ]] || { echo "Missing $IDS_FILE" >&2; exit 1; }
@@ -51,7 +51,7 @@ fetch_from_hf() {
 
 fetch_from_local_lite_full() {
   local full="${LITE_FULL:-$HOME/swe-batch/lite-full/instances.json}"
-  [[ -f "$full" ]] || full="${LITE_FULL:-$HOME/.forgelet/runs/swe-bench/lite-full/instances.json}"
+  [[ -f "$full" ]] || full="${LITE_FULL:-$HOME/.lattice-code/runs/swe-bench/lite-full/instances.json}"
   [[ -f "$full" ]] || return 1
   echo "=== slicing instances from $full ==="
   mkdir -p "$OUT_DIR"
@@ -84,7 +84,7 @@ ensure_instances() {
 }
 
 restore_5103_from_lite_108() {
-  local src="${LITE108_PREDS:-$HOME/.forgelet/runs/swe-bench/lite-108-eval-merged/predictions.jsonl}"
+  local src="${LITE108_PREDS:-$HOME/.lattice-code/runs/swe-bench/lite-108-eval-merged/predictions.jsonl}"
   [[ -f "$src" ]] || src="$HOME/swe-batch/lite-108-merged/predictions.jsonl"
   [[ -f "$src" ]] || {
     echo "lite-108 predictions not found (set LITE108_PREDS)" >&2
@@ -127,12 +127,12 @@ ensure_instances
 echo ""
 echo "=== lite-4-orphan: $EXPECTED instances → $OUT_DIR ==="
 echo "    MODEL_NAME=$MODEL_NAME"
-echo "    FORGELET_TRACE_RUN_ID=$TRACE_RUN_ID"
+echo "    LATTICE_CODE_TRACE_RUN_ID=$TRACE_RUN_ID"
 echo "    THINKING_MODE=${THINKING_MODE:-max (SWE-bench default)}"
 echo ""
 
 export MODEL_NAME
-export FORGELET_TRACE_RUN_ID
-export FORGELET_SAVE_TRACE="${FORGELET_SAVE_TRACE:-1}"
+export LATTICE_CODE_TRACE_RUN_ID
+export LATTICE_CODE_SAVE_TRACE="${LATTICE_CODE_SAVE_TRACE:-1}"
 
 exec bash "$SCRIPT_DIR/docker-batch.sh" "$INSTANCES_JSON" "$OUT_DIR"

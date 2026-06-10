@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { type IpcMainInvokeEvent, type WebContents } from "electron";
-import { HarnessEngine, SessionStore } from "@forgelet/harness";
-import type { AgentEvent } from "@forgelet/shared-types";
-import type { PermissionRequestOutcome } from "@forgelet/shared-types";
+import { HarnessEngine, SessionStore } from "@lattice-code/harness";
+import type { AgentEvent } from "@lattice-code/shared-types";
+import type { PermissionRequestOutcome } from "@lattice-code/shared-types";
 import { collapseText, readTextBlock, formatError } from "../utils/text.js";
 import { readImageAttachments } from "../utils/image.js";
 import { loadSettings, buildLlmConfigFromSettingsGeneral } from "./settings.js";

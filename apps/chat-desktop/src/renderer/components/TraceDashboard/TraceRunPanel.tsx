@@ -6,7 +6,7 @@ import {
   Wrench,
   XCircle,
 } from "lucide-react";
-import { formatCostUsd } from "@forgelet/sdk-runtime";
+import { formatCostUsd } from "@lattice-code/sdk-runtime";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Collapsible,

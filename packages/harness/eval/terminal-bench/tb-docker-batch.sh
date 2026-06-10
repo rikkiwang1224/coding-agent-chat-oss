@@ -8,14 +8,14 @@
 
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-NOTE="${1:-forgelet-batch}"
+NOTE="${1:-lc-batch}"
 shift || true
 
 exec "$DIR/run-harbor.sh" \
   run \
-  --dataset "${FORGELET_HARBOR_DATASET:-terminal-bench/terminal-bench-2-1}" \
-  --model "${FORGELET_HARBOR_MODEL:-deepseek/deepseek-chat}" \
-  --n-concurrent "${FORGELET_HARBOR_CONCURRENT:-4}" \
+  --dataset "${LATTICE_CODE_HARBOR_DATASET:-terminal-bench/terminal-bench-2-1}" \
+  --model "${LATTICE_CODE_HARBOR_MODEL:-deepseek/deepseek-chat}" \
+  --n-concurrent "${LATTICE_CODE_HARBOR_CONCURRENT:-4}" \
   --job-name "$NOTE" \
   --yes \
   "$@"

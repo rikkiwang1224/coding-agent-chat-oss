@@ -1,9 +1,9 @@
-import { PROVIDER_PRESETS, type LlmProvider } from "@forgelet/sdk-runtime";
+import { PROVIDER_PRESETS, type LlmProvider } from "@lattice-code/sdk-runtime";
 import { applyThinkingMode, resolveThinkingModeFromEnv } from "../../src/thinking-mode.js";
 import type { LlmConfig } from "../../src/types.js";
 
 function resolveTemperature(): number | undefined {
-  const raw = process.env.FORGELET_TEMPERATURE?.trim();
+  const raw = process.env.LATTICE_CODE_TEMPERATURE?.trim();
   if (!raw) return undefined;
   const t = Number.parseFloat(raw);
   if (!Number.isFinite(t)) return undefined;
@@ -12,14 +12,14 @@ function resolveTemperature(): number | undefined {
 
 /** Resolve LLM config from env (Docker batch / in-container agent). */
 export function resolveLlmConfigFromEnv(): LlmConfig {
-  const provider = (process.env.FORGELET_PROVIDER?.trim() || "deepseek") as LlmProvider;
+  const provider = (process.env.LATTICE_CODE_PROVIDER?.trim() || "deepseek") as LlmProvider;
   const apiKey =
-    process.env.FORGELET_API_KEY?.trim() ||
+    process.env.LATTICE_CODE_API_KEY?.trim() ||
     process.env.DEEPSEEK_API_KEY?.trim() ||
     "";
 
   const model =
-    process.env.FORGELET_MODEL?.trim() ||
+    process.env.LATTICE_CODE_MODEL?.trim() ||
     process.env.MODEL_NAME?.trim() ||
     "deepseek-v4-pro";
 
@@ -31,7 +31,7 @@ export function resolveLlmConfigFromEnv(): LlmConfig {
         : undefined;
 
   const baseUrl =
-    process.env.FORGELET_BASE_URL?.trim() ||
+    process.env.LATTICE_CODE_BASE_URL?.trim() ||
     preset?.baseUrl ||
     "https://api.deepseek.com";
 

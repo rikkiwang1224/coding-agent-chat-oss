@@ -28,7 +28,7 @@ import { listAllDesktopTraces, listDesktopTraces, loadDesktopTrace } from "../se
 
 export function registerChatIpc(): void {
   ipcMain.on("chat-desktop:get-runtime-env", (event) => {
-    event.returnValue = { appName: "Forgelet" };
+    event.returnValue = { appName: "Lattice Code" };
   });
 
   ipcMain.handle("chat-desktop:get-workspace-state", () => getWorkspaceState());

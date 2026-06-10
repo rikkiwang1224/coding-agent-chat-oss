@@ -6,7 +6,7 @@
     "rootDir": "src",
     "baseUrl": ".",
     "paths": {
-      "@forgelet/shared-types": ["../shared-types/dist/index.d.ts"]
+      "@lattice-code/shared-types": ["../shared-types/dist/index.d.ts"]
     }
   }
 }

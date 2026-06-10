@@ -8,8 +8,8 @@
 set -euo pipefail
 
 OUT_DIR="${1:-$HOME/swe-batch/smoke-gate-3}"
-TRACE_RUN_ID="${FORGELET_TRACE_RUN_ID:-smoke-gate-3}"
-TRACE_DIR="${FORGELET_HOME:-$HOME/.forgelet}/traces/swe-bench/eval-${TRACE_RUN_ID}/instances"
+TRACE_RUN_ID="${LATTICE_CODE_TRACE_RUN_ID:-smoke-gate-3}"
+TRACE_DIR="${LATTICE_CODE_HOME:-$HOME/.lattice-code}/traces/swe-bench/eval-${TRACE_RUN_ID}/instances"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IDS_FILE="$SCRIPT_DIR/smoke-gate-3.instance-ids.txt"
 

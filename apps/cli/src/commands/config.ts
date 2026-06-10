@@ -1,4 +1,4 @@
-import type { LlmProvider } from "@forgelet/sdk-runtime";
+import type { LlmProvider } from "@lattice-code/sdk-runtime";
 import {
   loadCliConfigFile,
   saveCliConfig,
@@ -6,11 +6,11 @@ import {
   type CliConfig,
 } from "../config.js";
 
-export const CONFIG_SET_HELP = `forgelet config set — write ~/.forgelet/config.json
+export const CONFIG_SET_HELP = `lc config set — write ~/.lattice-code/config.json
 
 Usage:
-  forgelet config set <key> <value> [<key> <value> ...]
-  forgelet config set <key>=<value> [<key>=<value> ...]
+  lc config set <key> <value> [<key> <value> ...]
+  lc config set <key>=<value> [<key>=<value> ...]
 
 Keys (aliases in parentheses):
   provider          LLM provider preset
@@ -19,10 +19,10 @@ Keys (aliases in parentheses):
   baseUrl           API base URL (base-url)
 
 Examples:
-  forgelet config set provider deepseek
-  forgelet config set api-key sk-...
-  forgelet config set provider deepseek primaryModel deepseek-v4-pro
-  forgelet config set provider=deepseek api-key=sk-...
+  lc config set provider deepseek
+  lc config set api-key sk-...
+  lc config set provider deepseek primaryModel deepseek-v4-pro
+  lc config set provider=deepseek api-key=sk-...
 `;
 
 type ConfigField = keyof CliConfig;
@@ -133,11 +133,11 @@ export async function runConfigCommand(argv: string[]): Promise<number> {
   }
 
   if (!sub || sub === "--help" || sub === "-h") {
-    process.stdout.write(CONFIG_SET_HELP.replace("forgelet config set", "forgelet config"));
+    process.stdout.write(CONFIG_SET_HELP.replace("lc config set", "lc config"));
     return 0;
   }
 
   process.stderr.write(`Unknown config command: ${sub}\n\n`);
-  process.stdout.write(CONFIG_SET_HELP.replace("forgelet config set", "forgelet config"));
+  process.stdout.write(CONFIG_SET_HELP.replace("lc config set", "lc config"));
   return 1;
 }

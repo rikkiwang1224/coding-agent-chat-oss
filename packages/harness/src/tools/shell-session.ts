@@ -92,7 +92,7 @@ export class ShellSession {
   ): Promise<{ exitCode: number; output: string }> {
     this.ensureStarted();
 
-    const marker = `__FORGELET_BOUNDARY_${Date.now()}_${Math.random().toString(36).slice(2)}__`;
+    const marker = `__LATTICE_CODE_BOUNDARY_${Date.now()}_${Math.random().toString(36).slice(2)}__`;
     const markerPattern = new RegExp(`(?:^|\\n)${escapeRegExp(marker)}:(\\d+)(?:\\r)?(?:\\n|$)`);
 
     if (signal?.aborted) {

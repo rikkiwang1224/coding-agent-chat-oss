@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { Bot, Brain } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { formatCostUsd } from "@forgelet/sdk-runtime";
+import { formatCostUsd } from "@lattice-code/sdk-runtime";
 import { UserTurn, AssistantTurn } from "./MessageBubble";
 import { useApp } from "@/context/AppContext";
 import type { Message, MessageTurnCost } from "@/types";

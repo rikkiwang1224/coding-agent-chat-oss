@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Forgelet wrapper around swebench.harness.run_evaluation.
+Lattice Code wrapper around swebench.harness.run_evaluation.
 
 ECS fixes (runtime monkey-patch, no site-packages edits):
   1. Sphinx eval: inject pip pins after ``pip install -e .[test]`` in /eval.sh
@@ -20,14 +20,14 @@ SPHINX_PIN_LINE = (
     "'sphinxcontrib-applehelp<=1.0.7' 'sphinxcontrib-devhelp<=1.0.5' "
     "'sphinxcontrib-htmlhelp<=2.0.4' 'sphinxcontrib-serializinghtml<=1.1.9' "
     "'sphinxcontrib-qthelp<=1.0.6' 'docutils<0.21' 'pytest>=6.0,<8' "
-    "2>/dev/null || true  # FORGELET_SPHINX_PINS"
+    "2>/dev/null || true  # LATTICE_CODE_SPHINX_PINS"
 )
 
 _INJECT_PY = f"""
 from pathlib import Path
 pin = {SPHINX_PIN_LINE!r}
 path = Path("/eval.sh")
-if not path.is_file() or "FORGELET_SPHINX_PINS" in path.read_text():
+if not path.is_file() or "LATTICE_CODE_SPHINX_PINS" in path.read_text():
     raise SystemExit(0)
 needle = "python -m pip install -e .[test]"
 text = path.read_text()

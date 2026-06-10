@@ -1,15 +1,15 @@
-# Forgelet Brand
+# Lattice Code Brand
 
 ## Name
 
-**Forgelet**
+**Lattice Code**
 
-Meaning: a small forge. The app is a compact local workbench where prompts, tool calls, and code context are shaped into useful changes.
+Meaning: a structural layer where code, context, and agents connect. A local workbench for agent-driven development.
 
 Tagline options:
 
 - Local chat for coding agents.
-- A small forge for code conversations.
+- The structural layer for code conversations.
 - Bring an agent to any codebase.
 
 ## Icon
@@ -23,8 +23,8 @@ The mark combines:
 
 Primary asset:
 
-- `brand/forgelet-icon.svg`
-- `brand/forgelet-icon.png`
+- `brand/lattice-code-icon.svg`
+- `brand/lattice-code-icon.png`
 - `apps/chat-desktop/build/icon.svg`
 - `apps/chat-desktop/build/icon.png`
 
@@ -39,4 +39,4 @@ Primary asset:
 
 ## Usage
 
-Use **Forgelet** as the product name. Use `forgelet` for package/repo slugs.
+Use **Lattice Code** as the product name. Use `lc` for the CLI; `@lattice-code/*` for packages.

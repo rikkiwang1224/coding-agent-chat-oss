@@ -1,5 +1,5 @@
 {
-  "name": "@forgelet/storage-core",
+  "name": "@lattice-code/storage-core",
   "version": "0.1.0",
   "private": true,
   "type": "module",

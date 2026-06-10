@@ -19,12 +19,12 @@ import {
 import { buildSystemPrompt } from "../src/prompt.js";
 
 describe("code graph integration", () => {
-  it("isCodeGraphDisabled respects FORGELET_CODE_GRAPH=0", () => {
-    const prev = process.env.FORGELET_CODE_GRAPH;
-    process.env.FORGELET_CODE_GRAPH = "0";
+  it("isCodeGraphDisabled respects LATTICE_CODE_CODE_GRAPH=0", () => {
+    const prev = process.env.LATTICE_CODE_CODE_GRAPH;
+    process.env.LATTICE_CODE_CODE_GRAPH = "0";
     expect(isCodeGraphDisabled()).toBe(true);
-    if (prev === undefined) delete process.env.FORGELET_CODE_GRAPH;
-    else process.env.FORGELET_CODE_GRAPH = prev;
+    if (prev === undefined) delete process.env.LATTICE_CODE_CODE_GRAPH;
+    else process.env.LATTICE_CODE_CODE_GRAPH = prev;
   });
 
   it("buildToolDefinitions merges code graph tools when enabled", () => {

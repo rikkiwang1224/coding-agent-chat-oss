@@ -54,7 +54,7 @@ flowchart TB
 
 ### 0. 仓库与目录
 
-SWE-bench 评测在 **Forgelet monorepo**（本仓库 `coding-agent-chat-oss`）内，与桌面端、harness 共用同一 git 仓库：
+SWE-bench 评测在 **Lattice Code monorepo**（本仓库 `coding-agent-chat-oss`）内，与桌面端、harness 共用同一 git 仓库：
 
 ```text
 coding-agent-chat-oss/                 # 仓库根（在此执行 pnpm install / eval:swe）
@@ -70,7 +70,7 @@ coding-agent-chat-oss/                 # 仓库根（在此执行 pnpm install /
 └── .env                                 # 建议放 DEEPSEEK_API_KEY（勿提交）
 ```
 
-以下命令均在 **仓库根目录** 执行（`pnpm --filter @forgelet/harness ...`）；路径如 `packages/harness/eval/swe-bench/...` 均相对仓库根。
+以下命令均在 **仓库根目录** 执行（`pnpm --filter @lattice-code/harness ...`）；路径如 `packages/harness/eval/swe-bench/...` 均相对仓库根。
 
 **Cursor Agent：** 可用项目 skill [`.cursor/skills/swe-bench-eval`](../../../../.cursor/skills/swe-bench-eval/SKILL.md) 按步骤自动化 Mac Agent + 云端评测（对话中说「跑 SWE-bench 评测」即可触发）。
 
@@ -134,7 +134,7 @@ docker run --rm hello-world
 #### 2.2 评测目录与 Python 依赖
 
 ```bash
-mkdir -p ~/forgelet-eval && cd ~/forgelet-eval
+mkdir -p ~/lc-eval && cd ~/lc-eval
 # 从 Mac scp 整个 swe-bench 脚本目录，或 git clone 后拷贝
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
@@ -210,8 +210,8 @@ export HF_DATASETS_CACHE=$HOME/.cache/huggingface/datasets
 export HF_HUB_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 
-cd ~/forgelet-eval
-export SWEBENCH_PYTHON=$HOME/forgelet-eval/.venv/bin/python
+cd ~/lc-eval
+export SWEBENCH_PYTHON=$HOME/lc-eval/.venv/bin/python
 bash evaluate.sh gold SWE-bench/SWE-bench_Lite validate-gold 1
 ```
 
@@ -234,7 +234,7 @@ export DEEPSEEK_API_KEY=sk-...
 export SWEBENCH_PYTHON="$(pwd)/packages/harness/eval/swe-bench/.venv/bin/python"
 # 临时 venv 也可用 .venv-mac/bin/python
 
-pnpm --filter @forgelet/harness eval:swe -- \
+pnpm --filter @lattice-code/harness eval:swe -- \
   --dataset lite \
   --limit 3 \
   --skip-eval \
@@ -270,7 +270,7 @@ packages/harness/eval/swe-bench/runs/eval-tencent-smoke/
 断点续跑：
 
 ```bash
-pnpm --filter @forgelet/harness eval:swe -- \
+pnpm --filter @lattice-code/harness eval:swe -- \
   --output packages/harness/eval/swe-bench/runs/eval-tencent-smoke \
   --instances packages/harness/eval/swe-bench/runs/eval-tencent-smoke/instances.json \
   --resume --skip-eval
@@ -280,7 +280,7 @@ pnpm --filter @forgelet/harness eval:swe -- \
 
 ```bash
 scp packages/harness/eval/swe-bench/runs/eval-tencent-smoke/predictions.jsonl \
-  ubuntu@<ECS_IP>:~/forgelet-eval/predictions.jsonl
+  ubuntu@<ECS_IP>:~/lc-eval/predictions.jsonl
 ```
 
 #### 3.3 云：Docker 官方评测
@@ -298,11 +298,11 @@ export HF_HOME=$HOME/.cache/huggingface
 export HF_HUB_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 
-cd ~/forgelet-eval
-export SWEBENCH_PYTHON=$HOME/forgelet-eval/.venv/bin/python
+cd ~/lc-eval
+export SWEBENCH_PYTHON=$HOME/lc-eval/.venv/bin/python
 
 bash evaluate.sh \
-  ~/forgelet-eval/predictions.jsonl \
+  ~/lc-eval/predictions.jsonl \
   SWE-bench/SWE-bench_Lite \
   tencent-smoke \
   1
@@ -359,20 +359,20 @@ jq '.resolved_ids, .unresolved_ids' "$RUN"
 **云上还可能有的路径：**
 
 ```bash
-# evaluate.sh 的工作目录（你的是 ~/forgelet-eval）
-ls ~/forgelet-eval/*.json
-ls ~/forgelet-eval/evaluation_results/tencent-smoke/ 2>/dev/null
+# evaluate.sh 的工作目录（你的是 ~/lc-eval）
+ls ~/lc-eval/*.json
+ls ~/lc-eval/evaluation_results/tencent-smoke/ 2>/dev/null
 
 # 每条 instance 的 Docker 测试日志（路径因 swebench 版本略有差异）
-find ~/forgelet-eval/logs -type f 2>/dev/null | head
+find ~/lc-eval/logs -type f 2>/dev/null | head
 ```
 
 若 `evaluation_results/tencent-smoke/` 不存在但根目录有 `deepseek-v4-pro.tencent-smoke.json`，以**根目录这份 JSON 为准**即可；`scp` 时优先拉 `*.json` 和 `logs/`。
 
 ```bash
-scp ubuntu@<ECS_IP>:~/forgelet-eval/deepseek-v4-pro.tencent-smoke.json \
+scp ubuntu@<ECS_IP>:~/lc-eval/deepseek-v4-pro.tencent-smoke.json \
   packages/harness/eval/swe-bench/runs/eval-tencent-smoke/cloud-results/
-scp -r ubuntu@<ECS_IP>:~/forgelet-eval/logs \
+scp -r ubuntu@<ECS_IP>:~/lc-eval/logs \
   packages/harness/eval/swe-bench/runs/eval-tencent-smoke/cloud-results/
 ```
 
@@ -411,7 +411,7 @@ runs/eval-<run-id>/
 - 需要完整轨迹时，加 **`--save-traces`**，会在 `traces/<instance_id>.json` 里写入全部 `AgentEvent`（`tool.called`、`message` 等），与内置 `eval/tasks` 一致。
 
 ```bash
-pnpm --filter @forgelet/harness eval:swe -- \
+pnpm --filter @lattice-code/harness eval:swe -- \
   --dataset lite --limit 3 --skip-eval --run-id tencent-smoke --save-traces
 ```
 
@@ -454,8 +454,8 @@ jq -r '.unresolved_ids[]' packages/harness/eval/swe-bench/runs/eval-tencent-smok
 
 | 步骤 | 位置 | 命令 |
 |------|------|------|
-| Agent | Mac（仓库根） | `pnpm --filter @forgelet/harness eval:swe -- --skip-eval --run-id <id> [--limit N]` |
-| 传 patch | Mac | `scp packages/harness/eval/swe-bench/runs/eval-<id>/predictions.jsonl ubuntu@<IP>:~/forgelet-eval/` |
+| Agent | Mac（仓库根） | `pnpm --filter @lattice-code/harness eval:swe -- --skip-eval --run-id <id> [--limit N]` |
+| 传 patch | Mac | `scp packages/harness/eval/swe-bench/runs/eval-<id>/predictions.jsonl ubuntu@<IP>:~/lc-eval/` |
 | 开代理 | Mac | `pproxy` + `ssh -R 7890:127.0.0.1:7890` |
 | 评测 | 云 | `bash evaluate.sh predictions.jsonl SWE-bench/SWE-bench_Lite <run-id> 1` |
 | 看分 | 云 | `evaluation_results/<run-id>/results.json` |
@@ -508,7 +508,7 @@ export DEEPSEEK_API_KEY=sk-...
 ```bash
 cd packages/harness/eval/swe-bench
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-# 或: pnpm --filter @forgelet/harness eval:swe:setup
+# 或: pnpm --filter @lattice-code/harness eval:swe:setup
 ```
 
 资源建议（SWE-bench 官方）：x86_64 · ≥120GB 磁盘 · 16GB RAM。
@@ -564,15 +564,15 @@ logs/                          # 云上 harness 日志（Docker 测试详情）
 | 判定 | `judge.sh` | Docker + 项目测试 |
 | 用途 | 日常迭代 | **发版 / 对比模型** |
 
-日常：`pnpm --filter @forgelet/harness eval`  
+日常：`pnpm --filter @lattice-code/harness eval`  
 发版前：SWE-bench Lite 子集 + 云端 `evaluate.sh`。
 
 ## 脚本命令
 
 ```bash
-pnpm --filter @forgelet/harness eval:swe          # Agent（可加 --skip-eval）
-pnpm --filter @forgelet/harness eval:swe:verify   # 仅 Docker 评测
-pnpm --filter @forgelet/harness eval:swe:setup    # 云/Macos 上装 Python 依赖
+pnpm --filter @lattice-code/harness eval:swe          # Agent（可加 --skip-eval）
+pnpm --filter @lattice-code/harness eval:swe:verify   # 仅 Docker 评测
+pnpm --filter @lattice-code/harness eval:swe:setup    # 云/Macos 上装 Python 依赖
 ```
 
 ## 验证 gold patch
@@ -591,7 +591,7 @@ Harness 里两个完成路径 hook（`reason` / `verify`）在通用项目里都
 
 ### Reason hook（独立 LLM 评审）
 
-`FORGELET_REASON=1` 启用。会在 agent 自认 "done" 时再起一次独立 LLM 调用，输入 `(issue, facts_board, current_diff, recent_activity_digest)`，让它判 `approve / revise`。
+`LATTICE_CODE_REASON=1` 启用。会在 agent 自认 "done" 时再起一次独立 LLM 调用，输入 `(issue, facts_board, current_diff, recent_activity_digest)`，让它判 `approve / revise`。
 
 - **本意**：当 facts board 之外还有遗漏（边界条件、未覆盖分支）时给一次"刹车 + 反馈"。
 - **lite-50 A/B 实测**：与 baseline 几乎无差异 —— Reason 几乎总是 `approve`，零次 `revise`。事后看是缺 ground truth 反馈，单纯的 LLM 自审在没有事实约束的情况下倾向于"看起来合理就放行"。
@@ -599,7 +599,7 @@ Harness 里两个完成路径 hook（`reason` / `verify`）在通用项目里都
 
 ### Verify hook（跑现有测试套件）
 
-`FORGELET_VERIFY=1` 启用。完成路径上先于 Reason 运行，会：
+`LATTICE_CODE_VERIFY=1` 启用。完成路径上先于 Reason 运行，会：
 
 1. `git diff --name-only HEAD` 拿到修改文件；
 2. 用 `verify-adapters/changed-files.ts` 的启发式推断"相关测试文件"（兄弟 `test_*.py`、`tests/` 目录、Django 内 `tests/<app>/`）；

@@ -17,7 +17,7 @@ shift 2
 IDS=("$@")
 [[ ${#IDS[@]} -gt 0 ]] || { echo "error: need at least one instance_id" >&2; exit 1; }
 
-MODEL_NAME="${MODEL_NAME:-forgelet-docker-rv1}"
+MODEL_NAME="${MODEL_NAME:-lattice-code-docker-rv1}"
 export MAX_WORKERS="${MAX_WORKERS:-4}"
 
 echo "=== partial eval via run-eval-ecs.sh: ${#IDS[@]} instance(s) → run_id=$RUN_ID ==="

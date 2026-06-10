@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { estimateRunCostUsd, formatCostUsd } from "@forgelet/sdk-runtime";
+import { estimateRunCostUsd, formatCostUsd } from "@lattice-code/sdk-runtime";
 
 describe("cost estimation", () => {
   it("estimates deepseek-v4-pro run cost", () => {

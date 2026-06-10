@@ -8,7 +8,7 @@
 # Checks:
 #   - Docker bridge egress (httpbin)
 #   - Mac pproxy tunnel (GitHub raw) when proxy expected
-#   - sweb-venv + forgelet eval wrapper present
+#   - sweb-venv + lc eval wrapper present
 
 set -euo pipefail
 
@@ -63,10 +63,10 @@ if [[ -x "$SWEB" ]]; then
 else
   fail "missing $SWEB — python3 -m venv ~/sweb-venv && pip install swebench datasets huggingface_hub"
 fi
-if [[ -f "$SCRIPT_DIR/forgelet_run_evaluation.py" ]]; then
-  pass "forgelet_run_evaluation.py (sphinx eval pins)"
+if [[ -f "$SCRIPT_DIR/lattice_code_run_evaluation.py" ]]; then
+  pass "lattice_code_run_evaluation.py (sphinx eval pins)"
 else
-  fail "missing forgelet_run_evaluation.py"
+  fail "missing lattice_code_run_evaluation.py"
 fi
 
 echo ""

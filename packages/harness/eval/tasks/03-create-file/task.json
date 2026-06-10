@@ -1,7 +1,7 @@
 {
   "id": "03-create-file",
   "name": "Create a new file from scratch",
-  "prompt": "Create a file called `src/constants.ts` that exports a constant `APP_NAME` with value \"Forgelet\" and a constant `VERSION` with value \"1.0.0\".",
+  "prompt": "Create a file called `src/constants.ts` that exports a constant `APP_NAME` with value \"Lattice Code\" and a constant `VERSION` with value \"1.0.0\".",
   "timeout_s": 30,
   "judge": "contains",
   "judge_args": { "file": "src/constants.ts", "expected": "APP_NAME" }

@@ -1,4 +1,4 @@
-import type { LlmProvider } from "@forgelet/sdk-runtime";
+import type { LlmProvider } from "@lattice-code/sdk-runtime";
 
 export interface LlmConfig {
   apiKey: string;

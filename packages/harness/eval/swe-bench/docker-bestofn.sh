@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Best-of-N batch: run the Forgelet agent N times per SWE-bench instance (with
+# Best-of-N batch: run the Lattice Code agent N times per SWE-bench instance (with
 # temperature > 0 so samples diverge), then pick one candidate patch via
 # select-patch.ts. Writes a predictions.jsonl of the SELECTED patches plus, for
 # every instance, all N candidate patches (so pass@N can be computed offline by
@@ -10,13 +10,13 @@
 #
 # Key env vars:
 #   BEST_OF_N            — samples per instance (default 5)
-#   FORGELET_TEMPERATURE — sampling temperature for diversity (default 0.7)
+#   LATTICE_CODE_TEMPERATURE — sampling temperature for diversity (default 0.7)
 #   RUN_REGRESSION       — 1 → measure each candidate's related-tests status and
 #                          let selection prefer green patches (default 0)
 #   PER_SAMPLE_TIMEOUT   — per-sample agent wall clock seconds (default 600)
 #   SELECT_TIMEOUT_MS    — per-candidate regression timeout ms (default 300000)
 #   KEEP_IMAGES          — LRU keep N swebench/sweb.eval.* images (default 15)
-#   MODEL_NAME           — predictions model_name_or_path (default forgelet-bestofn)
+#   MODEL_NAME           — predictions model_name_or_path (default lc-bestofn)
 #
 # Outputs (under <output_dir>):
 #   predictions.jsonl                 — selected patch per instance
@@ -41,12 +41,12 @@ mkdir -p "$LOG_DIR"
 touch "$DONE_FILE" "$PRED_FILE" "$SUMMARY"
 
 BEST_OF_N="${BEST_OF_N:-5}"
-FORGELET_TEMPERATURE="${FORGELET_TEMPERATURE:-0.7}"
+LATTICE_CODE_TEMPERATURE="${LATTICE_CODE_TEMPERATURE:-0.7}"
 RUN_REGRESSION="${RUN_REGRESSION:-0}"
 PER_SAMPLE_TIMEOUT="${PER_SAMPLE_TIMEOUT:-600}"
 SELECT_TIMEOUT_MS="${SELECT_TIMEOUT_MS:-300000}"
 KEEP_IMAGES="${KEEP_IMAGES:-15}"
-MODEL_NAME="${MODEL_NAME:-forgelet-bestofn}"
+MODEL_NAME="${MODEL_NAME:-lc-bestofn}"
 
 instance_to_image() {
   local id="$1"; local lower="${id,,}"
@@ -72,7 +72,7 @@ cleanup_images() {
 TOTAL=$(jq 'length' "$INSTANCES_JSON")
 BATCH_START=$(date +%s)
 echo "=== best-of-n batch: $TOTAL instances → $OUT_DIR ==="
-echo "=== N=$BEST_OF_N temperature=$FORGELET_TEMPERATURE run_regression=$RUN_REGRESSION per_sample_timeout=${PER_SAMPLE_TIMEOUT}s ==="
+echo "=== N=$BEST_OF_N temperature=$LATTICE_CODE_TEMPERATURE run_regression=$RUN_REGRESSION per_sample_timeout=${PER_SAMPLE_TIMEOUT}s ==="
 
 for i in $(seq 0 $((TOTAL - 1))); do
   INST_ID=$(jq -r ".[$i].instance_id" "$INSTANCES_JSON")
@@ -103,11 +103,11 @@ for i in $(seq 0 $((TOTAL - 1))); do
     docker run --rm \
       --network host \
       -v "$HOME/node-prebuilt/node-v20:/opt/node:ro" \
-      -v "$HOME/coding-agent-chat-oss:/forgelet:ro" \
+      -v "$HOME/coding-agent-chat-oss:/lattice-code:ro" \
       -v "$WORK:/work" \
       --env-file "$HOME/coding-agent-chat-oss/.env" \
       -e SWE_INSTANCE_ID="$INST_ID" \
-      -e FORGELET_TEMPERATURE="$FORGELET_TEMPERATURE" \
+      -e LATTICE_CODE_TEMPERATURE="$LATTICE_CODE_TEMPERATURE" \
       -e BEST_OF_N="$BEST_OF_N" \
       -e RUN_REGRESSION="$RUN_REGRESSION" \
       -e SELECT_TIMEOUT_MS="$SELECT_TIMEOUT_MS" \
@@ -121,11 +121,11 @@ for i in $(seq 0 $((TOTAL - 1))); do
         conda activate testbed
         cd /testbed
         BASE=$(git rev-parse HEAD)
-        TSX=/forgelet/node_modules/tsx/dist/cli.mjs
-        AGENT=/forgelet/packages/harness/eval/swe-bench/docker-agent.ts
+        TSX=/lattice-code/node_modules/tsx/dist/cli.mjs
+        AGENT=/lattice-code/packages/harness/eval/swe-bench/docker-agent.ts
 
         for k in $(seq 1 "$BEST_OF_N"); do
-          echo "=== sample $k/$BEST_OF_N (temp=$FORGELET_TEMPERATURE) ==="
+          echo "=== sample $k/$BEST_OF_N (temp=$LATTICE_CODE_TEMPERATURE) ==="
           git reset --hard "$BASE" -q && git clean -fdq
           timeout "$PER_SAMPLE_TIMEOUT" node "$TSX" "$AGENT" \
             --workspace /testbed \
@@ -142,7 +142,7 @@ for i in $(seq 0 $((TOTAL - 1))); do
 
         REG_FLAG=""
         [ "$RUN_REGRESSION" = "1" ] && REG_FLAG="--run-regression"
-        node "$TSX" /forgelet/packages/harness/eval/swe-bench/select-patch.ts \
+        node "$TSX" /lattice-code/packages/harness/eval/swe-bench/select-patch.ts \
           --candidates-dir /work --out /work/agent.patch --report /work/bestofn-report.json \
           --repo "$REPO" --testbed /testbed --base "$BASE" --python python \
           --timeout-ms "$SELECT_TIMEOUT_MS" $REG_FLAG 2>&1 | tail -20

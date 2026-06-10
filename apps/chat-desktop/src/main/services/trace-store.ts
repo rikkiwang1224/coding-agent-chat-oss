@@ -1,12 +1,12 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import type { AgentEvent } from "@forgelet/shared-types";
+import type { AgentEvent } from "@lattice-code/shared-types";
 import {
   resolveAgentHome,
   resolveDesktopTraceDir,
   resolveWorkspaceThreadPath,
   resolveWorkspaceThreadsDir,
-} from "@forgelet/storage-core";
+} from "@lattice-code/storage-core";
 
 export interface TraceSummary {
   sessionId: string;
@@ -187,7 +187,7 @@ async function resolveWorkspaceRootForHash(
   return { workspaceRoot: storageDir, workspaceName: workspaceHash };
 }
 
-/** List sessions from ~/.forgelet/workspaces/{hash}/threads/ for one workspace. */
+/** List sessions from ~/.lattice-code/workspaces/{hash}/threads/ for one workspace. */
 export async function listDesktopTraces(workspaceRoot: string): Promise<TraceSummary[]> {
   const workspaceName = path.basename(workspaceRoot);
   const summaries = await listDesktopTracesForRoot(workspaceRoot, workspaceName);
@@ -239,7 +239,7 @@ async function listDesktopTracesForRoot(
   });
 }
 
-/** List chats across every workspace under ~/.forgelet/workspaces/ */
+/** List chats across every workspace under ~/.lattice-code/workspaces/ */
 export async function listAllDesktopTraces(): Promise<TraceSummary[]> {
   const workspacesRoot = path.join(resolveAgentHome(), "workspaces");
   let entries;

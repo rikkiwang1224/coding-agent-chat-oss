@@ -270,7 +270,7 @@ describe("glob_search", () => {
     // A malicious model output. If we ever passed `pattern` into `sh -c`,
     // this would try to run `rm`. We expect zero files matched and the
     // workspace to be intact.
-    const injected = '*"; touch /tmp/forgelet-pwned-$$; echo "';
+    const injected = '*"; touch /tmp/lc-pwned-$$; echo "';
     const result = await executor.execute("glob_search", { pattern: injected });
     expect(result.ok).toBe(true);
     // safe.ts must still exist (no rm executed)

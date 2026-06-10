@@ -3,10 +3,10 @@
  * SWE-bench eval — run agent on real repos, then evaluate with official Docker harness.
  *
  * Phase 1 — agent (this script):
- *   pnpm --filter @forgelet/harness eval:swe -- --dataset lite --limit 3
+ *   pnpm --filter @lattice-code/harness eval:swe -- --dataset lite --limit 3
  *
  * Phase 2 — official harness (Docker required):
- *   pnpm --filter @forgelet/harness eval:swe:verify -- runs/eval-<id>/predictions.jsonl
+ *   pnpm --filter @lattice-code/harness eval:swe:verify -- runs/eval-<id>/predictions.jsonl
  *
  * Prerequisites:
  *   - DEEPSEEK_API_KEY (or --api-key) for agent runs
@@ -16,7 +16,7 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveSweBenchRunDir, resolveSweBenchTraceDir } from "@forgelet/storage-core";
+import { resolveSweBenchRunDir, resolveSweBenchTraceDir } from "@lattice-code/storage-core";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { access } from "node:fs/promises";

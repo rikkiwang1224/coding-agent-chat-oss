@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { app } from "electron";
-import { PROVIDER_PRESETS, type LlmProvider } from "@forgelet/sdk-runtime";
+import { PROVIDER_PRESETS, type LlmProvider } from "@lattice-code/sdk-runtime";
 
 const SETTINGS_FILENAME = "chat-desktop-settings.json";
 

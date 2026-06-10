@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
 
-const DEFAULT_AGENT_HOME_DIRNAME = ".forgelet";
+const DEFAULT_AGENT_HOME_DIRNAME = ".lattice-code";
 const SESSION_SNAPSHOT_FILENAME = "snapshot.json";
 const SESSIONS_DIRNAME = "sessions";
 const WORKSPACE_SESSION_INDEX_FILENAME = "session-index.json";
@@ -33,7 +33,7 @@ export interface WorkspaceSessionIndex {
 }
 
 export function resolveAgentHome(): string {
-  const configuredHome = process.env.FORGELET_HOME?.trim();
+  const configuredHome = process.env.LATTICE_CODE_HOME?.trim();
   if (configuredHome) {
     return path.resolve(configuredHome);
   }
@@ -69,23 +69,23 @@ export function resolveWorkspaceThreadPath(workspaceRoot: string, threadId: stri
   return path.join(resolveWorkspaceThreadsDir(workspaceRoot), `${sanitizeStorageSegment(threadId)}.json`);
 }
 
-export function resolveForgeletTracesDir(): string {
-  const override = process.env.FORGELET_TRACE_ROOT?.trim();
+export function resolveLatticeCodeTracesDir(): string {
+  const override = process.env.LATTICE_CODE_TRACE_ROOT?.trim();
   if (override) {
     return path.resolve(override);
   }
   return path.join(resolveAgentHome(), TRACES_DIRNAME);
 }
 
-export function resolveForgeletRunsDir(): string {
-  const override = process.env.FORGELET_RUNS_ROOT?.trim();
+export function resolveLatticeCodeRunsDir(): string {
+  const override = process.env.LATTICE_CODE_RUNS_ROOT?.trim();
   if (override) {
     return path.resolve(override);
   }
   return path.join(resolveAgentHome(), RUNS_DIRNAME);
 }
 
-/** Harness resume sessions: FORGELET_HOME/sessions/{workspaceHash}/{sessionId}.json */
+/** Harness resume sessions: LATTICE_CODE_HOME/sessions/{workspaceHash}/{sessionId}.json */
 export function resolveHarnessSessionsDir(workspaceRoot: string): string {
   return path.join(resolveAgentHome(), SESSIONS_DIRNAME, resolveWorkspaceHash(workspaceRoot));
 }
@@ -99,7 +99,7 @@ export function resolveHarnessSessionPath(workspaceRoot: string, sessionId: stri
 
 export function resolveDesktopTraceDir(workspaceRoot: string, sessionId: string): string {
   return path.join(
-    resolveForgeletTracesDir(),
+    resolveLatticeCodeTracesDir(),
     "desktop",
     resolveWorkspaceHash(workspaceRoot),
     sanitizeStorageSegment(sessionId),
@@ -108,7 +108,7 @@ export function resolveDesktopTraceDir(workspaceRoot: string, sessionId: string)
 
 export function resolveCliTraceDir(workspaceRoot: string, sessionId: string): string {
   return path.join(
-    resolveForgeletTracesDir(),
+    resolveLatticeCodeTracesDir(),
     "cli",
     resolveWorkspaceHash(workspaceRoot),
     sanitizeStorageSegment(sessionId),
@@ -116,19 +116,19 @@ export function resolveCliTraceDir(workspaceRoot: string, sessionId: string): st
 }
 
 export function resolveEvalRunDir(runId: string): string {
-  return path.join(resolveForgeletRunsDir(), "eval", sanitizeStorageSegment(runId));
+  return path.join(resolveLatticeCodeRunsDir(), "eval", sanitizeStorageSegment(runId));
 }
 
 export function resolveEvalTraceDir(runId: string): string {
-  return path.join(resolveForgeletTracesDir(), "eval", sanitizeStorageSegment(runId));
+  return path.join(resolveLatticeCodeTracesDir(), "eval", sanitizeStorageSegment(runId));
 }
 
 export function resolveSweBenchRunDir(runId: string): string {
-  return path.join(resolveForgeletRunsDir(), "swe-bench", sanitizeRunId(runId));
+  return path.join(resolveLatticeCodeRunsDir(), "swe-bench", sanitizeRunId(runId));
 }
 
 export function resolveSweBenchTraceDir(runId: string): string {
-  return path.join(resolveForgeletTracesDir(), "swe-bench", sanitizeRunId(runId));
+  return path.join(resolveLatticeCodeTracesDir(), "swe-bench", sanitizeRunId(runId));
 }
 
 export function resolveSweBenchTraceInstancePath(runId: string, instanceId: string): string {
@@ -180,7 +180,7 @@ export function resolveTimestampPrefixedSessionSnapshotPath(
   return path.join(resolveTimestampPrefixedSessionStorageDir(sessionId, createdAt), SESSION_SNAPSHOT_FILENAME);
 }
 
-/** @deprecated Use resolveHarnessSessionsDir — sessions live under FORGELET_HOME, not the repo. */
+/** @deprecated Use resolveHarnessSessionsDir — sessions live under LATTICE_CODE_HOME, not the repo. */
 export function resolveHarnessSessionDir(workspaceRoot: string): string {
   return resolveHarnessSessionsDir(workspaceRoot);
 }

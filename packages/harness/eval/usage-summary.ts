@@ -1,5 +1,5 @@
-import type { AgentEvent } from "@forgelet/shared-types";
-import { estimateRunCostUsd, formatCostUsd, type LlmProvider } from "@forgelet/sdk-runtime";
+import type { AgentEvent } from "@lattice-code/shared-types";
+import { estimateRunCostUsd, formatCostUsd, type LlmProvider } from "@lattice-code/sdk-runtime";
 
 export interface EvalUsageSummary {
   inputTokens: number;

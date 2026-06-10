@@ -14,7 +14,7 @@
  * runs a command, parses the output via a caller-supplied `parseOutput`,
  * and shapes the verdict. The SWE-bench adapter (eval/swe-bench/...) is one
  * of many possible callers; real projects can configure their own via
- * `.forgelet/verify.json` or a package.json `scripts.verify` adapter.
+ * `.lattice-code/verify.json` or a package.json `scripts.verify` adapter.
  *
  * Cost guard:
  *   - bounded by `maxRounds` (default 3)

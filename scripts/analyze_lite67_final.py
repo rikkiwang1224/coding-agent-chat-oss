@@ -9,8 +9,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 HOME = Path.home()
-TRACE_BASE = HOME / ".forgelet/traces/swe-bench"
-RUN_BASE = HOME / ".forgelet/runs/swe-bench"
+TRACE_BASE = HOME / ".lattice-code/traces/swe-bench"
+RUN_BASE = HOME / ".lattice-code/runs/swe-bench"
 BUCKETS = ["eval-lite-86-bucket-a", "eval-lite-86-bucket-b", "eval-lite-86-bucket-c"]
 
 LITE77_FILE = Path(__file__).parent.parent / "packages/harness/eval/swe-bench/lite-77-unresolved.txt"

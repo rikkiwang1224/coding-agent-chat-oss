@@ -72,12 +72,12 @@ async function runCommand(command, args, cwd) {
 async function stageRootPackage(destinationRoot, sourcePackage) {
   const excludedDependencies = new Set(["electron"]);
   await writeJson(path.join(destinationRoot, "package.json"), {
-    name: "forgelet",
-    productName: "Forgelet",
+    name: "lc",
+    productName: "Lattice Code",
     version: sourcePackage.version,
     private: true,
     description: sourcePackage.description,
-    author: "Forgelet",
+    author: "Lattice Code",
     type: "module",
     main: "apps/chat-desktop/dist/main.js",
     dependencies: Object.fromEntries(

@@ -4,10 +4,10 @@ import {
   resolveHarnessSessionsDir,
   resolveHarnessSessionPath,
   sanitizeStorageSegment,
-} from "@forgelet/storage-core";
+} from "@lattice-code/storage-core";
 import type { ChatMessage } from "./types.js";
 
-/** @deprecated Use resolveHarnessSessionsDir from @forgelet/storage-core */
+/** @deprecated Use resolveHarnessSessionsDir from @lattice-code/storage-core */
 export function resolveHarnessSessionDir(workspaceRoot: string): string {
   return resolveHarnessSessionsDir(workspaceRoot);
 }
@@ -55,7 +55,7 @@ export class SessionStore {
   private readonly storeDir: string;
   private readonly workspaceRoot?: string;
 
-  /** Persist under FORGELET_HOME/sessions/{workspaceHash}/ */
+  /** Persist under LATTICE_CODE_HOME/sessions/{workspaceHash}/ */
   static forWorkspace(workspaceRoot: string): SessionStore {
     return new SessionStore(resolveHarnessSessionsDir(workspaceRoot), workspaceRoot);
   }

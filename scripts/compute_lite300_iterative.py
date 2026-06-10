@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 HOME = Path.home()
-FORGELET = HOME / ".forgelet/runs/swe-bench"
+LATTICE_CODE_RUNS = HOME / ".lattice-code/runs/swe-bench"
 
 
 def load_report(path: Path) -> dict:
@@ -53,7 +53,7 @@ def apply_log_dir(status: dict, root: Path) -> tuple[int, int]:
 
 
 def main() -> None:
-    all300_path = FORGELET / "lite-full" / "instances.json"
+    all300_path = LATTICE_CODE_RUNS / "lite-full" / "instances.json"
     if not all300_path.exists():
         all300_path = Path("/home/ubuntu/swe-batch/lite-full/instances.json")
     all300 = {i["instance_id"] for i in load_report(all300_path)}
@@ -61,12 +61,12 @@ def main() -> None:
     status: dict[str, bool] = {}
 
     segments = [
-        ("1-50", FORGELET / "lite-50-eval-20260528/eval-report.json"),
-        ("51-100", FORGELET / "lite-51-100-rv1-eval-rerun8/eval-report.json"),
-        ("101-150", FORGELET / "lite-101-150-base-eval-20260601/eval-report.json"),
-        ("151-200", FORGELET / "lite-151-200-base-eval-20260601/eval-report.json"),
-        ("201-250", FORGELET / "lite-201-250-base-eval-20260602/eval-report.json"),
-        ("251-300", FORGELET / "lite-251-300-cg-eval/eval-report.json"),
+        ("1-50", LATTICE_CODE_RUNS / "lite-50-eval-20260528/eval-report.json"),
+        ("51-100", LATTICE_CODE_RUNS / "lite-51-100-rv1-eval-rerun8/eval-report.json"),
+        ("101-150", LATTICE_CODE_RUNS / "lite-101-150-base-eval-20260601/eval-report.json"),
+        ("151-200", LATTICE_CODE_RUNS / "lite-151-200-base-eval-20260601/eval-report.json"),
+        ("201-250", LATTICE_CODE_RUNS / "lite-201-250-base-eval-20260602/eval-report.json"),
+        ("251-300", LATTICE_CODE_RUNS / "lite-251-300-cg-eval/eval-report.json"),
     ]
 
     print("=== Pass 1: initial segment evals ===")
@@ -83,9 +83,9 @@ def main() -> None:
     print(f"  Pass1 cumulative: {pass1_resolved} resolved, {pass1_unresolved} unresolved ({len(status)}/300 tracked)")
 
     retries = [
-        ("lite-108-merged", FORGELET / "lite-108-eval-merged/eval-report.json"),
-        ("guard-retest-29", FORGELET / "guard-retest-29/eval-report.json"),
-        ("lite-86-v1", FORGELET / "lite-86-eval-v1/eval-report.json"),
+        ("lite-108-merged", LATTICE_CODE_RUNS / "lite-108-eval-merged/eval-report.json"),
+        ("guard-retest-29", LATTICE_CODE_RUNS / "guard-retest-29/eval-report.json"),
+        ("lite-86-v1", LATTICE_CODE_RUNS / "lite-86-eval-v1/eval-report.json"),
     ]
 
     print("\n=== Retry rounds (overwrite unresolved only) ===")
@@ -117,7 +117,7 @@ def main() -> None:
     print(f"Missing from ledger:  {len(missing)}")
 
     # Compare to user's 77 starting point for current round
-    u77 = FORGELET.parent
+    u77 = LATTICE_CODE_RUNS.parent
     lite77 = Path("/Users/jinping.wang/Workspace/coding agent/coding-agent-chat-oss/packages/harness/eval/swe-bench/lite-77-unresolved.txt")
     if lite77.exists():
         ids77 = {l.strip() for l in lite77.read_text().splitlines() if l.strip()}

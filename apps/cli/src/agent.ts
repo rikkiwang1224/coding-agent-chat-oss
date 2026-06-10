@@ -10,18 +10,18 @@ import {
   detectRepoFromGitRemote,
   type ReasonHookConfig,
   type TraceConfig,
-} from "@forgelet/harness";
-import type { AgentEvent } from "@forgelet/shared-types";
+} from "@lattice-code/harness";
+import type { AgentEvent } from "@lattice-code/shared-types";
 
 const execFileAsync = promisify(execFile);
 
 /**
  * Build the Reason-as-Sensor hook from env config.
  *
- *   FORGELET_REASON=1      → enabled, 2 rounds (default cap)
- *   FORGELET_REASON=3      → enabled, 3 rounds
- *   FORGELET_REASON=0      → disabled (or any falsy)
- *   FORGELET_REASON unset  → disabled
+ *   LATTICE_CODE_REASON=1      → enabled, 2 rounds (default cap)
+ *   LATTICE_CODE_REASON=3      → enabled, 3 rounds
+ *   LATTICE_CODE_REASON=0      → disabled (or any falsy)
+ *   LATTICE_CODE_REASON unset  → disabled
  *
  * The sensor uses `git diff HEAD` of the workspace as "current diff" and
  * the user's raw prompt as "issue text". For non-git workspaces, the diff
@@ -32,7 +32,7 @@ function buildCliReasonHook(
   workspaceRoot: string,
   getIssueText: () => string,
 ): ReasonHookConfig | undefined {
-  const raw = (process.env.FORGELET_REASON || "").trim().toLowerCase();
+  const raw = (process.env.LATTICE_CODE_REASON || "").trim().toLowerCase();
   if (!raw || raw === "0" || raw === "off" || raw === "false") return undefined;
 
   let maxRounds = 2;
@@ -90,8 +90,8 @@ async function readStdinPrompt(): Promise<string> {
 /**
  * Trace routing for CLI inside SWE-bench Docker:
  * - Batch/smoke default: `--no-trace` (no JSONL).
- * - Debug: omit `--no-trace`, set `SWE_INSTANCE_ID` + `FORGELET_TRACE_RUN_ID` →
- *   `~/.forgelet/traces/swe-bench/eval-<runId>/instances/<id>.jsonl`
+ * - Debug: omit `--no-trace`, set `SWE_INSTANCE_ID` + `LATTICE_CODE_TRACE_RUN_ID` →
+ *   `~/.lattice-code/traces/swe-bench/eval-<runId>/instances/<id>.jsonl`
  *   (summarize with `pnpm eval:swe:traces -- --run-id <runId>`).
  */
 function buildCliTraceConfig(
@@ -103,7 +103,7 @@ function buildCliTraceConfig(
 
   const sweInstanceId = process.env.SWE_INSTANCE_ID?.trim();
   if (sweInstanceId) {
-    const runId = process.env.FORGELET_TRACE_RUN_ID?.trim() || "docker-debug";
+    const runId = process.env.LATTICE_CODE_TRACE_RUN_ID?.trim() || "docker-debug";
     return {
       enabled: true,
       runKind: "swe-bench",
@@ -138,7 +138,7 @@ export async function runCliAgent(options: RunCliOptions): Promise<number> {
 
   if (!llm.apiKey) {
     process.stderr.write(
-      "Error: API key required. Set DEEPSEEK_API_KEY or FORGELET_API_KEY, pass --api-key, or add apiKey to ~/.forgelet/config.json\n",
+      "Error: API key required. Set DEEPSEEK_API_KEY or LATTICE_CODE_API_KEY, pass --api-key, or add apiKey to ~/.lattice-code/config.json\n",
     );
     return 1;
   }
@@ -234,7 +234,7 @@ export async function runCliAgent(options: RunCliOptions): Promise<number> {
   try {
     if (args.interactive) {
       process.stderr.write(
-        `Forgelet CLI · ${path.basename(workspaceRoot)} · session ${sessionId.slice(0, 8)}\n`,
+        `Lattice Code CLI · ${path.basename(workspaceRoot)} · session ${sessionId.slice(0, 8)}\n`,
       );
       process.stderr.write(`Model: ${llm.model} (${llm.provider})\n`);
       process.stderr.write(`Type a message, or /exit to quit.\n\n`);

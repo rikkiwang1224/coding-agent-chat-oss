@@ -48,7 +48,7 @@ export function loadEvalEnv(startDir?: string): void {
   if (loaded) return;
   loaded = true;
 
-  const explicit = process.env.FORGELET_ENV_FILE?.trim();
+  const explicit = process.env.LATTICE_CODE_ENV_FILE?.trim();
   if (explicit) {
     applyEnvFile(path.isAbsolute(explicit) ? explicit : path.resolve(process.cwd(), explicit));
     return;

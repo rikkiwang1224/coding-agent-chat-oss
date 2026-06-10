@@ -4,7 +4,7 @@
  */
 
 import { readFileSync } from "node:fs";
-import { PROVIDER_PRESETS, type LlmProvider } from "@forgelet/sdk-runtime";
+import { PROVIDER_PRESETS, type LlmProvider } from "@lattice-code/sdk-runtime";
 
 export interface PromptContext {
   workspaceRoot: string;
@@ -31,12 +31,12 @@ export function readPromptExtrasFromEnv(): {
 } {
   const out: { customInstructions?: string; taskHint?: PromptContext["taskHint"] } = {};
 
-  const extra = process.env.FORGELET_SYSTEM_PROMPT_EXTRA?.trim();
+  const extra = process.env.LATTICE_CODE_SYSTEM_PROMPT_EXTRA?.trim();
   if (extra) {
     out.customInstructions = extra;
   }
 
-  const extraFile = process.env.FORGELET_PROMPT_EXTRA_FILE?.trim();
+  const extraFile = process.env.LATTICE_CODE_PROMPT_EXTRA_FILE?.trim();
   if (extraFile) {
     try {
       const fromFile = readFileSync(extraFile, "utf8").trim();
@@ -46,11 +46,11 @@ export function readPromptExtrasFromEnv(): {
           : fromFile;
       }
     } catch {
-      // Missing file is non-fatal; caller may set FORGELET_SYSTEM_PROMPT_EXTRA instead.
+      // Missing file is non-fatal; caller may set LATTICE_CODE_SYSTEM_PROMPT_EXTRA instead.
     }
   }
 
-  const hint = process.env.FORGELET_TASK_HINT?.trim().toLowerCase();
+  const hint = process.env.LATTICE_CODE_TASK_HINT?.trim().toLowerCase();
   if (
     hint === "debug" ||
     hint === "implement" ||
@@ -145,8 +145,8 @@ function buildIdentitySection(ctx: PromptContext): string {
   if (!ctx.provider && !ctx.model) {
     return `## Identity
 
-You are **Forgelet**, a coding agent in this workspace.
-If asked who you are or what model powers you, say you are Forgelet and that provider/model metadata is unavailable in this session.
+You are **Lattice Code**, a coding agent in this workspace.
+If asked who you are or what model powers you, say you are Lattice Code and that provider/model metadata is unavailable in this session.
 ${neverGuessRule}`;
   }
 
@@ -159,10 +159,10 @@ ${neverGuessRule}`;
 
   return `## Identity
 
-You are **Forgelet**, a coding agent powered by **${vendor}** model **${model}**.
+You are **Lattice Code**, a coding agent powered by **${vendor}** model **${model}**.
 
 When the user asks who you are, what model you use, or whether you are Claude / GPT / DeepSeek / etc.:
-- Answer **only** from this Identity section: Forgelet on ${vendor} (${model}).
+- Answer **only** from this Identity section: Lattice Code on ${vendor} (${model}).
 - ${neverGuessRule}`;
 }
 

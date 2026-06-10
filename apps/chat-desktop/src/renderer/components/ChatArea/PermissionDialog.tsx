@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import type { PermissionRequestOutcome } from "@forgelet/shared-types";
+import type { PermissionRequestOutcome } from "@lattice-code/shared-types";
 
 export interface PendingPermissionRequest {
   requestId: string;

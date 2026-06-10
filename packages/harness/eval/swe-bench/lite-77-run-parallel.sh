@@ -24,9 +24,9 @@ ECS_HOST="${ECS_HOST:-${ECS_IP:+ubuntu@${ECS_IP}}}"
 
 export KEEP_IMAGES="${KEEP_IMAGES:-8}"
 export PER_INSTANCE_TIMEOUT="${PER_INSTANCE_TIMEOUT:-600}"
-export FORGELET_MAX_TURNS="${FORGELET_MAX_TURNS:-100}"
-export FORGELET_VERIFY="${FORGELET_VERIFY:-0}"
-export MODEL_NAME="${MODEL_NAME:-forgelet-docker-guard}"
+export LATTICE_CODE_MAX_TURNS="${LATTICE_CODE_MAX_TURNS:-100}"
+export LATTICE_CODE_VERIFY="${LATTICE_CODE_VERIFY:-0}"
+export MODEL_NAME="${MODEL_NAME:-lattice-code-docker-guard}"
 export THINKING_MODE="${THINKING_MODE:-max}"
 
 bucket_out_dir() { echo "$HOME/swe-batch/lite-77-bucket-$1"; }
@@ -48,11 +48,11 @@ write_batch_env() {
   cat > "$RUN_ROOT/batch.env" <<EOF
 KEEP_IMAGES=${KEEP_IMAGES}
 PER_INSTANCE_TIMEOUT=${PER_INSTANCE_TIMEOUT}
-FORGELET_MAX_TURNS=${FORGELET_MAX_TURNS}
-FORGELET_VERIFY=${FORGELET_VERIFY}
+LATTICE_CODE_MAX_TURNS=${LATTICE_CODE_MAX_TURNS}
+LATTICE_CODE_VERIFY=${LATTICE_CODE_VERIFY}
 MODEL_NAME=${MODEL_NAME}
 THINKING_MODE=${THINKING_MODE}
-FORGELET_SAVE_TRACE=${FORGELET_SAVE_TRACE:-1}
+LATTICE_CODE_SAVE_TRACE=${LATTICE_CODE_SAVE_TRACE:-1}
 SWE_EVAL=${SWE_EVAL}
 RUN_ROOT=${RUN_ROOT}
 EOF
@@ -79,12 +79,12 @@ start_bucket_local() {
     OUT_DIR="$out_dir" \
     KEEP_IMAGES="$KEEP_IMAGES" \
     PER_INSTANCE_TIMEOUT="$PER_INSTANCE_TIMEOUT" \
-    FORGELET_MAX_TURNS="$FORGELET_MAX_TURNS" \
-    FORGELET_VERIFY="$FORGELET_VERIFY" \
+    LATTICE_CODE_MAX_TURNS="$LATTICE_CODE_MAX_TURNS" \
+    LATTICE_CODE_VERIFY="$LATTICE_CODE_VERIFY" \
     MODEL_NAME="$MODEL_NAME" \
     THINKING_MODE="$THINKING_MODE" \
-    FORGELET_TRACE_RUN_ID="${FORGELET_TRACE_RUN_ID:-lite-77-bucket-${bucket}}" \
-    FORGELET_SAVE_TRACE="${FORGELET_SAVE_TRACE:-1}" \
+    LATTICE_CODE_TRACE_RUN_ID="${LATTICE_CODE_TRACE_RUN_ID:-lite-77-bucket-${bucket}}" \
+    LATTICE_CODE_SAVE_TRACE="${LATTICE_CODE_SAVE_TRACE:-1}" \
     bash "$SWE_EVAL/lite-77-bucket.sh" \
     > "$log" 2>&1 </dev/null &
   echo "$!" > "$pid_file"
@@ -146,7 +146,7 @@ cmd_start_local() {
   mkdir -p "$RUN_ROOT"
   write_batch_env
   echo "=== lite-77 parallel start (2-way: ${PARALLEL_BUCKETS}, THINKING_MODE=$THINKING_MODE) ==="
-  echo "KEEP_IMAGES=$KEEP_IMAGES  MAX_TURNS=$FORGELET_MAX_TURNS  MODEL=$MODEL_NAME"
+  echo "KEEP_IMAGES=$KEEP_IMAGES  MAX_TURNS=$LATTICE_CODE_MAX_TURNS  MODEL=$MODEL_NAME"
   echo ""
 
   IFS=',' read -ra BUCKETS <<< "$PARALLEL_BUCKETS"
@@ -185,7 +185,7 @@ cmd_start_remote() {
   echo "=== ssh ${ECS_HOST} → start-local ==="
   ssh "$ECS_HOST" "cd ~/coding-agent-chat-oss/packages/harness/eval/swe-bench && \
     THINKING_MODE=${THINKING_MODE} KEEP_IMAGES=${KEEP_IMAGES} \
-    PER_INSTANCE_TIMEOUT=${PER_INSTANCE_TIMEOUT} FORGELET_MAX_TURNS=${FORGELET_MAX_TURNS} \
+    PER_INSTANCE_TIMEOUT=${PER_INSTANCE_TIMEOUT} LATTICE_CODE_MAX_TURNS=${LATTICE_CODE_MAX_TURNS} \
     MODEL_NAME=${MODEL_NAME} \
     nohup bash lite-77-run-parallel.sh start-local \
     > ~/swe-batch/lite-77-run/launcher.log 2>&1 </dev/null & echo launcher_pid=\$!"

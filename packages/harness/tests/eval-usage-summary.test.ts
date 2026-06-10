@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { summarizeEvalUsage, summarizeTaskUsage } from "../eval/usage-summary.js";
-import type { AgentEvent } from "@forgelet/shared-types";
+import type { AgentEvent } from "@lattice-code/shared-types";
 
 function doneEvent(metrics: Record<string, number>): AgentEvent {
   return {

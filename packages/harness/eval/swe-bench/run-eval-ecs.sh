@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Run official SWE-bench eval on ECS with Forgelet fixes (proxy + sphinx pins).
+# Run official SWE-bench eval on ECS with Lattice Code fixes (proxy + sphinx pins).
 #
 # Usage:
 #   bash run-eval-ecs.sh <predictions.jsonl> <run_id> [instance_id ...]
@@ -27,12 +27,12 @@ shift 2
 IDS=("$@")
 
 SWEB="${SWEB_PYTHON:-$HOME/sweb-venv/bin/python}"
-FORGELET_EVAL="$SCRIPT_DIR/forgelet_run_evaluation.py"
+LATTICE_CODE_EVAL="$SCRIPT_DIR/lattice_code_run_evaluation.py"
 MAX_WORKERS="${MAX_WORKERS:-$([[ ${#IDS[@]} -gt 0 ]] && echo 1 || echo 4)}"
 
 [[ -f "$PRED" ]] || { echo "missing predictions: $PRED" >&2; exit 1; }
 [[ -x "$SWEB" ]] || { echo "missing sweb-venv: $SWEB" >&2; exit 1; }
-[[ -f "$FORGELET_EVAL" ]] || { echo "missing $FORGELET_EVAL" >&2; exit 1; }
+[[ -f "$LATTICE_CODE_EVAL" ]] || { echo "missing $LATTICE_CODE_EVAL" >&2; exit 1; }
 
 if [[ "${SKIP_ECS_PREFLIGHT:-0}" != "1" ]]; then
   bash "$SCRIPT_DIR/ecs-preflight.sh" || {
@@ -58,7 +58,7 @@ fi
 rm -rf "$HOME/logs/run_evaluation/$RUN_ID" "$SCRIPT_DIR/logs/run_evaluation/$RUN_ID"
 
 CMD=(
-  "$SWEB" "$FORGELET_EVAL"
+  "$SWEB" "$LATTICE_CODE_EVAL"
   --predictions_path "$PRED"
   --dataset_name SWE-bench/SWE-bench_Lite
   --run_id "$RUN_ID"

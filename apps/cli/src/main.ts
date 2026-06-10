@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /**
- * Forgelet CLI — run the coding agent from your terminal.
+ * Lattice Code CLI — run the coding agent from your terminal.
  *
  * Usage:
- *   pnpm forgelet "fix the failing test"
- *   pnpm forgelet config set api-key sk-...
+ *   pnpm lc "fix the failing test"
+ *   pnpm lc config set api-key sk-...
  */
 
 import path from "node:path";

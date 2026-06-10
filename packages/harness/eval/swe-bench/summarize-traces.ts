@@ -9,8 +9,8 @@
 
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
-import { resolveSweBenchTraceDir } from "@forgelet/storage-core";
-import type { AgentEvent } from "@forgelet/shared-types";
+import { resolveSweBenchTraceDir } from "@lattice-code/storage-core";
+import type { AgentEvent } from "@lattice-code/shared-types";
 
 const args = process.argv.slice(2);
 
@@ -87,7 +87,7 @@ async function main(): Promise<void> {
     files = (await readdir(traceDir)).filter((f) => f.endsWith(".jsonl"));
   } catch {
     console.error(`No traces at ${traceDir}`);
-    console.error(`Expected: ~/.forgelet/traces/swe-bench/eval-${runId}/instances/`);
+    console.error(`Expected: ~/.lattice-code/traces/swe-bench/eval-${runId}/instances/`);
     process.exit(1);
   }
 

@@ -21,7 +21,7 @@
 # Env:
 #   ECS_HOST              default ubuntu@${ECS_IP}
 #   ECS_REPO_DIR          default ~/coding-agent-chat-oss
-#   FORGELET_ENV_FILE     explicit .env path
+#   LATTICE_CODE_ENV_FILE     explicit .env path
 
 set -euo pipefail
 
@@ -53,8 +53,8 @@ ECS_HOST="${ECS_HOST:-${ECS_USER}@${ECS_IP}}"
 ECS_REPO_DIR="${ECS_REPO_DIR:-~/coding-agent-chat-oss}"
 
 resolve_env_file() {
-  if [[ -n "${FORGELET_ENV_FILE:-}" && -f "${FORGELET_ENV_FILE}" ]]; then
-    echo "${FORGELET_ENV_FILE}"
+  if [[ -n "${LATTICE_CODE_ENV_FILE:-}" && -f "${LATTICE_CODE_ENV_FILE}" ]]; then
+    echo "${LATTICE_CODE_ENV_FILE}"
     return 0
   fi
   if [[ -f "$REPO_ROOT/.env" ]]; then
@@ -74,7 +74,7 @@ rsync -avz \
   --exclude 'packages/harness/eval/terminal-bench/.venv' \
   "$REPO_ROOT/" "${ECS_HOST}:${ECS_REPO_DIR}/"
 
-LITE_FULL="${LITE_FULL:-$HOME/.forgelet/runs/swe-bench/lite-full/instances.json}"
+LITE_FULL="${LITE_FULL:-$HOME/.lattice-code/runs/swe-bench/lite-full/instances.json}"
 if [[ -f "$LITE_FULL" ]]; then
   echo "=== sync lite-full instances.json ==="
   rsync -avz "$LITE_FULL" "${ECS_HOST}:~/swe-batch/lite-full/instances.json"
@@ -96,7 +96,7 @@ if [[ "$SKIP_MCP" != true ]]; then
     scp "$MCP_BIN" "${ECS_HOST}:~/.local/bin/codebase-memory-mcp-swe"
     ssh "$ECS_HOST" "chmod +x ~/.local/bin/codebase-memory-mcp-swe"
   else
-    echo "warn: $MCP_BIN missing — run: pnpm --filter @forgelet/harness build:codebase-memory-swe" >&2
+    echo "warn: $MCP_BIN missing — run: pnpm --filter @lattice-code/harness build:codebase-memory-swe" >&2
   fi
 fi
 
@@ -108,8 +108,8 @@ if [[ "$SKIP_BUILD" != true ]]; then
   fi
   ssh "$ECS_HOST" "cd ${ECS_REPO_DIR} && \
     ${INSTALL_CMD} \
-    pnpm --filter @forgelet/sdk-runtime build && \
-    pnpm --filter @forgelet/harness build"
+    pnpm --filter @lattice-code/sdk-runtime build && \
+    pnpm --filter @lattice-code/harness build"
 fi
 
 echo ""

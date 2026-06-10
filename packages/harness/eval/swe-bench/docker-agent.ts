@@ -2,7 +2,7 @@
 /**
  * In-container SWE-bench agent entry point (used by docker-batch.sh).
  *
- * Unlike the generic Forgelet CLI, this script always applies SWE-bench
+ * Unlike the generic Lattice Code CLI, this script always applies SWE-bench
  * prompts, test-file guards, filtered patch extraction, and trace routing.
  */
 import { readFile, writeFile } from "node:fs/promises";
@@ -38,20 +38,20 @@ async function main(): Promise<number> {
   const workspaceRoot = getArg("workspace") || "/testbed";
   const instancePath = getArg("instance") || "/work/instance.json";
   const patchOut = getArg("patch-out") || "/work/agent.patch";
-  const maxTurns = Number(process.env.FORGELET_MAX_TURNS || getArg("max-turns") || "100");
+  const maxTurns = Number(process.env.LATTICE_CODE_MAX_TURNS || getArg("max-turns") || "100");
   const timeoutMs =
-    Number(process.env.FORGELET_TIMEOUT_S || getArg("timeout-s") || "600") * 1000;
-  const traceRunId = process.env.FORGELET_TRACE_RUN_ID?.trim();
+    Number(process.env.LATTICE_CODE_TIMEOUT_S || getArg("timeout-s") || "600") * 1000;
+  const traceRunId = process.env.LATTICE_CODE_TRACE_RUN_ID?.trim();
   const saveTraces =
     !hasFlag("no-trace") &&
-    process.env.FORGELET_SAVE_TRACE !== "0" &&
-    process.env.FORGELET_SAVE_TRACE !== "off" &&
-    process.env.FORGELET_SAVE_TRACE !== "false";
+    process.env.LATTICE_CODE_SAVE_TRACE !== "0" &&
+    process.env.LATTICE_CODE_SAVE_TRACE !== "off" &&
+    process.env.LATTICE_CODE_SAVE_TRACE !== "false";
 
   const config = resolveLlmConfigFromEnv();
   if (!config.apiKey) {
     process.stderr.write(
-      "Error: API key required. Set DEEPSEEK_API_KEY or FORGELET_API_KEY.\n",
+      "Error: API key required. Set DEEPSEEK_API_KEY or LATTICE_CODE_API_KEY.\n",
     );
     return 1;
   }

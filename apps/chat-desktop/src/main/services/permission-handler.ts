@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WebContents } from "electron";
-import type { PermissionCallback } from "@forgelet/harness";
-import type { PermissionRequestOutcome } from "@forgelet/shared-types";
+import type { PermissionCallback } from "@lattice-code/harness";
+import type { PermissionRequestOutcome } from "@lattice-code/shared-types";
 
 const PERMISSION_TIMEOUT_MS = 5 * 60 * 1000;
 
