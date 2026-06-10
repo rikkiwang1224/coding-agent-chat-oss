@@ -1,7 +1,7 @@
 {
   "name": "lattice-code",
   "version": "0.1.0",
-  "description": "Open-source coding agent — desktop chat and terminal CLI powered by the Lattice Code harness.",
+  "description": "DeepSeek-first open-source coding agent — desktop chat and terminal CLI powered by the Lattice Code harness.",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@8.10.2",

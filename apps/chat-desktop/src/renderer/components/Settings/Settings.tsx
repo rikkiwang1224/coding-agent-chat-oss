@@ -1,93 +1,25 @@
 import { useCallback, useEffect, useState } from "react";
+import {
+  buildDefaultLlmGeneralSettings,
+  getProviderOption,
+  hasDistinctLightModel,
+  PROVIDER_OPTIONS,
+  type ProviderOption,
+} from "@lattice-code/sdk-runtime";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { getDesktopConfig } from "@/hooks/useDesktopConfig";
 import type { AppSettings, LlmProvider } from "@/types";
 
-const PROVIDER_OPTIONS: Array<{
-  id: LlmProvider;
-  label: string;
-  baseUrl: string;
-  defaultPrimary: string;
-  defaultLight: string;
-  description: string;
-}> = [
-  {
-    id: "anthropic",
-    label: "Anthropic",
-    baseUrl: "https://api.anthropic.com",
-    defaultPrimary: "claude-sonnet-4-5-20250929",
-    defaultLight: "claude-haiku-4-5",
-    description: "Official Claude models. Best compatibility with Claude Code.",
-  },
-  {
-    id: "deepseek",
-    label: "DeepSeek",
-    baseUrl: "https://api.deepseek.com",
-    defaultPrimary: "deepseek-v4-pro",
-    defaultLight: "deepseek-v4-flash",
-    description: "OpenAI-compatible endpoint with strong coding performance.",
-  },
-  {
-    id: "kimi",
-    label: "Kimi",
-    baseUrl: "https://api.moonshot.cn/v1",
-    defaultPrimary: "kimi-k2-0905-preview",
-    defaultLight: "kimi-k2-0905-preview",
-    description: "Moonshot OpenAI-compatible endpoint with long-context support.",
-  },
-  {
-    id: "glm",
-    label: "GLM",
-    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
-    defaultPrimary: "glm-4.5",
-    defaultLight: "glm-4.5-air",
-    description: "Zhipu OpenAI-compatible endpoint.",
-  },
-  {
-    id: "bedrock",
-    label: "Amazon Bedrock",
-    baseUrl: "",
-    defaultPrimary: "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
-    defaultLight: "us.anthropic.claude-3-5-haiku-20241022-v1:0",
-    description: "Use Claude through AWS Bedrock credentials in your environment.",
-  },
-  {
-    id: "vertex",
-    label: "Google Vertex AI",
-    baseUrl: "",
-    defaultPrimary: "claude-sonnet-4-5@20250929",
-    defaultLight: "claude-3-5-haiku@20241022",
-    description: "Use Claude through Google Vertex AI credentials in your environment.",
-  },
-  {
-    id: "custom",
-    label: "Custom",
-    baseUrl: "",
-    defaultPrimary: "",
-    defaultLight: "",
-    description: "Any Anthropic-compatible gateway or local proxy.",
-  },
-];
+const defaultGeneral = buildDefaultLlmGeneralSettings();
 
 const DEFAULT_SETTINGS: AppSettings = {
   general: {
-    provider: "anthropic",
-    primaryModel: "claude-sonnet-4-5-20250929",
-    lightModel: "",
+    ...defaultGeneral,
     apiKey: "",
-    baseUrl: "",
   },
 };
-
-function getProviderPreset(id: LlmProvider) {
-  return PROVIDER_OPTIONS.find((p) => p.id === id) ?? PROVIDER_OPTIONS[0]!;
-}
-
-function hasDistinctLightModel(preset: (typeof PROVIDER_OPTIONS)[number]) {
-  return Boolean(preset.defaultLight && preset.defaultLight !== preset.defaultPrimary);
-}
 
 function MaskedInput({
   value,
@@ -165,14 +97,14 @@ export function Settings() {
     }
   }, [config, settings]);
 
-  const preset = getProviderPreset(settings.general.provider);
+  const preset = getProviderOption(settings.general.provider);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-surface">
       <div className="flex shrink-0 items-center justify-between border-b border-line px-6 py-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
-          <p className="text-sm text-muted">Configure the model provider used by chat.</p>
+          <p className="text-sm text-muted">DeepSeek is the default; other providers are optional.</p>
         </div>
         <div className="flex items-center gap-2">
           {saved ? <span className="text-sm text-positive">Saved</span> : null}
@@ -194,16 +126,16 @@ export function Settings() {
               onChange={(event) => {
                 const provider = event.target.value as LlmProvider;
                 update((draft) => {
-                  const target = getProviderPreset(provider);
+                  const target = getProviderOption(provider);
                   draft.general.provider = provider;
                   draft.general.baseUrl = target.baseUrl;
-                  draft.general.primaryModel = target.defaultPrimary;
-                  draft.general.lightModel = target.defaultLight;
+                  draft.general.primaryModel = target.defaultPrimaryModel;
+                  draft.general.lightModel = target.defaultLightModel;
                 });
               }}
               className="w-full rounded-xl border border-line bg-white/80 px-3 py-2 text-sm text-text focus:border-accent/30 focus:outline-none focus:ring-2 focus:ring-accent/10"
             >
-              {PROVIDER_OPTIONS.map((option) => (
+              {PROVIDER_OPTIONS.map((option: ProviderOption) => (
                 <option key={option.id} value={option.id}>
                   {option.label}
                 </option>
@@ -218,7 +150,7 @@ export function Settings() {
               type="text"
               value={settings.general.primaryModel}
               onChange={(event) => update((draft) => { draft.general.primaryModel = event.target.value; })}
-              placeholder={preset.defaultPrimary || "model id"}
+              placeholder={preset.defaultPrimaryModel || "model id"}
               className="w-full rounded-xl border border-line bg-white/80 px-3 py-2 text-sm text-text focus:border-accent/30 focus:outline-none focus:ring-2 focus:ring-accent/10"
             />
           </div>
@@ -232,7 +164,7 @@ export function Settings() {
                 type="text"
                 value={settings.general.lightModel}
                 onChange={(event) => update((draft) => { draft.general.lightModel = event.target.value; })}
-                placeholder={preset.defaultLight || "optional model id"}
+                placeholder={preset.defaultLightModel || "optional model id"}
                 className="w-full rounded-xl border border-line bg-white/80 px-3 py-2 text-sm text-text focus:border-accent/30 focus:outline-none focus:ring-2 focus:ring-accent/10"
               />
             </div>

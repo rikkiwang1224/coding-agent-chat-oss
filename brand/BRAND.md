@@ -6,7 +6,7 @@
 
 Short form in prose: **Lattice** (tagline and positioning).
 
-Meaning: a structural layer where code, context, and agents connect. A local workbench for agent-driven development.
+Meaning: a structural layer where code, context, and agents connect. A local workbench for agent-driven development, **built for DeepSeek first** with optional support for other providers.
 
 ## Tagline
 

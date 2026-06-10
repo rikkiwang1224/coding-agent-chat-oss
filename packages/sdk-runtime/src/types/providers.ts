@@ -9,16 +9,16 @@
 /**
  * Supported LLM provider presets for Settings UI defaults (baseUrl, models, pricing).
  *
+ *  - `deepseek`  : DeepSeek 官方 Anthropic 兼容端点（Lattice Code 默认）
  *  - `anthropic` : Anthropic 官方
- *  - `deepseek`  : DeepSeek 官方 Anthropic 兼容端点
  *  - `kimi`      : Moonshot Kimi K2 Anthropic 兼容端点
  *  - `glm`       : 智谱 GLM Anthropic 兼容端点
  *  - `bedrock` / `vertex`: AWS Bedrock / GCP Vertex AI (env flags only)
  *  - `custom`    : 用户自定义 baseUrl，跳过 preset 默认值
  */
 export type LlmProvider =
-  | "anthropic"
   | "deepseek"
+  | "anthropic"
   | "kimi"
   | "glm"
   | "bedrock"
@@ -50,6 +50,8 @@ export interface ProviderPreset {
    * on DeepSeek, GLM-4.5-air on Zhipu, etc.
    */
   defaultLightModel: string;
+  /** Short UI copy for Settings / help surfaces. */
+  description: string;
   /** Default pricing — used when no `pricingByModelPrefix` match. */
   pricing: ProviderPricing;
   /**
@@ -66,7 +68,7 @@ export interface ProviderPreset {
 }
 
 export interface LlmConfig {
-  /** Provider preset; defaults to "anthropic" when omitted. */
+  /** Provider preset; defaults to "deepseek" when omitted. */
   provider?: LlmProvider;
   apiKey?: string;
   baseUrl?: string;

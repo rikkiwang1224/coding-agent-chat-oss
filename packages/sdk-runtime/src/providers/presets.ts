@@ -73,36 +73,41 @@ export const PROVIDER_PRESETS: Record<
   Exclude<LlmProvider, "bedrock" | "vertex" | "custom">,
   ProviderPreset
 > = {
-  anthropic: {
-    label: "Anthropic (官方)",
-    baseUrl: "https://api.anthropic.com",
-    defaultPrimaryModel: "claude-sonnet-4-5-20250929",
-    defaultLightModel: "claude-haiku-4-5",
-    pricing: ANTHROPIC_PRICING,
-  },
   deepseek: {
     label: "DeepSeek",
     // OpenAI-compatible endpoint; api-client.ts appends /chat/completions.
     baseUrl: "https://api.deepseek.com",
     defaultPrimaryModel: "deepseek-v4-pro",
     defaultLightModel: "deepseek-v4-flash",
+    description:
+      "Default for Lattice Code — tuned for thinking modes, cache pricing, and coding tasks.",
     pricing: DEEPSEEK_PRICING,
     pricingByModelPrefix: DEEPSEEK_PRICING_BY_MODEL_PREFIX,
   },
+  anthropic: {
+    label: "Anthropic",
+    baseUrl: "https://api.anthropic.com",
+    defaultPrimaryModel: "claude-sonnet-4-5-20250929",
+    defaultLightModel: "claude-haiku-4-5",
+    description: "Optional. Official Claude models.",
+    pricing: ANTHROPIC_PRICING,
+  },
   kimi: {
-    label: "Kimi K2 (Moonshot)",
+    label: "Kimi",
     // Moonshot's OpenAI-compatible endpoint requires the /v1 prefix.
     baseUrl: "https://api.moonshot.cn/v1",
     defaultPrimaryModel: "kimi-k2-0905-preview",
     defaultLightModel: "kimi-k2-0905-preview",
+    description: "Optional. Moonshot OpenAI-compatible endpoint with long-context support.",
     pricing: KIMI_PRICING,
   },
   glm: {
-    label: "智谱 GLM",
+    label: "GLM",
     // Zhipu's OpenAI-compatible endpoint sits under /api/paas/v4.
     baseUrl: "https://open.bigmodel.cn/api/paas/v4",
     defaultPrimaryModel: "glm-4.5",
     defaultLightModel: "glm-4.5-air",
+    description: "Optional. Zhipu OpenAI-compatible endpoint.",
     pricing: GLM_PRICING,
   },
 };

@@ -1,6 +1,11 @@
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { PROVIDER_PRESETS, type LlmProvider } from "@lattice-code/sdk-runtime";
+import {
+  buildDefaultLlmGeneralSettings,
+  DEFAULT_LLM_PROVIDER,
+  getProviderOption,
+  type LlmProvider,
+} from "@lattice-code/sdk-runtime";
 import { applyThinkingMode, parseThinkingMode } from "@lattice-code/harness";
 import { resolveAgentHome } from "@lattice-code/storage-core";
 import type { CliArgs } from "./argv.js";
@@ -16,16 +21,18 @@ export interface CliConfig {
   thinkingMode?: string;
 }
 
+const defaultLlm = buildDefaultLlmGeneralSettings();
+
 const DEFAULT_CONFIG: CliConfig = {
-  provider: "deepseek",
-  primaryModel: "deepseek-v4-pro",
+  provider: defaultLlm.provider,
+  primaryModel: defaultLlm.primaryModel,
   apiKey: "",
-  baseUrl: "",
+  baseUrl: defaultLlm.baseUrl,
 };
 
 const VALID_PROVIDERS: ReadonlySet<LlmProvider> = new Set([
-  "anthropic",
   "deepseek",
+  "anthropic",
   "kimi",
   "glm",
   "bedrock",
@@ -103,7 +110,9 @@ export async function resolveLlmConfig(args: CliArgs): Promise<ResolvedLlmConfig
   const provider = (args.provider ||
     process.env.LATTICE_CODE_PROVIDER ||
     fileConfig.provider ||
-    "deepseek") as LlmProvider;
+    DEFAULT_LLM_PROVIDER) as LlmProvider;
+
+  const providerDefaults = getProviderOption(provider);
 
   const apiKey =
     args.apiKey?.trim() ||
@@ -115,21 +124,14 @@ export async function resolveLlmConfig(args: CliArgs): Promise<ResolvedLlmConfig
     args.model?.trim() ||
     process.env.LATTICE_CODE_MODEL?.trim() ||
     fileConfig.primaryModel.trim() ||
-    "deepseek-v4-pro";
-
-  const preset =
-    provider in PROVIDER_PRESETS
-      ? PROVIDER_PRESETS[provider as keyof typeof PROVIDER_PRESETS]
-      : provider === "deepseek"
-        ? { baseUrl: "https://api.deepseek.com", defaultPrimaryModel: "deepseek-v4-pro" }
-        : undefined;
+    providerDefaults.defaultPrimaryModel;
 
   const baseUrl =
     args.baseUrl?.trim() ||
     process.env.LATTICE_CODE_BASE_URL?.trim() ||
     fileConfig.baseUrl.trim() ||
-    preset?.baseUrl ||
-    "https://api.deepseek.com";
+    providerDefaults.baseUrl ||
+    getProviderOption(DEFAULT_LLM_PROVIDER).baseUrl;
 
   const thinkingRaw =
     process.env.THINKING_MODE?.trim() || fileConfig.thinkingMode?.trim() || undefined;
@@ -138,5 +140,5 @@ export async function resolveLlmConfig(args: CliArgs): Promise<ResolvedLlmConfig
   return applyThinkingMode(
     { provider, apiKey, baseUrl, model, temperature: resolveTemperature() },
     thinkingMode,
-  );
+  ) as ResolvedLlmConfig;
 }
