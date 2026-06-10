@@ -1,6 +1,6 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
   <title id="title">Lattice Code icon</title>
-  <desc id="desc">White squircle app icon featuring a 3D isometric lattice node composed of colorful mint, coral, and blue faces, containing chat and code symbols.</desc>
+  <desc id="desc">White squircle app icon featuring a fresh 3D isometric lattice node composed of crisp teal, blue, and violet faces, containing chat and code symbols.</desc>
   <defs>
     <!-- Background Squircle Shadow -->
     <filter id="shadowBase" x="14" y="24" width="996" height="996" filterUnits="userSpaceOnUse">
@@ -10,23 +10,23 @@
 
     <!-- 3D Shape Shadow -->
     <filter id="shadowShape" x="150" y="150" width="724" height="724" filterUnits="userSpaceOnUse">
-      <feDropShadow dx="0" dy="20" stdDeviation="20" flood-color="#1D4ED8" flood-opacity="0.15"/>
-      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity="0.10"/>
+      <feDropShadow dx="0" dy="20" stdDeviation="20" flood-color="#3B82F6" flood-opacity="0.15"/>
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity="0.08"/>
     </filter>
 
     <linearGradient id="gradTop" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#54C7B8"/>
-      <stop offset="100%" stop-color="#11998E"/>
+      <stop offset="0%" stop-color="#5EEAD4"/>
+      <stop offset="100%" stop-color="#14B8A6"/>
     </linearGradient>
 
     <linearGradient id="gradLeft" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#F4A84C"/>
-      <stop offset="100%" stop-color="#F06F45"/>
+      <stop offset="0%" stop-color="#93C5FD"/>
+      <stop offset="100%" stop-color="#3B82F6"/>
     </linearGradient>
 
     <linearGradient id="gradRight" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#3B82F6"/>
-      <stop offset="100%" stop-color="#1E3A8A"/>
+      <stop offset="0%" stop-color="#C4B5FD"/>
+      <stop offset="100%" stop-color="#8B5CF6"/>
     </linearGradient>
   </defs>
 
@@ -35,7 +35,7 @@
   <rect x="64" y="64" width="896" height="896" rx="220" fill="none" stroke="#F1F5F9" stroke-width="4"/>
 
   <g filter="url(#shadowShape)">
-    <!-- Top Face (Mint) - Chat / AI -->
+    <!-- Top Face (Teal) - Chat / AI -->
     <g transform="translate(0, -26)">
       <path d="M 512,512 L 287,382 L 512,252 L 737,382 Z" fill="url(#gradTop)" stroke="url(#gradTop)" stroke-width="32" stroke-linejoin="round"/>
       <circle cx="456" cy="382" r="14" fill="#FFFFFF"/>
@@ -43,13 +43,13 @@
       <circle cx="568" cy="382" r="14" fill="#FFFFFF"/>
     </g>
 
-    <!-- Left Face (Coral) - Code '<' -->
+    <!-- Left Face (Blue) - Code '<' -->
     <g transform="translate(-22.5, 13)">
       <path d="M 512,512 L 287,382 L 287,642 L 512,772 Z" fill="url(#gradLeft)" stroke="url(#gradLeft)" stroke-width="32" stroke-linejoin="round"/>
       <path d="M 434,527 L 366,577 L 434,627" stroke="#FFFFFF" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
     </g>
 
-    <!-- Right Face (Blue) - Code '>' -->
+    <!-- Right Face (Violet) - Code '>' -->
     <g transform="translate(22.5, 13)">
       <path d="M 512,512 L 737,382 L 737,642 L 512,772 Z" fill="url(#gradRight)" stroke="url(#gradRight)" stroke-width="32" stroke-linejoin="round"/>
       <path d="M 590,527 L 658,577 L 590,627" stroke="#FFFFFF" stroke-width="28" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
