@@ -2,7 +2,11 @@ import { readFile, writeFile, readdir, stat, mkdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { promisify } from "node:util";
-import { ShellSession } from "./shell-session.js";
+import { LocalEnvironment } from "../execution/local-environment.js";
+import type {
+  ExecutionEnvironment,
+  ExecutionEnvironmentFactory,
+} from "../execution/execution-environment.js";
 import { PermissionGuard, type PermissionPolicy, type PermissionCallback } from "../permissions.js";
 import type { HarnessHooks } from "../hooks.js";
 import type { CodebaseMemoryClient } from "../code-graph/codebase-memory.js";
@@ -48,6 +52,12 @@ export interface ToolExecutorOptions {
   protectedPathPatterns?: string[];
   /** When set, enables code_graph_* tools (requires codebase-memory-mcp on PATH). */
   codeGraph?: CodebaseMemoryClient;
+  /**
+   * Factory for the command-execution environment (the isolation boundary).
+   * Defaults to a hardened `LocalEnvironment`. Inject a sandboxed implementation
+   * here to confine command execution without changing the tool layer.
+   */
+  createExecutionEnvironment?: ExecutionEnvironmentFactory;
 }
 
 const DEFAULT_BASH_TIMEOUT_MS = 60_000;
@@ -65,7 +75,8 @@ export class ToolExecutor {
   private readonly guard: PermissionGuard;
   private readonly hooks?: HarnessHooks;
   private readonly sessionId?: string;
-  private shell: ShellSession | null = null;
+  private execEnv: ExecutionEnvironment | null = null;
+  private readonly createExecEnv: ExecutionEnvironmentFactory;
   /**
    * Per-executor (per-loop) working todo list, mutated by the `todo_write`
    * tool. In-memory only — surface to the UI via the postToolUse hook or by
@@ -86,6 +97,8 @@ export class ToolExecutor {
     this.sessionId = options.sessionId;
     this.protectedPathPatterns = options.protectedPathPatterns ?? [];
     this.codeGraph = options.codeGraph;
+    this.createExecEnv =
+      options.createExecutionEnvironment ?? ((root) => new LocalEnvironment(root));
   }
 
   getPermissionGuard(): PermissionGuard {
@@ -115,16 +128,16 @@ export class ToolExecutor {
     return null;
   }
 
-  private getShell(): ShellSession {
-    if (!this.shell) {
-      this.shell = new ShellSession(this.workspaceRoot);
+  private getExecEnv(): ExecutionEnvironment {
+    if (!this.execEnv) {
+      this.execEnv = this.createExecEnv(this.workspaceRoot);
     }
-    return this.shell;
+    return this.execEnv;
   }
 
   destroy(): void {
-    this.shell?.destroy();
-    this.shell = null;
+    this.execEnv?.destroy();
+    this.execEnv = null;
   }
 
   async execute(
@@ -459,11 +472,11 @@ export class ToolExecutor {
       };
     }
 
-    const shell = this.getShell();
+    const execEnv = this.getExecEnv();
     const flags = checkOnly ? "--check" : "";
     const cmd = `git apply ${flags} -p1 --whitespace=nowarn -- ${tmpName}`;
     try {
-      const { exitCode, output } = await shell.execute(cmd, 60_000, signal);
+      const { exitCode, output } = await execEnv.execute(cmd, 60_000, signal);
       if (exitCode === 0) {
         return {
           ok: true,
@@ -478,7 +491,7 @@ export class ToolExecutor {
       };
     } finally {
       // Best-effort cleanup; don't fail the tool call if rm trips.
-      await shell.execute(`rm -f -- ${tmpName}`, 5000).catch(() => undefined);
+      await execEnv.execute(`rm -f -- ${tmpName}`, 5000).catch(() => undefined);
     }
   }
 
@@ -535,9 +548,9 @@ export class ToolExecutor {
       return { ok: false, output: "command is required" };
     }
 
-    const shell = this.getShell();
+    const execEnv = this.getExecEnv();
     try {
-      const { exitCode, output } = await shell.execute(command, timeoutMs, signal);
+      const { exitCode, output } = await execEnv.execute(command, timeoutMs, signal);
       return {
         ok: exitCode === 0,
         output: this.truncate(output || "(no output)"),
