@@ -1,6 +1,6 @@
 <svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
   <title id="title">Lattice Code icon</title>
-  <desc id="desc">White squircle app icon featuring a fresh 3D isometric lattice node composed of crisp teal, blue, and violet faces, containing chat and code symbols.</desc>
+  <desc id="desc">White squircle app icon featuring a fresh 3D isometric lattice node composed of crisp blue and soft violet faces, containing chat and code symbols.</desc>
   <defs>
     <!-- Background Squircle Shadow -->
     <filter id="shadowBase" x="14" y="24" width="996" height="996" filterUnits="userSpaceOnUse">
@@ -14,19 +14,22 @@
       <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity="0.08"/>
     </filter>
 
-    <linearGradient id="gradTop" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%" stop-color="#5EEAD4"/>
-      <stop offset="100%" stop-color="#14B8A6"/>
+    <!-- Lightest: Top Face (Blend of Light Blue to Light Violet) -->
+    <linearGradient id="gradTop" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#BFDBFE"/>
+      <stop offset="100%" stop-color="#DDD6FE"/>
     </linearGradient>
 
+    <!-- Mid: Left Face (Crisp Blue) -->
     <linearGradient id="gradLeft" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#93C5FD"/>
-      <stop offset="100%" stop-color="#3B82F6"/>
+      <stop offset="0%" stop-color="#60A5FA"/>
+      <stop offset="100%" stop-color="#2563EB"/>
     </linearGradient>
 
+    <!-- Darker: Right Face (Soft Violet) -->
     <linearGradient id="gradRight" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#C4B5FD"/>
-      <stop offset="100%" stop-color="#8B5CF6"/>
+      <stop offset="0%" stop-color="#A78BFA"/>
+      <stop offset="100%" stop-color="#7C3AED"/>
     </linearGradient>
   </defs>
 
@@ -35,7 +38,7 @@
   <rect x="64" y="64" width="896" height="896" rx="220" fill="none" stroke="#F1F5F9" stroke-width="4"/>
 
   <g filter="url(#shadowShape)">
-    <!-- Top Face (Teal) - Chat / AI -->
+    <!-- Top Face (Light Blend) - Chat / AI -->
     <g transform="translate(0, -26)">
       <path d="M 512,512 L 287,382 L 512,252 L 737,382 Z" fill="url(#gradTop)" stroke="url(#gradTop)" stroke-width="32" stroke-linejoin="round"/>
       <circle cx="456" cy="382" r="14" fill="#FFFFFF"/>

@@ -22,7 +22,7 @@ Alternates:
 
 The mark is a clean, white squircle featuring a fresh 3D isometric lattice node. The central structure consists of three connected faces:
 
-- **Top Face (Teal)**: Contains a `...` chat indicator representing conversational AI
+- **Top Face (Light Blend)**: Contains a `...` chat indicator representing conversational AI
 - **Left Face (Blue)**: Contains a `<` bracket
 - **Right Face (Violet)**: Contains a `>` bracket
 
@@ -37,9 +37,9 @@ Primary asset:
 
 ## Palette
 
-- Fresh Teal: `#14B8A6`
 - Crisp Blue: `#3B82F6`
 - Soft Violet: `#8B5CF6`
+- Light Blend (Top Face): `#BFDBFE` to `#DDD6FE`
 - Squircle White: `#FFFFFF`
 
 ## Usage
