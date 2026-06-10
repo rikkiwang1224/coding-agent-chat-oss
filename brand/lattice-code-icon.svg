@@ -14,23 +14,25 @@
       <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity="0.08"/>
     </filter>
 
-    <!-- Unified Gradient Palette -->
-    <!-- Top Face: Lightest part of the blue-violet spectrum, angled to simulate top-down light -->
-    <linearGradient id="gradTop" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#E0E7FF"/>   <!-- Light Blue-Indigo -->
-      <stop offset="100%" stop-color="#C4B5FD"/> <!-- Light Violet -->
+    <!-- Unified Smooth Gradient across the whole node -->
+    <!-- The trick is to use gradients that share colors at the seams -->
+    
+    <!-- Top Face: Very light, airy blue to very light violet -->
+    <linearGradient id="gradTop" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#DBEAFE"/>   <!-- Extremely Light Blue (meets left face) -->
+      <stop offset="100%" stop-color="#EDE9FE"/> <!-- Extremely Light Violet (meets right face) -->
     </linearGradient>
 
-    <!-- Left Face: Mid-tone Blue transitioning towards Indigo -->
+    <!-- Left Face: Light Blue to Indigo -->
     <linearGradient id="gradLeft" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#60A5FA"/>   <!-- Bright Blue -->
-      <stop offset="100%" stop-color="#6366F1"/> <!-- Indigo -->
+      <stop offset="0%" stop-color="#93C5FD"/>   <!-- Light Blue -->
+      <stop offset="100%" stop-color="#4F46E5"/> <!-- Deep Indigo -->
     </linearGradient>
 
     <!-- Right Face: Indigo transitioning to deep Violet -->
     <linearGradient id="gradRight" x1="0%" y1="100%" x2="100%" y2="0%">
       <stop offset="0%" stop-color="#8B5CF6"/>   <!-- Violet -->
-      <stop offset="100%" stop-color="#6366F1"/> <!-- Indigo (matches left face bottom) -->
+      <stop offset="100%" stop-color="#4F46E5"/> <!-- Deep Indigo (perfect match at bottom) -->
     </linearGradient>
   </defs>
 
@@ -43,7 +45,7 @@
     <!-- Top Face - Chat / AI -->
     <!-- Removed translation to seal the gaps completely -->
     <g>
-      <path d="M 512,512 L 287,382 L 512,252 L 737,382 Z" fill="url(#gradTop)" stroke="url(#gradTop)" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M 512,512 L 287,382 L 512,252 L 737,382 Z" fill="url(#gradTop)" stroke="none"/>
       <circle cx="456" cy="382" r="16" fill="#FFFFFF"/>
       <circle cx="512" cy="382" r="16" fill="#FFFFFF"/>
       <circle cx="568" cy="382" r="16" fill="#FFFFFF"/>
@@ -51,17 +53,17 @@
 
     <!-- Left Face - Code '<' -->
     <g>
-      <path d="M 512,512 L 287,382 L 287,642 L 512,772 Z" fill="url(#gradLeft)" stroke="url(#gradLeft)" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M 512,512 L 287,382 L 287,642 L 512,772 Z" fill="url(#gradLeft)" stroke="none"/>
       <path d="M 434,527 L 366,577 L 434,627" stroke="#FFFFFF" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
     </g>
 
     <!-- Right Face - Code '>' -->
     <g>
-      <path d="M 512,512 L 737,382 L 737,642 L 512,772 Z" fill="url(#gradRight)" stroke="url(#gradRight)" stroke-width="2" stroke-linejoin="round"/>
+      <path d="M 512,512 L 737,382 L 737,642 L 512,772 Z" fill="url(#gradRight)" stroke="none"/>
       <path d="M 590,527 L 658,577 L 590,627" stroke="#FFFFFF" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
     </g>
 
     <!-- Central Ridge Highlight (Optional, adds crispness to the joined edges) -->
-    <path d="M 512,512 L 512,772 M 512,512 L 287,382 M 512,512 L 737,382" stroke="#FFFFFF" stroke-opacity="0.15" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Removed to make the transition perfectly seamless between faces -->
   </g>
 </svg>
