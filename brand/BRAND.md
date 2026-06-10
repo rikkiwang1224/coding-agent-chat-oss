@@ -20,12 +20,13 @@ Alternates:
 
 ## Icon
 
-The mark combines:
+The mark is a clean, white squircle featuring a vibrant 3D isometric lattice node. The central structure consists of three connected faces:
 
-- a chat bubble for the main interaction model
-- code brackets for source-aware conversation
-- a lattice stroke suggesting structure and connection
-- a small warm spark for generation and tool use
+- **Top Face (Mint)**: Contains a `...` chat indicator representing conversational AI
+- **Left Face (Coral)**: Contains a `<` bracket
+- **Right Face (Blue)**: Contains a `>` bracket
+
+Together, they form a unified **Lattice Node** spelling out Chat and Code, designed to feel at home on macOS alongside modern tools like VSCode and Codex.
 
 Primary asset:
 
