@@ -104,9 +104,14 @@ if [[ "$SKIP_BUILD" != true ]]; then
   echo "=== build on ECS ==="
   INSTALL_CMD=""
   if [[ "$FULL_INSTALL" == true ]]; then
-    INSTALL_CMD="ELECTRON_SKIP_BINARY_DOWNLOAD=1 pnpm install &&"
+    INSTALL_CMD="ELECTRON_SKIP_BINARY_DOWNLOAD=1 pnpm install --filter @lattice-code/harness... &&"
   fi
+  # apps/chat-desktop is excluded from rsync but an old @forgelet/* copy on ECS
+  # breaks pnpm install for the whole monorepo — disable it before building.
   ssh "$ECS_HOST" "cd ${ECS_REPO_DIR} && \
+    if [[ -d apps/chat-desktop && ! -d apps/.chat-desktop-disabled ]]; then \
+      mv apps/chat-desktop apps/.chat-desktop-disabled; \
+    fi && \
     ${INSTALL_CMD} \
     pnpm --filter @lattice-code/sdk-runtime build && \
     pnpm --filter @lattice-code/harness build"
