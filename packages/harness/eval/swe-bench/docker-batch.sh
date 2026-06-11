@@ -14,8 +14,10 @@
 #
 # Tunables (env vars):
 #   KEEP_IMAGES          — LRU keep N swebench/sweb.eval.* images (default 15)
-#   PER_INSTANCE_TIMEOUT — per-instance wall clock seconds (default 600)
-#   LATTICE_CODE_MAX_TURNS   — agent tool-call budget per instance (default 100)
+#   PER_INSTANCE_TIMEOUT — agent soft budget seconds (default 1800). The agent
+#                          aborts itself at this mark and still extracts its
+#                          patch; the outer hard kill fires at +120s grace.
+#   LATTICE_CODE_MAX_TURNS   — agent tool-call budget per instance (default 120)
 #   MODEL_NAME           — predictions.jsonl model_name_or_path (default lattice-code-docker)
 #   THINKING_MODE        — DeepSeek thinking: max (default) | high | off
 #   LATTICE_CODE_SAVE_TRACE  — 0/off → no JSONL; default ON → ~/.lattice-code/traces/swe-bench/eval-<runId>/
@@ -48,8 +50,16 @@ mkdir -p "$LOG_DIR"
 touch "$DONE_FILE" "$PRED_FILE" "$SUMMARY"
 
 KEEP_IMAGES="${KEEP_IMAGES:-15}"
-PER_INSTANCE_TIMEOUT="${PER_INSTANCE_TIMEOUT:-600}"
-LATTICE_CODE_MAX_TURNS="${LATTICE_CODE_MAX_TURNS:-100}"
+PER_INSTANCE_TIMEOUT="${PER_INSTANCE_TIMEOUT:-1800}"
+# Hard-kill deadline for the node process. MUST exceed the agent's internal
+# soft timeout (LATTICE_CODE_TIMEOUT_S = PER_INSTANCE_TIMEOUT): the soft abort
+# fires first, the agent stops its loop and writes the patch; the grace window
+# covers node startup, code-graph indexing, patch extraction and trace flush.
+# When both were 600s (pre-fix), the outer SIGTERM always won the race and
+# silently discarded all completed edits — 6/77 empty patches in lite-77.
+HARD_KILL_GRACE="${HARD_KILL_GRACE:-120}"
+HARD_KILL_TIMEOUT=$((PER_INSTANCE_TIMEOUT + HARD_KILL_GRACE))
+LATTICE_CODE_MAX_TURNS="${LATTICE_CODE_MAX_TURNS:-120}"
 MODEL_NAME="${MODEL_NAME:-lattice-code-docker}"
 # Reason-as-Sensor (independent reviewer pass before declaring done).
 #   LATTICE_CODE_REASON=0 → off (baseline)
@@ -121,7 +131,7 @@ cleanup_images() {
 TOTAL=$(jq 'length' "$INSTANCES_JSON")
 BATCH_START=$(date +%s)
 echo "=== batch: $TOTAL instances → $OUT_DIR ==="
-echo "=== keep-images=$KEEP_IMAGES, per-instance timeout=${PER_INSTANCE_TIMEOUT}s, max-turns=$LATTICE_CODE_MAX_TURNS, reason=$LATTICE_CODE_REASON, verify=$LATTICE_CODE_VERIFY, trace=$SAVE_TRACE (runId=$TRACE_RUN_ID), code_graph=$CODE_GRAPH_STATUS ==="
+echo "=== keep-images=$KEEP_IMAGES, agent-budget=${PER_INSTANCE_TIMEOUT}s (hard-kill ${HARD_KILL_TIMEOUT}s), max-turns=$LATTICE_CODE_MAX_TURNS, reason=$LATTICE_CODE_REASON, verify=$LATTICE_CODE_VERIFY, trace=$SAVE_TRACE (runId=$TRACE_RUN_ID), code_graph=$CODE_GRAPH_STATUS ==="
 
 for i in $(seq 0 $((TOTAL - 1))); do
   INST_ID=$(jq -r ".[$i].instance_id" "$INSTANCES_JSON")
@@ -167,6 +177,7 @@ for i in $(seq 0 $((TOTAL - 1))); do
       -e LATTICE_CODE_VERIFY_TIMEOUT="$LATTICE_CODE_VERIFY_TIMEOUT" \
       -e LATTICE_CODE_VERIFY_REPO="$REPO" \
       -e LATTICE_CODE_MAX_TURNS="$LATTICE_CODE_MAX_TURNS" \
+      -e LATTICE_CODE_TIMEOUT_S="$PER_INSTANCE_TIMEOUT" \
       "${TRACE_ENV[@]}" \
       "${CODE_GRAPH_ENV[@]}" \
       "$IMG" \
@@ -194,7 +205,7 @@ for i in $(seq 0 $((TOTAL - 1))); do
 
         cd /testbed
         agent_rc=0
-        timeout ${PER_INSTANCE_TIMEOUT} node /lattice-code/node_modules/tsx/dist/cli.mjs \
+        timeout ${HARD_KILL_TIMEOUT} node /lattice-code/node_modules/tsx/dist/cli.mjs \
           /lattice-code/packages/harness/eval/swe-bench/docker-agent.ts \
           --workspace /testbed \
           --instance /work/instance.json \
@@ -203,6 +214,16 @@ for i in $(seq 0 $((TOTAL - 1))); do
           > /work/agent.log 2>&1 || agent_rc=\$?
         echo \"agent exit=\$agent_rc\" >> /work/agent.log
         echo \"\$agent_rc\" > /work/agent.exit
+
+        # Salvage: if the agent was killed before writing its patch (hard
+        # timeout, OOM, crash), edits already in the worktree are real work —
+        # extract the filtered diff so they still get evaluated.
+        if [ ! -s /work/agent.patch ]; then
+          node /lattice-code/node_modules/tsx/dist/cli.mjs \
+            /lattice-code/packages/harness/eval/swe-bench/extract-patch.ts \
+            --workspace /testbed --out /work/agent.patch \
+            >> /work/agent.log 2>&1 || true
+        fi
       " 2>&1 | tail -3 || STATUS="FAIL_RUN"
   fi
 
@@ -234,6 +255,12 @@ for i in $(seq 0 $((TOTAL - 1))); do
     echo "  API key, then rerun the same command to resume (already-done instances skip)."
     API_ABORT=1
     break
+  fi
+
+  # timeout(1) exits 124 — the hard kill fired. The prediction still carries
+  # whatever the salvage step recovered; surface the truncation in summary.tsv.
+  if [ "$AGENT_RC" = "124" ]; then
+    STATUS="TIMEOUT"
   fi
 
   jq -nc --arg id "$INST_ID" --arg model "$MODEL_NAME" --rawfile p "$WORK/agent.patch" \

@@ -208,8 +208,14 @@ KEEP_IMAGES=20 PER_INSTANCE_TIMEOUT=900 MODEL_NAME=lattice-code-docker-v2 \
 | 变量 | 默认 | 作用 |
 |------|------|------|
 | `KEEP_IMAGES` | 15 | LRU 保留最近 N 个 `swebench/sweb.eval.*` image（每个 ~4GB） |
-| `PER_INSTANCE_TIMEOUT` | 600s | 单题超时（含 LLM 思考 + 工具调用） |
+| `PER_INSTANCE_TIMEOUT` | 1800s | 单题 agent **软预算**：到点 agent 自行中止并提取 patch |
+| `HARD_KILL_GRACE` | 120s | 软预算之上的硬 kill 缓冲；被硬 kill 时容器内仍会兜底 `git diff` 抢救 patch（`extract-patch.ts`） |
+| `LATTICE_CODE_MAX_TURNS` | 120 | 单题工具调用预算 |
 | `MODEL_NAME` | `lattice-code-docker` | 写入 predictions.jsonl 的 `model_name_or_path` |
+
+> ⚠️ 历史 bug（已修）：外层 `timeout` 与 agent 内部软超时都是 600s 时，外层 SIGTERM 必然先触发，
+> patch 提取永远执行不到 —— lite-77 重跑中 6 题因此写入空 patch（轨迹里实际已有正确方向的编辑）。
+> 现在软超时先于硬 kill 触发，且硬 kill 后仍有 salvage 兜底；`summary.tsv` 中此类题标记为 `TIMEOUT`。
 
 > `docker-batch.sh` 跑完会自动在 `~/swe-batch/<run-id>/` 写 `cost-report.tsv` + `cost-report.md`（per-instance 成本、turns、耗时、agent.log 路径）。此时还没评测结果，所以 `eval_status` 列为空；评测完成后再跑一次 1.4 即可补齐。
 
