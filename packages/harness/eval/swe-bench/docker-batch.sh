@@ -154,6 +154,10 @@ for i in $(seq 0 $((TOTAL - 1))); do
 
   START=$(date +%s)
   STATUS="OK"
+  SPHINX_PIP=0
+  if ecs_is_sphinx_instance "$INST_ID"; then
+    SPHINX_PIP=1
+  fi
 
   if ! docker image inspect "$IMG" >/dev/null 2>&1; then
     echo "→ pulling..."
@@ -188,7 +192,7 @@ for i in $(seq 0 $((TOTAL - 1))); do
         conda activate testbed
 
         # Pre-pin sphinx dependencies (see ecs-common.sh / lattice_code_run_evaluation.py).
-        if ecs_is_sphinx_instance \"$INST_ID\"; then
+        if [ \"${SPHINX_PIP}\" = \"1\" ]; then
           pip install -q --no-warn-script-location \\
             'markupsafe<=2.0.1' \\
             'Jinja2<3.1' \\
