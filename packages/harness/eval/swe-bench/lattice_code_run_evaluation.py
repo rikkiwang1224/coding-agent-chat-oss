@@ -6,6 +6,11 @@ ECS fixes (runtime monkey-patch, no site-packages edits):
   1. Sphinx eval: inject pip pins after ``pip install -e .[test]`` in /eval.sh
   2. Pytest 8 progress output: extend parse_log_pytest_v2 so passing tests are not
      marked failed when pytest omits ``PASSED`` lines (common sphinx false-negative).
+  3. Requests eval: point HTTPBIN_URL at a local httpbin and stub www.google.co.uk
+     so network-dependent tests don't fail on httpbin.org 503s / blocked egress.
+     Requires on the docker host:
+       gunicorn -b 0.0.0.0:8888 httpbin:app        # local httpbin
+       python3 -m http.server 80 --bind 0.0.0.0    # google.co.uk stub (root)
 """
 from __future__ import annotations
 
@@ -36,10 +41,41 @@ if needle not in text:
 path.write_text(text.replace(needle, needle + "\\n" + pin, 1))
 """.strip()
 
+import base64 as _b64
+
 SPHINX_INJECT_SHELL = (
     "for py in python3 /opt/miniconda3/envs/testbed/bin/python; do "
     f"if command -v \"$py\" >/dev/null 2>&1; then "
-    f"echo {_INJECT_PY.encode().hex()} | xxd -r -p | \"$py\" - && break; fi; "
+    f"echo {_b64.b64encode(_INJECT_PY.encode()).decode()} | base64 -d | \"$py\" - && break; fi; "
+    "done"
+)
+
+_REQUESTS_INJECT_PY = """
+from pathlib import Path
+path = Path("/eval.sh")
+if not path.is_file():
+    raise SystemExit(0)
+text = path.read_text()
+if "LATTICE_CODE_HTTPBIN" in text:
+    raise SystemExit(0)
+hosts = Path("/etc/hosts")
+if "www.google.co.uk" not in hosts.read_text():
+    with hosts.open("a") as f:
+        f.write("172.17.0.1 www.google.co.uk\\n")
+lines = text.split("\\n")
+inject = [
+    "# LATTICE_CODE_HTTPBIN: local httpbin + google stub on the docker host",
+    "export HTTPBIN_URL=http://172.17.0.1:8888/",
+]
+insert_at = 1 if lines and lines[0].startswith("#!") else 0
+lines[insert_at:insert_at] = inject
+path.write_text("\\n".join(lines))
+""".strip()
+
+REQUESTS_INJECT_SHELL = (
+    "for py in python3 /opt/miniconda3/envs/testbed/bin/python /opt/miniconda3/bin/python; do "
+    f"if command -v \"$py\" >/dev/null 2>&1; then "
+    f"echo {_b64.b64encode(_REQUESTS_INJECT_PY.encode()).decode()} | base64 -d | \"$py\" - && break; fi; "
     "done"
 )
 
@@ -77,17 +113,19 @@ def _patch_log_parser() -> None:
     log_parsers.MAP_REPO_TO_PARSER["sphinx-doc/sphinx"] = parse_log_pytest_v2
 
 
-def _inject_sphinx_eval_sh(container, cmd: str) -> None:
+def _inject_eval_sh_fixes(container, cmd: str) -> None:
     if "/eval.sh" not in str(cmd):
         return
     cid = container.id or ""
     if cid in _inject_done:
         return
     name = container.name or ""
-    if "sphinx-doc__sphinx-" not in name and "sphinx-doc_1776_sphinx-" not in name:
-        return
-    container.exec_run(["/bin/bash", "-lc", SPHINX_INJECT_SHELL])
-    _inject_done.add(cid)
+    if "sphinx-doc__sphinx-" in name or "sphinx-doc_1776_sphinx-" in name:
+        container.exec_run(["/bin/bash", "-lc", SPHINX_INJECT_SHELL])
+        _inject_done.add(cid)
+    elif "psf__requests-" in name or "psf_1776_requests-" in name:
+        container.exec_run(["/bin/bash", "-lc", REQUESTS_INJECT_SHELL])
+        _inject_done.add(cid)
 
 
 def _patch_exec_run_with_timeout() -> None:
@@ -96,7 +134,7 @@ def _patch_exec_run_with_timeout() -> None:
     orig = ev.exec_run_with_timeout
 
     def wrapped(container, cmd, timeout):
-        _inject_sphinx_eval_sh(container, cmd)
+        _inject_eval_sh_fixes(container, cmd)
         return orig(container, cmd, timeout)
 
     ev.exec_run_with_timeout = wrapped
