@@ -6,14 +6,17 @@ ECS fixes (runtime monkey-patch, no site-packages edits):
   1. Sphinx eval: inject pip pins after ``pip install -e .[test]`` in /eval.sh
   2. Pytest 8 progress output: extend parse_log_pytest_v2 so passing tests are not
      marked failed when pytest omits ``PASSED`` lines (common sphinx false-negative).
-  3. Requests eval: point HTTPBIN_URL at a local httpbin and stub www.google.co.uk
-     so network-dependent tests don't fail on httpbin.org 503s / blocked egress.
-     Requires on the docker host:
-       gunicorn -b 0.0.0.0:8888 httpbin:app        # local httpbin
-       python3 -m http.server 80 --bind 0.0.0.0    # google.co.uk stub (root)
+
+NOTE: an earlier attempt also injected a local httpbin / google.co.uk stub for
+the ``psf__requests`` instances. It was reverted: even with a local httpbin the
+gold patches don't pass, because requests 2.x ships an old urllib3 that crashes
+on certain responses (``getresponse(buffering=True)``) independent of the
+server. Those instances are genuine eval-environment false negatives we can't
+fix from here, so we no longer touch them.
 """
 from __future__ import annotations
 
+import base64
 import re
 
 from swebench.harness.constants import TestStatus
@@ -39,43 +42,15 @@ text = path.read_text()
 if needle not in text:
     raise SystemExit(0)
 path.write_text(text.replace(needle, needle + "\\n" + pin, 1))
+print("LATTICE_INJECT_OK")
 """.strip()
 
-import base64 as _b64
-
+# base64 (not xxd): some eval images don't ship xxd, which used to make the
+# injection fail silently.
 SPHINX_INJECT_SHELL = (
-    "for py in python3 /opt/miniconda3/envs/testbed/bin/python; do "
-    f"if command -v \"$py\" >/dev/null 2>&1; then "
-    f"echo {_b64.b64encode(_INJECT_PY.encode()).decode()} | base64 -d | \"$py\" - && break; fi; "
-    "done"
-)
-
-_REQUESTS_INJECT_PY = """
-from pathlib import Path
-path = Path("/eval.sh")
-if not path.is_file():
-    raise SystemExit(0)
-text = path.read_text()
-if "LATTICE_CODE_HTTPBIN" in text:
-    raise SystemExit(0)
-hosts = Path("/etc/hosts")
-if "www.google.co.uk" not in hosts.read_text():
-    with hosts.open("a") as f:
-        f.write("172.17.0.1 www.google.co.uk\\n")
-lines = text.split("\\n")
-inject = [
-    "# LATTICE_CODE_HTTPBIN: local httpbin + google stub on the docker host",
-    "export HTTPBIN_URL=http://172.17.0.1:8888/",
-]
-insert_at = 1 if lines and lines[0].startswith("#!") else 0
-lines[insert_at:insert_at] = inject
-path.write_text("\\n".join(lines))
-""".strip()
-
-REQUESTS_INJECT_SHELL = (
     "for py in python3 /opt/miniconda3/envs/testbed/bin/python /opt/miniconda3/bin/python; do "
     f"if command -v \"$py\" >/dev/null 2>&1; then "
-    f"echo {_b64.b64encode(_REQUESTS_INJECT_PY.encode()).decode()} | base64 -d | \"$py\" - && break; fi; "
+    f"echo {base64.b64encode(_INJECT_PY.encode()).decode()} | base64 -d | \"$py\" - && break; fi; "
     "done"
 )
 
@@ -113,19 +88,40 @@ def _patch_log_parser() -> None:
     log_parsers.MAP_REPO_TO_PARSER["sphinx-doc/sphinx"] = parse_log_pytest_v2
 
 
-def _inject_eval_sh_fixes(container, cmd: str) -> None:
+def _inject_sphinx_eval_sh(container, cmd: str) -> None:
     if "/eval.sh" not in str(cmd):
         return
-    cid = container.id or ""
-    if cid in _inject_done:
-        return
     name = container.name or ""
-    if "sphinx-doc__sphinx-" in name or "sphinx-doc_1776_sphinx-" in name:
-        container.exec_run(["/bin/bash", "-lc", SPHINX_INJECT_SHELL])
-        _inject_done.add(cid)
-    elif "psf__requests-" in name or "psf_1776_requests-" in name:
-        container.exec_run(["/bin/bash", "-lc", REQUESTS_INJECT_SHELL])
-        _inject_done.add(cid)
+    if "sphinx-doc__sphinx-" not in name and "sphinx-doc_1776_sphinx-" not in name:
+        return
+    # Key on name, not id: docker-py can return a falsy id here, which would
+    # dedupe every container after the first and silently skip the fix.
+    key = name or container.id or ""
+    if key and key in _inject_done:
+        return
+
+    import sys
+    import time
+
+    for attempt in range(3):
+        try:
+            rc, out = container.exec_run(["/bin/bash", "-lc", SPHINX_INJECT_SHELL])
+            if rc == 0:
+                if key:
+                    _inject_done.add(key)
+                return
+            print(
+                f"[lattice-eval] sphinx inject attempt {attempt + 1} on {key or '?'}: "
+                f"rc={rc} out={(out or b'')[:200]!r}",
+                file=sys.stderr,
+            )
+        except Exception as exc:  # noqa: BLE001 - docker transport errors
+            print(
+                f"[lattice-eval] sphinx inject attempt {attempt + 1} on {key or '?'}: {exc}",
+                file=sys.stderr,
+            )
+        time.sleep(1)
+    print(f"[lattice-eval] WARNING: sphinx eval.sh injection failed on {key or '?'}", file=sys.stderr)
 
 
 def _patch_exec_run_with_timeout() -> None:
@@ -134,7 +130,7 @@ def _patch_exec_run_with_timeout() -> None:
     orig = ev.exec_run_with_timeout
 
     def wrapped(container, cmd, timeout):
-        _inject_eval_sh_fixes(container, cmd)
+        _inject_sphinx_eval_sh(container, cmd)
         return orig(container, cmd, timeout)
 
     ev.exec_run_with_timeout = wrapped
