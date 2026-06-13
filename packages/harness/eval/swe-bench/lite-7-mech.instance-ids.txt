@@ -1,0 +1,12 @@
+# lite-300 mechanical failures — agent rerun needed (see lite-7-mech.sh).
+#
+# 6 × killed by the pre-fix outer timeout at 600s (empty patch despite real
+# edits in the worktree; traces all stop at 9.4–10.0 min with no agent.done):
+django__django-15738
+sympy__sympy-11897
+sympy__sympy-13895
+sympy__sympy-16503
+sympy__sympy-17630
+sympy__sympy-23191
+# 1 × FAIL_PULL in lite-77-bucket-b (agent image pull failed, never ran):
+pallets__flask-5063

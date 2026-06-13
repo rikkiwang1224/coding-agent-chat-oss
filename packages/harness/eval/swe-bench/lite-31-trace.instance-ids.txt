@@ -1,0 +1,33 @@
+# 31/62 unresolved sample (seed 20260612) — proportional by repo:
+# sympy 10, sphinx 6, django 4, matplotlib 3, sklearn 2, pytest 2, astropy 2, psf 1, pydata 1
+astropy__astropy-14182
+astropy__astropy-14365
+django__django-13321
+django__django-14155
+django__django-14534
+django__django-15252
+matplotlib__matplotlib-22711
+matplotlib__matplotlib-23299
+matplotlib__matplotlib-23563
+psf__requests-2674
+pydata__xarray-4248
+pytest-dev__pytest-5221
+pytest-dev__pytest-7220
+scikit-learn__scikit-learn-10508
+scikit-learn__scikit-learn-25747
+sphinx-doc__sphinx-7686
+sphinx-doc__sphinx-7738
+sphinx-doc__sphinx-8282
+sphinx-doc__sphinx-8506
+sphinx-doc__sphinx-8627
+sphinx-doc__sphinx-8801
+sympy__sympy-11870
+sympy__sympy-13146
+sympy__sympy-13773
+sympy__sympy-14308
+sympy__sympy-16106
+sympy__sympy-17630
+sympy__sympy-18199
+sympy__sympy-18698
+sympy__sympy-20322
+sympy__sympy-24909

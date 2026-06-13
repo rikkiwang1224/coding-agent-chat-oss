@@ -1,0 +1,8 @@
+# Lite-300 "budget wall" instances: agent hit the old 75-turn cap mid-progress
+# (trace shows max turns reached, no agent.done). Rerun with 1800s / 120 turns.
+django__django-15252
+django__django-16820
+sphinx-doc__sphinx-7686
+sympy__sympy-18698
+sympy__sympy-14317
+pytest-dev__pytest-7220

@@ -6,9 +6,17 @@ ECS fixes (runtime monkey-patch, no site-packages edits):
   1. Sphinx eval: inject pip pins after ``pip install -e .[test]`` in /eval.sh
   2. Pytest 8 progress output: extend parse_log_pytest_v2 so passing tests are not
      marked failed when pytest omits ``PASSED`` lines (common sphinx false-negative).
+
+NOTE: an earlier attempt also injected a local httpbin / google.co.uk stub for
+the ``psf__requests`` instances. It was reverted: even with a local httpbin the
+gold patches don't pass, because requests 2.x ships an old urllib3 that crashes
+on certain responses (``getresponse(buffering=True)``) independent of the
+server. Those instances are genuine eval-environment false negatives we can't
+fix from here, so we no longer touch them.
 """
 from __future__ import annotations
 
+import base64
 import re
 
 from swebench.harness.constants import TestStatus
@@ -34,12 +42,15 @@ text = path.read_text()
 if needle not in text:
     raise SystemExit(0)
 path.write_text(text.replace(needle, needle + "\\n" + pin, 1))
+print("LATTICE_INJECT_OK")
 """.strip()
 
+# base64 (not xxd): some eval images don't ship xxd, which used to make the
+# injection fail silently.
 SPHINX_INJECT_SHELL = (
-    "for py in python3 /opt/miniconda3/envs/testbed/bin/python; do "
+    "for py in python3 /opt/miniconda3/envs/testbed/bin/python /opt/miniconda3/bin/python; do "
     f"if command -v \"$py\" >/dev/null 2>&1; then "
-    f"echo {_INJECT_PY.encode().hex()} | xxd -r -p | \"$py\" - && break; fi; "
+    f"echo {base64.b64encode(_INJECT_PY.encode()).decode()} | base64 -d | \"$py\" - && break; fi; "
     "done"
 )
 
@@ -80,14 +91,37 @@ def _patch_log_parser() -> None:
 def _inject_sphinx_eval_sh(container, cmd: str) -> None:
     if "/eval.sh" not in str(cmd):
         return
-    cid = container.id or ""
-    if cid in _inject_done:
-        return
     name = container.name or ""
     if "sphinx-doc__sphinx-" not in name and "sphinx-doc_1776_sphinx-" not in name:
         return
-    container.exec_run(["/bin/bash", "-lc", SPHINX_INJECT_SHELL])
-    _inject_done.add(cid)
+    # Key on name, not id: docker-py can return a falsy id here, which would
+    # dedupe every container after the first and silently skip the fix.
+    key = name or container.id or ""
+    if key and key in _inject_done:
+        return
+
+    import sys
+    import time
+
+    for attempt in range(3):
+        try:
+            rc, out = container.exec_run(["/bin/bash", "-lc", SPHINX_INJECT_SHELL])
+            if rc == 0:
+                if key:
+                    _inject_done.add(key)
+                return
+            print(
+                f"[lattice-eval] sphinx inject attempt {attempt + 1} on {key or '?'}: "
+                f"rc={rc} out={(out or b'')[:200]!r}",
+                file=sys.stderr,
+            )
+        except Exception as exc:  # noqa: BLE001 - docker transport errors
+            print(
+                f"[lattice-eval] sphinx inject attempt {attempt + 1} on {key or '?'}: {exc}",
+                file=sys.stderr,
+            )
+        time.sleep(1)
+    print(f"[lattice-eval] WARNING: sphinx eval.sh injection failed on {key or '?'}", file=sys.stderr)
 
 
 def _patch_exec_run_with_timeout() -> None:

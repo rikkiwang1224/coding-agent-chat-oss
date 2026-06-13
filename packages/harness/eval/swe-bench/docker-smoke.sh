@@ -80,6 +80,7 @@ docker run --rm \
   -e SWE_INSTANCE_ID="$INSTANCE_ID" \
   -e LATTICE_CODE_TRACE_RUN_ID="$TRACE_RUN_ID" \
   -e LATTICE_CODE_HOME=/root/.lattice-code \
+  -e LATTICE_CODE_TIMEOUT_S=600 \
   "${CODE_GRAPH_ENV[@]}" \
   "$IMG" \
   bash -lc "
@@ -91,7 +92,7 @@ docker run --rm \
     echo '[env] pytest: '\$(pytest --version 2>&1 | head -1)
     cd /testbed
     echo '=== container ready, agent starting ==='
-    timeout 600 node /lattice-code/node_modules/tsx/dist/cli.mjs \
+    timeout 720 node /lattice-code/node_modules/tsx/dist/cli.mjs \
       /lattice-code/packages/harness/eval/swe-bench/docker-agent.ts \
       --workspace /testbed \
       --instance /work/instance.json \

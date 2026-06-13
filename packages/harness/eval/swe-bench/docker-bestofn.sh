@@ -13,7 +13,9 @@
 #   LATTICE_CODE_TEMPERATURE — sampling temperature for diversity (default 0.7)
 #   RUN_REGRESSION       — 1 → measure each candidate's related-tests status and
 #                          let selection prefer green patches (default 0)
-#   PER_SAMPLE_TIMEOUT   — per-sample agent wall clock seconds (default 600)
+#   PER_SAMPLE_TIMEOUT   — per-sample agent soft budget seconds (default 600).
+#                          The agent aborts itself at this mark and still
+#                          extracts its patch; the hard kill fires at +120s.
 #   SELECT_TIMEOUT_MS    — per-candidate regression timeout ms (default 300000)
 #   KEEP_IMAGES          — LRU keep N swebench/sweb.eval.* images (default 15)
 #   MODEL_NAME           — predictions model_name_or_path (default lc-bestofn)
@@ -44,6 +46,11 @@ BEST_OF_N="${BEST_OF_N:-5}"
 LATTICE_CODE_TEMPERATURE="${LATTICE_CODE_TEMPERATURE:-0.7}"
 RUN_REGRESSION="${RUN_REGRESSION:-0}"
 PER_SAMPLE_TIMEOUT="${PER_SAMPLE_TIMEOUT:-600}"
+# Hard-kill deadline per sample. Must exceed the agent's internal soft timeout
+# (LATTICE_CODE_TIMEOUT_S = PER_SAMPLE_TIMEOUT) so the graceful abort + patch
+# extraction wins the race; identical values let SIGTERM discard finished edits.
+HARD_KILL_GRACE="${HARD_KILL_GRACE:-120}"
+HARD_KILL_TIMEOUT=$((PER_SAMPLE_TIMEOUT + HARD_KILL_GRACE))
 SELECT_TIMEOUT_MS="${SELECT_TIMEOUT_MS:-300000}"
 KEEP_IMAGES="${KEEP_IMAGES:-15}"
 MODEL_NAME="${MODEL_NAME:-lc-bestofn}"
@@ -112,6 +119,8 @@ for i in $(seq 0 $((TOTAL - 1))); do
       -e RUN_REGRESSION="$RUN_REGRESSION" \
       -e SELECT_TIMEOUT_MS="$SELECT_TIMEOUT_MS" \
       -e PER_SAMPLE_TIMEOUT="$PER_SAMPLE_TIMEOUT" \
+      -e HARD_KILL_TIMEOUT="$HARD_KILL_TIMEOUT" \
+      -e LATTICE_CODE_TIMEOUT_S="$PER_SAMPLE_TIMEOUT" \
       -e REPO="$REPO" \
       "$IMG" \
       bash -lc '
@@ -127,13 +136,21 @@ for i in $(seq 0 $((TOTAL - 1))); do
         for k in $(seq 1 "$BEST_OF_N"); do
           echo "=== sample $k/$BEST_OF_N (temp=$LATTICE_CODE_TEMPERATURE) ==="
           git reset --hard "$BASE" -q && git clean -fdq
-          timeout "$PER_SAMPLE_TIMEOUT" node "$TSX" "$AGENT" \
+          timeout "$HARD_KILL_TIMEOUT" node "$TSX" "$AGENT" \
             --workspace /testbed \
             --instance /work/instance.json \
             --patch-out "/work/candidate_${k}.patch" \
             --no-trace \
             > "/work/cand_${k}.log" 2>&1 \
             || echo "sample $k agent exit=$?" >> "/work/cand_${k}.log"
+          # Salvage: a hard-killed sample leaves its edits in the worktree but
+          # no candidate patch — recover the filtered diff before the next
+          # iteration resets the tree.
+          if [ ! -s "/work/candidate_${k}.patch" ]; then
+            node "$TSX" /lattice-code/packages/harness/eval/swe-bench/extract-patch.ts \
+              --workspace /testbed --out "/work/candidate_${k}.patch" \
+              >> "/work/cand_${k}.log" 2>&1 || touch "/work/candidate_${k}.patch"
+          fi
           echo "sample $k patch_lines=$(wc -l < /work/candidate_${k}.patch)"
         done
 
